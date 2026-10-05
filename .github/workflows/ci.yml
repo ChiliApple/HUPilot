@@ -1,0 +1,21 @@
+# Automatische Pruefungen fuer HUPilot (Windows PowerShell 5.1) bei jedem Push/Pull-Request
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Pruefungen (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pruefungen
+        shell: powershell
+        run: .\.github\tests\Invoke-CITests.ps1

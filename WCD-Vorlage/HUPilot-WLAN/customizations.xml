@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<WindowsCustomizations>
+  <PackageConfig xmlns="urn:schemas-Microsoft-com:Windows-ICD-Package-Config.v1.0">
+    <ID>{8c4e2d17-6a3b-4f90-b5d2-1e7a9c3f0b64}</ID>
+    <Name>HUPilot-WLAN</Name>
+    <Version>1.0</Version>
+    <OwnerType>OEM</OwnerType>
+    <Rank>0</Rank>
+    <Notes>HUPilot: NUR WLAN. Wird von go.ps1 vor dem Zuruecksetzen angewendet und bleibt dabei erhalten (doWipePersistProvisionedData). KEIN Zuruecksetzen-Befehl im Paket (Schleife!), KEIN Script, KEIN BPRT, KEIN HideOobe, KEIN Geraetename, KEINE lokalen Konten.</Notes>
+  </PackageConfig>
+  <Settings xmlns="urn:schemas-microsoft-com:windows-provisioning">
+    <Customizations>
+      <Common>
+        <ConnectivityProfiles>
+          <WLAN>
+            <WLANSetting>
+              <WLANConfig SSID="WLAN-NAME">
+                <WLANXmlSettings>
+                  <SecurityKey>WLAN-KENNWORT</SecurityKey>
+                  <SecurityType>WPA2-Personal</SecurityType>
+                </WLANXmlSettings>
+              </WLANConfig>
+            </WLANSetting>
+          </WLAN>
+        </ConnectivityProfiles>
+      </Common>
+    </Customizations>
+  </Settings>
+</WindowsCustomizations>

@@ -1,0 +1,18 @@
+{
+  "Tenant": "Meine Schule",
+  "TenantId": "<Tenant-ID>",
+  "ClientId": "<App-ID der App-Registrierung>",
+  "ClientSecret": "<Geheimer Clientschluessel (Wert)>",
+  "GroupTag": "SN-2026",
+  "TagChoices": [
+    "SN-2022",
+    "SN-2023",
+    "SN-2024",
+    "SN-2025",
+    "SN-2026"
+  ],
+  "TagPattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+  "WlanSsid": "<WLAN-Name>",
+  "WlanKey": "<WLAN-Kennwort>",
+  "WlanPackage": "HUPilot-WLAN.ppkg"
+}

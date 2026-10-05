@@ -1,0 +1,8 @@
+# Lokale Daten - nie ins Repo
+config.json
+Stick/HUPilot/config.json
+logs/
+*.ppkg
+*.cat
+WCD-Projekt/
+*.log
