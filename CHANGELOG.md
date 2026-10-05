@@ -1,6 +1,9 @@
 # Changelog
 
 ## v2.1 - 2026-10-05
+### Getestet (05.10.2026, Lenovo 82TS, Windows 11 Pro Education 22H2)
+- Upload + Tag, grün „STICK ABZIEHEN“, WLAN-Paket, Zurücksetzen per `doWipePersistProvisionedData` als SYSTEM: **ok** – ein Neustart, WLAN im Einrichtungsbildschirm von selbst, Autopilot-Profil geladen, Intune-Registrierung ok
+- Offen: ob die Hersteller-Programme auf einem **unberührten** Gerät wirklich wegbleiben (Testgerät war durch frühere CleanPC-Tests schon bereinigt)
 ### Neu
 - Beim Start: *Nach dem Upload zurücksetzen?* – Enter = Standard aus `config.json` (`Reset`, Standard ja), `N` = nur hochladen, `J` = zurücksetzen. Nur Upload: grün „HOCHGELADEN“, Gerät bleibt unverändert, Eintrag im Protokoll
 - `HUPilot-Setup`: Secret verdeckt (anzeigen per Haken), zusätzliche Felder der `config.json` bleiben beim Schreiben erhalten

@@ -30,6 +30,8 @@ Gedacht für ganze Klassensätze: 20–30 Notebooks in einer Schulstunde, ohne C
 | **Ohne Hersteller-Programme** | vor dem Zurücksetzen werden die Hersteller-Anpassungen (`C:\Recovery\Customizations`) weggeschoben, dann *Alles entfernen* über den RemoteWipe-Befehl `doWipePersistProvisionedData` – das WLAN-Paket bleibt dabei erhalten |
 | **Sicher** | jeder Fehler vor dem Zurücksetzen → **rot**, Gerät bleibt unverändert im OOBE; Logs am Gerät und am Stick, `protokoll.csv` je Stick |
 
+> **Status:** Ablauf getestet (Upload, Zurücksetzen, Autopilot, Intune). Noch offen: Nachweis an einem unberührten Gerät, dass die Hersteller-Programme wegbleiben.
+
 ## Schnellstart
 
 1. **App-Registrierung** im Tenant mit `DeviceManagementServiceConfig.ReadWrite.All` (Anwendung) und kurz gültigem Secret – [INSTALL.md](INSTALL.md#1-app-registrierung)
