@@ -22,6 +22,7 @@ Von Hand:
 | `TagChoices` | Auswahl beim Start, max. 9 Einträge |
 | `TagPattern` | erlaubte Tags (Regex), optional |
 | `WlanSsid`, `WlanKey` | Konfigurations-WLAN (WPA2-Personal) – zum Hochladen |
+| `Reset` | Standard für die Frage *Nach dem Upload zurücksetzen?* (`true`/`false`, 10 s, dann Standard) |
 | `WlanPackage` | Name des WLAN-Pakets im Ordner `HUPilot\` (Standard `HUPilot-WLAN.ppkg`, leer = ohne) |
 
 3. **Keine** `.ppkg`-Datei ins Hauptverzeichnis des Sticks legen – Windows kann ein Paket dort im OOBE von selbst anwenden.

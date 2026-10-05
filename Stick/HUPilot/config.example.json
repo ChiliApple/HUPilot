@@ -14,5 +14,6 @@
   "TagPattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
   "WlanSsid": "<WLAN-Name>",
   "WlanKey": "<WLAN-Kennwort>",
-  "WlanPackage": "HUPilot-WLAN.ppkg"
+  "WlanPackage": "HUPilot-WLAN.ppkg",
+  "Reset": true
 }

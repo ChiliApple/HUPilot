@@ -41,7 +41,7 @@ Gedacht für ganze Klassensätze: 20–30 Notebooks in einer Schulstunde, ohne C
 
 | Farbe | Bedeutung |
 |---|---|
-| **Cyan** | Group Tag wählen (Enter / Ziffer, nach 10 s Standard) |
+| **Cyan** | Group Tag wählen (Enter / Ziffer) und *zurücksetzen ja/nein* (Enter / N) – je 10 s, dann Standard |
 | **Grün** | Upload fertig – **Stick abziehen**, Gerät wartet auf das Profil und setzt sich dann selbst zurück |
 | **Gelb** | Profil nach 20 Min noch nicht zugewiesen – `J` trotzdem zurücksetzen, `N` abbrechen |
 | **Blau** | Zurücksetzen startet |

@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.1 - 2026-10-05
+### Neu
+- Beim Start: *Nach dem Upload zurücksetzen?* – Enter = Standard aus `config.json` (`Reset`, Standard ja), `N` = nur hochladen, `J` = zurücksetzen. Nur Upload: grün „HOCHGELADEN“, Gerät bleibt unverändert, Eintrag im Protokoll
+- `HUPilot-Setup`: Secret verdeckt (anzeigen per Haken), zusätzliche Felder der `config.json` bleiben beim Schreiben erhalten
+
 ## v2.0 - 2026-10-05
 ### Erste öffentliche Version
 - `go.ps1`: Autopilot-Import mit Group Tag aus dem OOBE (Graph API), WLAN-Verbindung, Tag-Auswahl beim Start, grün „STICK ABZIEHEN“, Warten auf Profilzuweisung

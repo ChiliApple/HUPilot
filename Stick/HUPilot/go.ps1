@@ -1,5 +1,5 @@
 ﻿# =====================================================================
-# HUPilot  go.ps1  v2.0
+# HUPilot  go.ps1  v2.1
 # https://github.com/ChiliApple/HUPilot
 # ZIELMASCHINE: neues Windows-Geraet im OOBE (Shift+F10 -> D:\go)
 # Ablauf:
@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.0'
+$Ver        = '2.1'
 $Start      = Get-Date
 $CfgDir     = $PSScriptRoot
 $LocalLog   = 'C:\Windows\Temp\HUPilot.log'
@@ -120,6 +120,22 @@ try {
     $StickLog = Join-Path $CfgDir ('logs\{0}_{1}.log' -f $Serial, (Get-Date -Format 'yyyyMMdd_HHmm'))
 } catch { $StickLog = $null }
 
+function Read-KeyTimeout {
+    param([int]$Seconds = 10)
+    $until = (Get-Date).AddSeconds($Seconds)
+    try {
+        while ((Get-Date) -lt $until) {
+            if ([Console]::KeyAvailable) {
+                $key = [Console]::ReadKey($true)
+                if ($key.Key -eq 'Enter') { return 'ENTER' }
+                return ([string]$key.KeyChar).ToUpper()
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    } catch { Log ('Tastatur-Abfrage: ' + $_.Exception.Message) }
+    return ''
+}
+
 # ---------- Tag-Auswahl (10 s, sonst Standard) ----------
 $choices = @()
 if ($cfg.TagChoices) { $choices = @($cfg.TagChoices) }
@@ -129,25 +145,26 @@ Write-Host '  Group Tag waehlen:' -ForegroundColor Cyan
 Write-Host ('    [Enter]  ' + $cfg.GroupTag + '   (Standard)') -ForegroundColor White
 for ($i = 0; $i -lt $choices.Count; $i++) { Write-Host ('    [' + ($i + 1) + ']      ' + $choices[$i]) }
 Write-Host '  Ohne Eingabe nach 10 s automatisch Standard ...'
-$sel = ''
-$until = (Get-Date).AddSeconds(10)
-try {
-    while ((Get-Date) -lt $until) {
-        if ([Console]::KeyAvailable) {
-            $key = [Console]::ReadKey($true)
-            if ($key.Key -ne 'Enter') { $sel = [string]$key.KeyChar }
-            break
-        }
-        Start-Sleep -Milliseconds 200
-    }
-} catch { Log ('Tastatur-Abfrage: ' + $_.Exception.Message) }
+$sel = Read-KeyTimeout 10
 if ($sel -match '^[1-9]$' -and [int]$sel -le $choices.Count) { $cfg.GroupTag = $choices[[int]$sel - 1] }
 if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungueltig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
+Write-Host ''
+
+# ---------- Zuruecksetzen ja/nein (10 s, sonst Standard aus config.json "Reset") ----------
+$DoReset = $true
+if ($null -ne $cfg.Reset) { $DoReset = [bool]$cfg.Reset }
+Write-Host '  Nach dem Upload zuruecksetzen?' -ForegroundColor Cyan
+if ($DoReset) { Write-Host '    [Enter]  JA, zuruecksetzen   (Standard)' -ForegroundColor White; Write-Host '    [N]      nein, nur hochladen' }
+else          { Write-Host '    [Enter]  NEIN, nur hochladen (Standard)' -ForegroundColor White; Write-Host '    [J]      ja, zuruecksetzen' }
+Write-Host '  Ohne Eingabe nach 10 s automatisch Standard ...'
+$k = Read-KeyTimeout 10
+if ($k -eq 'N') { $DoReset = $false } elseif ($k -eq 'J' -or $k -eq 'Y') { $DoReset = $true }
 Write-Host ''
 
 Say ('Seriennummer : ' + $Serial) 'White'
 Say ('Tenant       : ' + $cfg.Tenant) 'White'
 Say ('Group Tag    : ' + $cfg.GroupTag) 'White'
+Say ('Zuruecksetzen: ' + $(if ($DoReset) { 'JA' } else { 'NEIN - nur Upload' })) 'White'
 
 $os = Get-CimInstance Win32_OperatingSystem
 Say ('Windows      : ' + $os.Caption + ' ' + $os.Version)
@@ -155,7 +172,7 @@ if ($os.Caption -notmatch 'Pro|Education|Enterprise') {
     Fail ('Edition "' + $os.Caption + '" - Zuruecksetzen per RemoteWipe nur mit Pro/Education/Enterprise')
 }
 if ($null -ne $cfg.WlanPackage) { $WlanPkgName = [string]$cfg.WlanPackage }
-if ($WlanPkgName) {
+if ($WlanPkgName -and $DoReset) {
     $StickPkg = Join-Path $CfgDir $WlanPkgName
     if (-not (Test-Path $StickPkg)) { Fail ('WLAN-Paket fehlt am Stick: ' + $StickPkg + '  (ohne WLAN-Paket: "WlanPackage": "" in config.json)') }
 }
@@ -328,9 +345,21 @@ if ($StickPkg) {
     } catch { Fail ('WLAN-Paket kopieren: ' + $_.Exception.Message) }
     Log 'WLAN-Paket lokal kopiert'
 }
-Protokoll 'UPLOAD OK'
+Protokoll $(if ($DoReset) { 'UPLOAD OK' } else { 'UPLOAD OK (ohne Zuruecksetzen)' })
 Log '--- Stick wird ab jetzt nicht mehr gebraucht ---'
 $StickLog = $null
+
+if (-not $DoReset) {
+    Log 'Nur Upload gewaehlt - kein Zuruecksetzen'
+    Banner 'OK  -  HOCHGELADEN  -  STICK ABZIEHEN' 'DarkGreen' @(
+        '',
+        ('Group Tag: ' + $cfg.GroupTag),
+        'Geraet wurde NICHT zurueckgesetzt.',
+        'Fuer Autopilot: Geraet spaeter zuruecksetzen (Einstellungen > System >',
+        'Wiederherstellung) oder per Intune "Zuruecksetzen".')
+    Read-Host '  Enter = Fenster schliessen' | Out-Null
+    exit 0
+}
 
 Banner 'OK  -  STICK ABZIEHEN  -  naechstes Geraet' 'DarkGreen' @(
     '',
