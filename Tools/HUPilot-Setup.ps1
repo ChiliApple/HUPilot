@@ -28,6 +28,7 @@ $srcStick = Join-Path $root 'Stick'
 $icd      = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe'
 $tplXml   = Join-Path $root 'WCD-Vorlage\HUPilot-WLAN\customizations.xml'
 $enc      = New-Object System.Text.UTF8Encoding($false)
+$script:Extra = @{}
 
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -45,7 +46,8 @@ $enc      = New-Object System.Text.UTF8Encoding($false)
         <TextBlock Grid.Row="0" Text="Anzeigename" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tTenant" Margin="2"/>
         <TextBlock Grid.Row="1" Text="Tenant-ID" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tTenantId" Margin="2"/>
         <TextBlock Grid.Row="2" Text="App-ID (Client)" VerticalAlignment="Center"/><TextBox Grid.Row="2" Grid.Column="1" x:Name="tClientId" Margin="2"/>
-        <TextBlock Grid.Row="3" Text="Secret (Wert)" VerticalAlignment="Center"/><TextBox Grid.Row="3" Grid.Column="1" x:Name="tSecret" Margin="2"/>
+        <TextBlock Grid.Row="3" Text="Secret (Wert)" VerticalAlignment="Center"/>
+        <DockPanel Grid.Row="3" Grid.Column="1"><CheckBox x:Name="cShow" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pSecret" Margin="2"/><TextBox x:Name="tSecret" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="1" Header="Group Tag" Padding="6" Margin="0,6,0,0">
@@ -81,7 +83,7 @@ $enc      = New-Object System.Text.UTF8Encoding($false)
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','tLog') { $ui[$n] = $win.FindName($n) }
 
 function Out-Log([string]$m) { $ui.tLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $ui.tLog.ScrollToEnd() }
 function Get-Drive { if ($ui.cDrive.SelectedItem) { return ([string]$ui.cDrive.SelectedItem).Substring(0, 2) } return $null }
@@ -94,11 +96,13 @@ function Update-Drives {
 }
 function Get-Cfg {
     $choices = @($ui.tTagChoices.Text -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    return [ordered]@{
+    $o = [ordered]@{
         Tenant = $ui.tTenant.Text.Trim(); TenantId = $ui.tTenantId.Text.Trim(); ClientId = $ui.tClientId.Text.Trim()
-        ClientSecret = $ui.tSecret.Text.Trim(); GroupTag = $ui.tTag.Text.Trim(); TagChoices = $choices
+        ClientSecret = (Get-Secret); GroupTag = $ui.tTag.Text.Trim(); TagChoices = $choices
         WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = $ui.tKey.Text; WlanPackage = 'HUPilot-WLAN.ppkg'
     }
+    foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
+    return $o
 }
 function Test-Fields([string[]]$Names) {
     $c = Get-Cfg
@@ -110,6 +114,10 @@ function Test-Fields([string[]]$Names) {
     return $true
 }
 
+function Get-Secret { if ($ui.cShow.IsChecked) { return $ui.tSecret.Text.Trim() } return $ui.pSecret.Password.Trim() }
+function Set-Secret([string]$v) { $ui.pSecret.Password = $v; $ui.tSecret.Text = $v }
+$ui.cShow.Add_Checked({ $ui.tSecret.Text = $ui.pSecret.Password; $ui.pSecret.Visibility = 'Collapsed'; $ui.tSecret.Visibility = 'Visible' })
+$ui.cShow.Add_Unchecked({ $ui.pSecret.Password = $ui.tSecret.Text; $ui.tSecret.Visibility = 'Collapsed'; $ui.pSecret.Visibility = 'Visible' })
 $ui.bReload.Add_Click({ Update-Drives })
 
 $ui.bLoad.Add_Click({
@@ -119,8 +127,10 @@ $ui.bLoad.Add_Click({
     try {
         $c = Get-Content $p -Raw | ConvertFrom-Json
         $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
-        $ui.tSecret.Text = [string]$c.ClientSecret; $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
+        Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
+        $script:Extra = @{}
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log ('Geladen: ' + $p)
     } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
 })
