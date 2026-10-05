@@ -8,6 +8,9 @@ Entra Admin Center › App-Registrierungen › **Neue Registrierung**
 4. Anwendungs-(Client-)ID und Verzeichnis-(Mandanten-)ID notieren
 
 ## 2. Stick vorbereiten
+**Am einfachsten:** `Tools\HUPilot-Setup.cmd` starten (fragt nach Adminrechten) – Felder ausfüllen, *Verbindung testen*, *Stick schreiben*, *WLAN-Paket bauen*. Das Paket wird mit `ICD.exe` aus dem **Windows ADK** gebaut; ohne ADK: Schritt 3 von Hand.
+
+Von Hand:
 1. Inhalt von `Stick\` ins Hauptverzeichnis des Sticks kopieren (`go.cmd` und Ordner `HUPilot\`)
 2. `HUPilot\config.example.json` nach `HUPilot\config.json` kopieren und ausfüllen:
 

@@ -1,0 +1,189 @@
+﻿<#
+.SYNOPSIS
+    HUPilot-Setup - Stick vorbereiten: config.json schreiben, Scripts kopieren, WLAN-Paket bauen.
+.DESCRIPTION
+    ZIELMASCHINE: Admin-PC (Windows 10/11) mit Windows ADK (Windows Configuration Designer).
+    - Verbindung testen: Token holen + Autopilot-Liste lesen (prueft App-Berechtigung)
+    - Stick schreiben: go.cmd, HUPilot\go.ps1, HUPilot\config.json
+    - WLAN-Paket bauen: ICD.exe /Build-ProvisioningPackage -> Stick:\HUPilot\HUPilot-WLAN.ppkg
+.NOTES
+    Start: Tools\HUPilot-Setup.cmd (fragt nach Administratorrechten - noetig fuer ICD.exe)
+#>
+$ErrorActionPreference = 'Stop'
+
+# --- Als Administrator neu starten (ICD-Kommandozeile braucht Adminrechte - MS Doku) ---
+$id = [Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"')
+    return
+}
+
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+$root     = Split-Path $PSScriptRoot -Parent
+$srcStick = Join-Path $root 'Stick'
+$icd      = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe'
+$tplXml   = Join-Path $root 'WCD-Vorlage\HUPilot-WLAN\customizations.xml'
+$enc      = New-Object System.Text.UTF8Encoding($false)
+
+[xml]$xaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot-Setup" Width="640" Height="660" WindowStartupLocation="CenterScreen" FontSize="13">
+  <Grid Margin="14">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+    <GroupBox Grid.Row="0" Header="Tenant / App-Registrierung" Padding="6">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Anzeigename" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tTenant" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Tenant-ID" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tTenantId" Margin="2"/>
+        <TextBlock Grid.Row="2" Text="App-ID (Client)" VerticalAlignment="Center"/><TextBox Grid.Row="2" Grid.Column="1" x:Name="tClientId" Margin="2"/>
+        <TextBlock Grid.Row="3" Text="Secret (Wert)" VerticalAlignment="Center"/><TextBox Grid.Row="3" Grid.Column="1" x:Name="tSecret" Margin="2"/>
+      </Grid>
+    </GroupBox>
+    <GroupBox Grid.Row="1" Header="Group Tag" Padding="6" Margin="0,6,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Standard" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tTag" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Auswahl (Komma)" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tTagChoices" Margin="2"/>
+      </Grid>
+    </GroupBox>
+    <GroupBox Grid.Row="2" Header="Konfigurations-WLAN (WPA2-Personal)" Padding="6" Margin="0,6,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="WLAN-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tSsid" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tKey" Margin="2"/>
+      </Grid>
+    </GroupBox>
+    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
+      <TextBlock Text="Stick:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+      <ComboBox x:Name="cDrive" Width="200"/>
+      <Button x:Name="bReload" Content="Aktualisieren" Margin="6,0,0,0" Padding="8,2"/>
+      <Button x:Name="bLoad" Content="Config vom Stick laden" Margin="6,0,0,0" Padding="8,2"/>
+    </StackPanel>
+    <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
+      <Button x:Name="bTest" Content="1. Verbindung testen" Padding="10,4"/>
+      <Button x:Name="bWrite" Content="2. Stick schreiben" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bPkg" Content="3. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
+    </StackPanel>
+    <TextBox Grid.Row="5" x:Name="tLog" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+  </Grid>
+</Window>
+'@
+$win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+$ui = @{}
+foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','tLog') { $ui[$n] = $win.FindName($n) }
+
+function Out-Log([string]$m) { $ui.tLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $ui.tLog.ScrollToEnd() }
+function Get-Drive { if ($ui.cDrive.SelectedItem) { return ([string]$ui.cDrive.SelectedItem).Substring(0, 2) } return $null }
+function Update-Drives {
+    $ui.cDrive.Items.Clear()
+    foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
+        try { if ($d.IsReady -and $d.DriveType -eq 'Removable') { [void]$ui.cDrive.Items.Add(('{0} {1} ({2:N1} GB)' -f $d.Name.TrimEnd('\'), $d.VolumeLabel, ($d.TotalSize / 1GB))) } } catch { }
+    }
+    if ($ui.cDrive.Items.Count) { $ui.cDrive.SelectedIndex = 0 } else { Out-Log 'Kein USB-Stick gefunden.' }
+}
+function Get-Cfg {
+    $choices = @($ui.tTagChoices.Text -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    return [ordered]@{
+        Tenant = $ui.tTenant.Text.Trim(); TenantId = $ui.tTenantId.Text.Trim(); ClientId = $ui.tClientId.Text.Trim()
+        ClientSecret = $ui.tSecret.Text.Trim(); GroupTag = $ui.tTag.Text.Trim(); TagChoices = $choices
+        WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = $ui.tKey.Text; WlanPackage = 'HUPilot-WLAN.ppkg'
+    }
+}
+function Test-Fields([string[]]$Names) {
+    $c = Get-Cfg
+    $miss = @($Names | Where-Object { -not $c[$_] })
+    if ($miss.Count) { Out-Log ('FEHLT: ' + ($miss -join ', ')); return $false }
+    if ($Names -contains 'TenantId' -and $c.TenantId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'Tenant-ID ist keine GUID'; return $false }
+    if ($Names -contains 'ClientId' -and $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'App-ID ist keine GUID'; return $false }
+    if ($Names -contains 'WlanKey' -and $c.WlanKey.Length -lt 8) { Out-Log 'WLAN-Kennwort kuerzer als 8 Zeichen'; return $false }
+    return $true
+}
+
+$ui.bReload.Add_Click({ Update-Drives })
+
+$ui.bLoad.Add_Click({
+    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Stick gewaehlt'; return }
+    $p = Join-Path $dr 'HUPilot\config.json'
+    if (-not (Test-Path $p)) { Out-Log ('Keine config.json: ' + $p); return }
+    try {
+        $c = Get-Content $p -Raw | ConvertFrom-Json
+        $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
+        $ui.tSecret.Text = [string]$c.ClientSecret; $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
+        $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
+        Out-Log ('Geladen: ' + $p)
+    } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
+})
+
+$ui.bTest.Add_Click({
+    if (-not (Test-Fields @('TenantId', 'ClientId', 'ClientSecret'))) { return }
+    $c = Get-Cfg
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $body = @{ grant_type = 'client_credentials'; client_id = $c.ClientId; client_secret = $c.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
+        $tok = (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded').access_token
+        Out-Log 'Token OK'
+        $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=1' -Headers @{ Authorization = 'Bearer ' + $tok }
+        Out-Log ('Autopilot-Zugriff OK (' + @($r.value).Count + ' Eintrag gelesen)')
+    } catch {
+        $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }
+        if ($m -match 'AADSTS7000222') { $m = 'Secret ABGELAUFEN' } elseif ($m -match 'AADSTS7000215') { $m = 'Secret FALSCH (Secret-ID statt Wert?)' }
+        Out-Log ('FEHLER: ' + $m)
+    }
+})
+
+$ui.bWrite.Add_Click({
+    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Stick gewaehlt'; return }
+    if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey'))) { return }
+    try {
+        $dst = Join-Path $dr 'HUPilot'
+        New-Item -ItemType Directory -Path $dst -Force | Out-Null
+        Copy-Item -Path (Join-Path $srcStick 'go.cmd') -Destination (Join-Path $dr 'go.cmd') -Force
+        Copy-Item -Path (Join-Path $srcStick 'HUPilot\go.ps1') -Destination (Join-Path $dst 'go.ps1') -Force
+        $json = (Get-Cfg | ConvertTo-Json -Depth 3)
+        [System.IO.File]::WriteAllText((Join-Path $dst 'config.json'), $json, $enc)
+        Out-Log ('Stick geschrieben: ' + $dr + '\go.cmd, ' + $dst + '\go.ps1, config.json')
+        $rootPkg = @(Get-ChildItem -Path ($dr + '\') -Filter *.ppkg -File -ErrorAction SilentlyContinue)
+        if ($rootPkg.Count) { Out-Log ('ACHTUNG: .ppkg im Hauptverzeichnis entfernen (wird sonst im OOBE angewendet): ' + (($rootPkg | ForEach-Object { $_.Name }) -join ', ')) }
+    } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
+})
+
+$ui.bPkg.Add_Click({
+    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Stick gewaehlt'; return }
+    if (-not (Test-Fields @('WlanSsid', 'WlanKey'))) { return }
+    if (-not (Test-Path $icd)) { Out-Log ('ICD.exe nicht gefunden (Windows ADK > Imaging and Configuration Designer): ' + $icd); return }
+    $c = Get-Cfg
+    $work = Join-Path $env:TEMP ('HUPilot-WCD-' + [guid]::NewGuid().ToString('N'))
+    try {
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $x = [System.IO.File]::ReadAllText($tplXml)
+        $x = $x.Replace('SSID="WLAN-NAME"', 'SSID="' + [System.Security.SecurityElement]::Escape($c.WlanSsid) + '"')
+        $x = $x.Replace('<SecurityKey>WLAN-KENNWORT</SecurityKey>', '<SecurityKey>' + [System.Security.SecurityElement]::Escape($c.WlanKey) + '</SecurityKey>')
+        $x = [regex]::Replace($x, '<ID>\{[0-9a-fA-F-]+\}</ID>', '<ID>{' + [guid]::NewGuid().ToString() + '}</ID>')
+        $xmlPath = Join-Path $work 'customizations.xml'
+        [System.IO.File]::WriteAllText($xmlPath, $x.TrimStart([char]0xFEFF), $enc)   # ohne BOM
+        New-Item -ItemType Directory -Path (Join-Path $dr 'HUPilot') -Force | Out-Null
+        $ppkg = Join-Path $dr 'HUPilot\HUPilot-WLAN.ppkg'
+        $store = Join-Path (Split-Path $icd -Parent) 'Microsoft-Common-Provisioning.dat'
+        $icdArgs = @('/Build-ProvisioningPackage', ('/CustomizationXML:"' + $xmlPath + '"'), ('/PackagePath:"' + $ppkg + '"'), ('/StoreFile:"' + $store + '"'), '+Overwrite')
+        Out-Log 'ICD.exe baut das Paket ...'
+        $p = Start-Process -FilePath $icd -ArgumentList $icdArgs -Wait -PassThru -WindowStyle Hidden -WorkingDirectory $work
+        if ($p.ExitCode -eq 0 -and (Test-Path $ppkg)) { Out-Log ('WLAN-Paket OK: ' + $ppkg + ' (' + (Get-Item $ppkg).Length + ' Bytes)') }
+        else {
+            Out-Log ('FEHLER: ICD.exe Exitcode ' + $p.ExitCode)
+            $l = Get-ChildItem -Path $work -Filter *.log -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($l) { Get-Content $l.FullName -Tail 15 | ForEach-Object { Out-Log ('  ' + $_) } }
+        }
+    } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
+    finally { Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue }   # enthaelt das WLAN-Kennwort
+})
+
+Update-Drives
+Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - Windows ADK installieren' }))
+[void]$win.ShowDialog()

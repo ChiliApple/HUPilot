@@ -7,6 +7,7 @@
 - Zurücksetzen ohne Hersteller-Programme: `C:\Recovery\Customizations` wird nach `C:\Recovery\HUPilot-OEM-Backup` verschoben, dann RemoteWipe `doWipePersistProvisionedData` als SYSTEM (geplante Aufgabe)
 - Nur ein WLAN-Paket (kein CleanPC): bleibt beim Zurücksetzen erhalten, Einrichtungsbildschirm verbindet danach selbst
 - Schutz: gespeicherte Pakete mit CleanPC werden vor dem Zurücksetzen entfernt
+- `Tools\HUPilot-Setup.cmd`: Oberfläche – Verbindung testen, Stick schreiben, WLAN-Paket per ICD-Kommandozeile bauen
 - `Tools\New-WcdProjekt.ps1`: WCD-Projekt aus der Vorlage mit eigenem WLAN
 - `Tools\Diagnose.cmd`: Diagnose im OOBE (ändert nichts)
 ### Warum kein CleanPC

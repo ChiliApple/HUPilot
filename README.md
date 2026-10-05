@@ -33,8 +33,8 @@ Gedacht für ganze Klassensätze: 20–30 Notebooks in einer Schulstunde, ohne C
 ## Schnellstart
 
 1. **App-Registrierung** im Tenant mit `DeviceManagementServiceConfig.ReadWrite.All` (Anwendung) und kurz gültigem Secret – [INSTALL.md](INSTALL.md#1-app-registrierung)
-2. **Stick:** `Stick\` aufs Stick-Hauptverzeichnis kopieren, `config.example.json` → `config.json` ausfüllen
-3. **WLAN-Paket:** `Tools\New-WcdProjekt.ps1` → in WCD öffnen → als `HUPilot-WLAN.ppkg` nach `Stick:\HUPilot\` exportieren
+2. **Stick + WLAN-Paket:** `Tools\HUPilot-Setup.cmd` (Oberfläche) – Daten eintragen → *Verbindung testen* → *Stick schreiben* → *WLAN-Paket bauen* (braucht Windows ADK)
+   – oder von Hand: [INSTALL.md](INSTALL.md#2-stick-vorbereiten)
 4. Am Gerät im ersten Einrichtungsbildschirm: **Shift+F10** → `D:\go`
 
 ## Ablauf am Gerät
@@ -65,6 +65,7 @@ Stick:\
 |---|---|
 | `Stick\` | Dateien für den Stick |
 | `WCD-Vorlage\` | WCD-Projekt *nur WLAN* mit Platzhaltern |
+| `Tools\HUPilot-Setup.cmd` | Oberfläche: Verbindung testen, Stick schreiben, WLAN-Paket per `ICD.exe` bauen |
 | `Tools\New-WcdProjekt.ps1` | setzt WLAN-Name/-Kennwort aus `config.json` in die Vorlage ein |
 | `Tools\Diagnose.cmd` | Diagnose im OOBE (ändert nichts) |
 
