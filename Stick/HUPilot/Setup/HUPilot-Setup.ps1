@@ -12,15 +12,33 @@
     Laden/Speichern/WLAN-Paket immer in der Quelle; 'Auf Stick kopieren' kopiert die Quelle 1:1 auf einen Stick.
 #>
 $ErrorActionPreference = 'Stop'
+$StartLog = Join-Path $env:TEMP 'HUPilot-Setup-Start.log'
+function Start-Log([string]$m) { try { Add-Content -Path $StartLog -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  PID ' + $PID + '  ' + $m) -Encoding UTF8 } catch { } }
+Start-Log ('Start: ' + $PSCommandPath)
 
 # --- Als Administrator neu starten (ICD-Kommandozeile braucht Adminrechte - MS Doku) ---
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $PSCommandPath + '"')
+    Start-Log 'nicht Admin -> Neustart mit UAC'
+    try {
+        Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $PSCommandPath + '"') -ErrorAction Stop
+        Start-Log 'UAC bestaetigt, Admin-Prozess gestartet'
+    } catch {
+        Start-Log ('UAC abgelehnt/Fehler: ' + $_.Exception.Message)
+        try { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('HUPilot-Setup braucht Administratorrechte (fuer ICD.exe).' + [Environment]::NewLine + $_.Exception.Message, 'HUPilot-Setup') } catch { }
+    }
     return
 }
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+Start-Log 'als Admin gestartet'
+# Nur eine Instanz
+$script:Mutex = New-Object System.Threading.Mutex($false, 'Global\HUPilot-Setup')
+if (-not $script:Mutex.WaitOne(0)) {
+    Start-Log 'laeuft bereits -> Ende'
+    [void][System.Windows.MessageBox]::Show('HUPilot-Setup laeuft bereits (evtl. unsichtbar im Hintergrund).' + [Environment]::NewLine + 'Task-Manager > Details > powershell.exe beenden und neu starten.', 'HUPilot-Setup')
+    exit 0
+}
 # Fehler sichtbar machen (Fenster laeuft ohne Konsole)
 trap {
     $msg = ($_ | Out-String)
@@ -250,4 +268,7 @@ Out-Log ('Quelle: ' + $srcStick)
 $ui.tSub.Text = 'Quelle: ' + $srcStick
 if (Test-Path $srcCfg) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - fuer 3. WLAN-Paket: Windows ADK mit Imaging and Configuration Designer installieren (Store-WCD reicht nicht)' }))
+Start-Log 'Fenster wird angezeigt'
 [void]$win.ShowDialog()
+Start-Log 'Fenster geschlossen'
+try { $script:Mutex.ReleaseMutex() } catch { }
