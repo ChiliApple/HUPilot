@@ -605,10 +605,21 @@ $taskXml = @'
 $taskFile = Join-Path $env:SystemRoot 'Temp\HUPilot-Wipe.xml'
 try { [System.IO.File]::WriteAllText($taskFile, $taskXml.Replace('__PS1__', $WipePs1), [System.Text.Encoding]::Unicode) } catch { Fail-Reset ('Aufgaben-XML schreiben: ' + $_.Exception.Message) }
 & schtasks.exe /Delete /TN $tn /F 2>&1 | Out-Null
-$o = & schtasks.exe /Create /TN $tn /XML $taskFile /F 2>&1
-Log ('schtasks create: ' + (($o | Out-String).Trim()))
-if ($LASTEXITCODE -ne 0) { Fail-Reset ('Geplante Aufgabe anlegen: ' + (($o | Out-String).Trim())) }
-$o = & schtasks.exe /Run /TN $tn 2>&1
+$regOk = $false
+# 1. Weg: ScheduledTasks-Modul (XML inkl. Akkubetrieb erlaubt)
+try {
+    Register-ScheduledTask -TaskName $tn -Xml ([System.IO.File]::ReadAllText($taskFile)) -Force -ErrorAction Stop | Out-Null
+    Log 'Aufgabe angelegt (Register-ScheduledTask)'; $regOk = $true
+} catch { Log ('Register-ScheduledTask: ' + $_.Exception.Message) }
+# 2. Weg: schtasks mit derselben XML
+if (-not $regOk) {
+    $o = cmd.exe /c ('schtasks /Create /TN "' + $tn + '" /XML "' + $taskFile + '" /F 2>&1')
+    Log ('schtasks create: ' + (($o | Out-String).Trim()))
+}
+# Pruefen, ob die Aufgabe wirklich existiert (Exitcodes sind hier unzuverlaessig)
+$q = cmd.exe /c ('schtasks /Query /TN "' + $tn + '" 2>&1')
+if (-not ((($q | Out-String)) -match [regex]::Escape($tn))) { Fail-Reset ('Geplante Aufgabe nicht angelegt: ' + (($q | Out-String).Trim())) }
+$o = cmd.exe /c ('schtasks /Run /TN "' + $tn + '" 2>&1')
 Log ('schtasks run: ' + (($o | Out-String).Trim()))
 $res = ''
 for ($i = 0; $i -lt 60; $i++) {
