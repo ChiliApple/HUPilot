@@ -38,8 +38,16 @@ $script:Extra = @{}
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="640" Height="660" WindowStartupLocation="CenterScreen" FontSize="13">
-  <Grid Margin="14">
+        Title="HUPilot-Setup" Width="640" Height="720" WindowStartupLocation="CenterScreen" FontSize="13">
+  <DockPanel Margin="14">
+  <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+    <Image x:Name="iLogo" Width="44" Height="44"/>
+    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+      <TextBlock Text="HUPilot" FontSize="20" FontWeight="SemiBold"/>
+      <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="Gray"/>
+    </StackPanel>
+  </StackPanel>
+  <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
@@ -84,11 +92,20 @@ $script:Extra = @{}
     </StackPanel>
     <TextBox Grid.Row="5" x:Name="tLog" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
+  </DockPanel>
 </Window>
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','tLog') { $ui[$n] = $win.FindName($n) }
+
+# Icon (Titelleiste + Taskleiste) und Logo
+try {
+    $ico = Join-Path $PSScriptRoot 'icon.ico'
+    if (Test-Path $ico) { $win.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create((New-Object System.Uri($ico))) }
+    $png = Join-Path $PSScriptRoot 'logo64.png'
+    if (Test-Path $png) { $ui.iLogo.Source = New-Object System.Windows.Media.Imaging.BitmapImage((New-Object System.Uri($png))) }
+} catch { }
 
 function Out-Log([string]$m) { $ui.tLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $ui.tLog.ScrollToEnd() }
 function Get-Drive { if ($ui.cDrive.SelectedItem) { return ([string]$ui.cDrive.SelectedItem).Substring(0, 2) } return $null }

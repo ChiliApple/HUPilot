@@ -1,4 +1,4 @@
-<h1 align="center">HUPilot</h1>
+<h1 align="center"><img src="Assets/logo64.png" width="44" alt="" align="absmiddle"/> HUPilot</h1>
 
 <p align="center"><b>Windows Autopilot per USB-Stick – Hash hochladen, Group Tag setzen, ohne Hersteller-Programme zurücksetzen</b><br>
 Neues Gerät einschalten, Stick anstecken, <code>D:\go</code> – nach einer Minute Stick abziehen, nächstes Gerät.<br>
