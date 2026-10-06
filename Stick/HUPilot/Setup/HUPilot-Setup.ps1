@@ -8,8 +8,8 @@
     - WLAN-Paket bauen: ICD.exe /Build-ProvisioningPackage -> Stick:\HUPilot\HUPilot-WLAN.ppkg
 .NOTES
     Start: Stick:\HUPilot-Setup.cmd oder Repo: Tools\HUPilot-Setup.cmd (fragt nach Adminrechten - noetig fuer ICD.exe)
-    Vom Stick gestartet: dieser Stick ist vorausgewaehlt, config.json wird automatisch geladen.
-    Auf einen anderen Stick: kopiert go.cmd, HUPilot-Setup.cmd, go.ps1, Setup\ und schreibt config.json.
+    Quelle = der Ordner, aus dem das Setup laeuft (Stick ODER Vorbereitungsordner am PC).
+    Laden/Speichern/WLAN-Paket immer in der Quelle; 'Auf Stick kopieren' kopiert die Quelle 1:1 auf einen Stick.
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -30,6 +30,8 @@ $srcHU    = Split-Path $PSScriptRoot -Parent
 $srcStick = Split-Path $srcHU -Parent
 $srcDrive = $null
 if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).ToUpper() }
+$srcCfg   = Join-Path $srcHU 'config.json'
+$srcPkg   = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
 $icd      = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe'
 $tplXml   = Join-Path $PSScriptRoot 'WCD-Vorlage\HUPilot-WLAN\customizations.xml'
 $enc      = New-Object System.Text.UTF8Encoding($false)
@@ -80,15 +82,16 @@ $script:Extra = @{}
       </Grid>
     </GroupBox>
     <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Stick:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-      <ComboBox x:Name="cDrive" Width="200"/>
+      <Button x:Name="bLoad" Content="Neu laden" Padding="8,2"/>
+      <TextBlock Text="Ziel-Stick:" VerticalAlignment="Center" Margin="16,0,6,0"/>
+      <ComboBox x:Name="cDrive" Width="180"/>
       <Button x:Name="bReload" Content="Aktualisieren" Margin="6,0,0,0" Padding="8,2"/>
-      <Button x:Name="bLoad" Content="Config vom Stick laden" Margin="6,0,0,0" Padding="8,2"/>
     </StackPanel>
     <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
       <Button x:Name="bTest" Content="1. Verbindung testen" Padding="10,4"/>
-      <Button x:Name="bWrite" Content="2. Stick schreiben" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bWrite" Content="2. Speichern" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bPkg" Content="3. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bCopy" Content="4. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <TextBox Grid.Row="5" x:Name="tLog" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
@@ -97,7 +100,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','tLog') { $ui[$n] = $win.FindName($n) }
 
 # Icon (Titelleiste + Taskleiste) und Logo
 try {
@@ -112,12 +115,11 @@ function Get-Drive { if ($ui.cDrive.SelectedItem) { return ([string]$ui.cDrive.S
 function Update-Drives {
     $ui.cDrive.Items.Clear()
     foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
-        try { if ($d.IsReady -and $d.DriveType -eq 'Removable') { [void]$ui.cDrive.Items.Add(('{0} {1} ({2:N1} GB)' -f $d.Name.TrimEnd('\'), $d.VolumeLabel, ($d.TotalSize / 1GB))) } } catch { }
+        try { if ($d.IsReady -and $d.DriveType -eq 'Removable' -and $d.Name.Substring(0, 2).ToUpper() -ne $srcDrive) { [void]$ui.cDrive.Items.Add(('{0} {1} ({2:N1} GB)' -f $d.Name.TrimEnd('\'), $d.VolumeLabel, ($d.TotalSize / 1GB))) } } catch { }
     }
     if ($ui.cDrive.Items.Count) {
         $ui.cDrive.SelectedIndex = 0
-        for ($i = 0; $i -lt $ui.cDrive.Items.Count; $i++) { if ($srcDrive -and ([string]$ui.cDrive.Items[$i]).StartsWith($srcDrive)) { $ui.cDrive.SelectedIndex = $i } }
-    } else { Out-Log 'Kein USB-Stick gefunden.' }
+    } else { Out-Log 'Kein Ziel-Stick gefunden (nur fuer 4. noetig).' }
 }
 function Get-Cfg {
     $choices = @($ui.tTagChoices.Text -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -146,9 +148,8 @@ $ui.cShow.Add_Unchecked({ $ui.pSecret.Password = $ui.tSecret.Text; $ui.tSecret.V
 $ui.bReload.Add_Click({ Update-Drives })
 
 $ui.bLoad.Add_Click({
-    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Stick gewaehlt'; return }
-    $p = Join-Path $dr 'HUPilot\config.json'
-    if (-not (Test-Path $p)) { Out-Log ('Keine config.json: ' + $p); return }
+    $p = $srcCfg
+    if (-not (Test-Path $p)) { Out-Log ('Noch keine config.json in der Quelle: ' + $p + ' - Felder ausfuellen, dann 2. Speichern'); return }
     try {
         $c = Get-Content $p -Raw | ConvertFrom-Json
         $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
@@ -177,29 +178,35 @@ $ui.bTest.Add_Click({
     }
 })
 
-$ui.bWrite.Add_Click({
-    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Stick gewaehlt'; return }
-    if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey'))) { return }
+function Save-Cfg {
+    if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey'))) { return $false }
     try {
+        [System.IO.File]::WriteAllText($srcCfg, (Get-Cfg | ConvertTo-Json -Depth 3), $enc)
+        Out-Log ('Gespeichert: ' + $srcCfg)
+        return $true
+    } catch { Out-Log ('FEHLER Speichern: ' + $_.Exception.Message); return $false }
+}
+
+$ui.bWrite.Add_Click({ [void](Save-Cfg) })
+
+$ui.bCopy.Add_Click({
+    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewaehlt'; return }
+    if (-not (Save-Cfg)) { return }
+    if (-not (Test-Path $srcPkg)) { Out-Log 'ACHTUNG: kein HUPilot-WLAN.ppkg in der Quelle - erst 3. WLAN-Paket bauen (oder "WlanPackage": "")' }
+    try {
+        foreach ($f in 'go.cmd', 'HUPilot-Setup.cmd') { $sf = Join-Path $srcStick $f; if (Test-Path $sf) { Copy-Item -Path $sf -Destination (Join-Path $dr $f) -Force } }
         $dst = Join-Path $dr 'HUPilot'
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
-        if ($srcDrive -eq $dr.ToUpper()) {
-            Out-Log 'Setup laeuft von diesem Stick - Scripts sind schon drauf, nur config.json wird geschrieben'
-        } else {
-            foreach ($f in 'go.cmd', 'HUPilot-Setup.cmd') { $s = Join-Path $srcStick $f; if (Test-Path $s) { Copy-Item -Path $s -Destination (Join-Path $dr $f) -Force } }
-            Copy-Item -Path (Join-Path $srcHU 'go.ps1') -Destination (Join-Path $dst 'go.ps1') -Force
-            Copy-Item -Path $PSScriptRoot -Destination $dst -Recurse -Force
+        foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { $_.Name -ne 'logs' })) {
+            Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force
         }
-        $json = (Get-Cfg | ConvertTo-Json -Depth 3)
-        [System.IO.File]::WriteAllText((Join-Path $dst 'config.json'), $json, $enc)
-        Out-Log ('Stick geschrieben: ' + $dr + '  (go.cmd, HUPilot-Setup.cmd, HUPilot\go.ps1, HUPilot\Setup\, config.json)')
+        Out-Log ('Auf Stick kopiert: ' + $srcStick + ' -> ' + $dr + '\  (ohne logs)')
         $rootPkg = @(Get-ChildItem -Path ($dr + '\') -Filter *.ppkg -File -ErrorAction SilentlyContinue)
         if ($rootPkg.Count) { Out-Log ('ACHTUNG: .ppkg im Hauptverzeichnis entfernen (wird sonst im OOBE angewendet): ' + (($rootPkg | ForEach-Object { $_.Name }) -join ', ')) }
     } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
 })
 
 $ui.bPkg.Add_Click({
-    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Stick gewaehlt'; return }
     if (-not (Test-Fields @('WlanSsid', 'WlanKey'))) { return }
     if (-not (Test-Path $icd)) { Out-Log ('ICD.exe nicht gefunden (Windows ADK > Imaging and Configuration Designer): ' + $icd); return }
     $c = Get-Cfg
@@ -212,8 +219,7 @@ $ui.bPkg.Add_Click({
         $x = [regex]::Replace($x, '<ID>\{[0-9a-fA-F-]+\}</ID>', '<ID>{' + [guid]::NewGuid().ToString() + '}</ID>')
         $xmlPath = Join-Path $work 'customizations.xml'
         [System.IO.File]::WriteAllText($xmlPath, $x.TrimStart([char]0xFEFF), $enc)   # ohne BOM
-        New-Item -ItemType Directory -Path (Join-Path $dr 'HUPilot') -Force | Out-Null
-        $ppkg = Join-Path $dr 'HUPilot\HUPilot-WLAN.ppkg'
+        $ppkg = $srcPkg
         $store = Join-Path (Split-Path $icd -Parent) 'Microsoft-Common-Provisioning.dat'
         $icdArgs = @('/Build-ProvisioningPackage', ('/CustomizationXML:"' + $xmlPath + '"'), ('/PackagePath:"' + $ppkg + '"'), ('/StoreFile:"' + $store + '"'), '+Overwrite')
         Out-Log 'ICD.exe baut das Paket ...'
@@ -229,6 +235,8 @@ $ui.bPkg.Add_Click({
 })
 
 Update-Drives
-if ($srcDrive -and (Test-Path (Join-Path $srcStick 'HUPilot\config.json'))) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
+Out-Log ('Quelle: ' + $srcStick)
+$ui.tSub.Text = 'Quelle: ' + $srcStick
+if (Test-Path $srcCfg) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - Windows ADK installieren' }))
 [void]$win.ShowDialog()

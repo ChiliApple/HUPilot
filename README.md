@@ -33,7 +33,7 @@ Gedacht für ganze Klassensätze: 20–30 Notebooks in einer Schulstunde, ohne C
 ## Schnellstart
 
 1. **App-Registrierung** im Tenant mit `DeviceManagementServiceConfig.ReadWrite.All` (Anwendung) und kurz gültigem Secret – [INSTALL.md](INSTALL.md#1-app-registrierung)
-2. **Stick + WLAN-Paket:** Inhalt von `Stick\` auf den Stick kopieren, **`HUPilot-Setup.cmd`** am Stick starten (Oberfläche) – Daten eintragen → *Verbindung testen* → *Stick schreiben* → *WLAN-Paket bauen* (braucht Windows ADK)
+2. **Stick + WLAN-Paket:** Inhalt von `Stick\` auf den Stick kopieren, **`HUPilot-Setup.cmd`** starten (Oberfläche) – Daten eintragen → *Verbindung testen* → *Speichern* → *WLAN-Paket bauen* (Windows ADK) → *Auf Stick kopieren*. Tipp: je Schule ein Vorbereitungsordner am PC als Quelle
    – oder von Hand: [INSTALL.md](INSTALL.md#2-stick-vorbereiten)
 4. Am Gerät im ersten Einrichtungsbildschirm: **Shift+F10** → `D:\go`
 
@@ -67,7 +67,7 @@ Stick:\
 |---|---|
 | `Stick\` | Dateien für den Stick |
 | `Stick\HUPilot\Setup\` | Setup-Oberfläche und WCD-Vorlage *nur WLAN* (reist mit dem Stick) |
-| `HUPilot-Setup.cmd` (Stick) / `Tools\HUPilot-Setup.cmd` (Repo) | Oberfläche: Verbindung testen, Stick schreiben bzw. auf weitere Sticks klonen, WLAN-Paket per `ICD.exe` bauen |
+| `HUPilot-Setup.cmd` (Stick) / `Tools\HUPilot-Setup.cmd` (Repo) | Oberfläche: Verbindung testen, Config speichern, WLAN-Paket per `ICD.exe` bauen, Quelle auf Sticks kopieren |
 | `Tools\New-WcdProjekt.ps1` | setzt WLAN-Name/-Kennwort aus `config.json` in die Vorlage ein |
 | `Tools\Diagnose.cmd` | Diagnose im OOBE (ändert nichts) |
 

@@ -2,6 +2,7 @@
 
 ## v2.1 - 2026-10-05
 ### Neu
+- Setup arbeitet immer mit seiner **Quelle** (Ordner, aus dem es läuft – Stick oder Vorbereitungsordner am PC): *Neu laden*, *Speichern*, *WLAN-Paket bauen* dort; *Auf Stick kopieren* kopiert die Quelle 1:1 (ohne logs)
 - Setup reist mit dem Stick: `HUPilot-Setup.cmd` im Stick-Hauptverzeichnis, Oberfläche + WCD-Vorlage in `HUPilot\Setup\`; vom Stick gestartet ist der Stick vorausgewählt und die `config.json` geladen; *Stick schreiben* auf einen anderen Stick klont alles
 - Beim Start: *Nach dem Upload zurücksetzen?* – Enter = Standard aus `config.json` (`Reset`, Standard ja), `N` = nur hochladen, `J` = zurücksetzen. Nur Upload: grün „HOCHGELADEN“, Gerät bleibt unverändert, Eintrag im Protokoll
 - `HUPilot-Setup`: Secret verdeckt (anzeigen per Haken), zusätzliche Felder der `config.json` bleiben beim Schreiben erhalten

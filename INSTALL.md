@@ -8,7 +8,8 @@ Entra Admin Center › App-Registrierungen › **Neue Registrierung**
 4. Anwendungs-(Client-)ID und Verzeichnis-(Mandanten-)ID notieren
 
 ## 2. Stick vorbereiten
-**Am einfachsten:** Inhalt von `Stick\` auf den Stick kopieren und **`HUPilot-Setup.cmd`** im Stick-Hauptverzeichnis starten (oder `Tools\HUPilot-Setup.cmd` im Repo) (fragt nach Adminrechten) – Felder ausfüllen, *Verbindung testen*, *Stick schreiben*, *WLAN-Paket bauen*. Das Paket wird mit `ICD.exe` aus dem **Windows ADK** gebaut; ohne ADK: Schritt 3 von Hand.
+**Am einfachsten:** Inhalt von `Stick\` auf den Stick kopieren und **`HUPilot-Setup.cmd`** im Stick-Hauptverzeichnis starten (oder `Tools\HUPilot-Setup.cmd` im Repo) (fragt nach Adminrechten) – Felder ausfüllen → *1. Verbindung testen* → *2. Speichern* → *3. WLAN-Paket bauen* → *4. Auf Stick kopieren*.
+**Quelle** ist immer der Ordner, aus dem das Setup läuft – ein Vorbereitungsordner am PC (z. B. je Schule einer) oder der Stick selbst. Laden, Speichern und WLAN-Paket gehen immer dorthin; *4.* kopiert die Quelle 1:1 (ohne `logs`) auf einen anderen Stick. Das Paket wird mit `ICD.exe` aus dem **Windows ADK** gebaut; ohne ADK: Schritt 3 von Hand.
 
 Von Hand:
 1. Inhalt von `Stick\` ins Hauptverzeichnis des Sticks kopieren (`go.cmd` und Ordner `HUPilot\`)
