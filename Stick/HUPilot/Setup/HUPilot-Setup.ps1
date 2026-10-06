@@ -68,7 +68,7 @@ $script:Extra = @{}
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="720" Height="800" WindowStartupLocation="CenterScreen" FontSize="13">
+        Title="HUPilot-Setup" Width="890" Height="800" WindowStartupLocation="CenterScreen" FontSize="13">
   <DockPanel Margin="14">
   <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
     <Image x:Name="iLogo" Width="44" Height="44"/>
