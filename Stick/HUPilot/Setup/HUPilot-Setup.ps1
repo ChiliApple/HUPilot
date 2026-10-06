@@ -310,8 +310,6 @@ $ui.bPkg.Add_Click({
         $x = [regex]::Replace($x, '<ID>\{[0-9a-fA-F-]+\}</ID>', '<ID>{' + [guid]::NewGuid().ToString() + '}</ID>')
         if ($c.AdminName) {
             # Optional: lokaler Admin per ProvisioningCommands (Geraetekontext, laeuft als SYSTEM - auch nach jedem Zuruecksetzen)
-            $ps1 = Join-Path $work 'HUPilot-Admin.ps1'
-            $cmd = Join-Path $work 'HUPilot-Admin.cmd'
             $q = { param($v) "'" + ([string]$v).Replace("'", "''") + "'" }
             $body = @(
                 '# HUPilot: lokaler Admin (aus dem WLAN-Paket, laeuft als SYSTEM)',
@@ -327,12 +325,12 @@ $ui.bPkg.Add_Click({
                 '    $sid = (Get-LocalUser -Name $n).SID.Value',
                 '    try { Add-LocalGroupMember -SID ''S-1-5-32-544'' -Member $sid -ErrorAction Stop; L ''zu Administratoren hinzugefuegt'' }',
                 '    catch { if ($_.FullyQualifiedErrorId -like ''*MemberExists*'') { L ''bereits Administrator'' } else { throw } }',
-                '} catch { L (''FEHLER: '' + $_.Exception.Message) }',
-                'Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue'
+                '} catch { L (''FEHLER: '' + $_.Exception.Message) }'
             ) -join "`r`n"
-            [System.IO.File]::WriteAllText($ps1, $body, (New-Object System.Text.UTF8Encoding($true)))
-            [System.IO.File]::WriteAllText($cmd, ('@"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0HUPilot-Admin.ps1" >nul 2>&1' + "`r`n" + 'exit /b 0' + "`r`n"), [System.Text.Encoding]::ASCII)
-            $pc = '<ProvisioningCommands><DeviceContext><CommandFiles><CommandFile>' + [System.Security.SecurityElement]::Escape($cmd) + '</CommandFile><CommandFile>' + [System.Security.SecurityElement]::Escape($ps1) + '</CommandFile></CommandFiles><CommandLine>cmd /c HUPilot-Admin.cmd</CommandLine></DeviceContext></ProvisioningCommands>'
+            # Ohne CommandFiles (ICD-Fehler beim Asset): Script als -EncodedCommand direkt in der CommandLine
+            $b64 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($body))
+            $cl = 'cmd /c "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $b64
+            $pc = '<ProvisioningCommands><DeviceContext><CommandLine>' + $cl + '</CommandLine></DeviceContext></ProvisioningCommands>'
             $x = $x.Replace('</Common>', $pc + '</Common>')
             $x = [regex]::Replace($x, '<Notes>.*?</Notes>', '<Notes>HUPilot: WLAN + lokaler Admin. KEIN Zuruecksetzen-Befehl im Paket.</Notes>')
             Out-Log ('Paket enthaelt lokalen Admin: ' + $c.AdminName)
@@ -340,31 +338,31 @@ $ui.bPkg.Add_Click({
         $xmlPath = Join-Path $work 'customizations.xml'
         [System.IO.File]::WriteAllText($xmlPath, $x.TrimStart([char]0xFEFF), $enc)   # ohne BOM
         $ppkg = $srcPkg
-        $store = Join-Path (Split-Path $icd -Parent) 'Microsoft-Common-Provisioning.dat'
+        $cstore = Join-Path (Split-Path $icd -Parent) 'Microsoft-Common-Provisioning.dat'
+        $stores = @($cstore)
         if ($c.AdminName) {
             # ProvisioningCommands gibt es nur im Desktop-Speicher (Common kennt sie nicht)
             $dstore = Join-Path (Split-Path $icd -Parent) 'Microsoft-Desktop-Provisioning.dat'
             if (-not (Test-Path $dstore)) { Out-Log ('FEHLER: ' + $dstore + ' fehlt - ADK-Feature "Imaging and Configuration Designer" vollstaendig installieren'); return }
-            $store = $store + ',' + $dstore
-            Out-Log 'Einstellungsspeicher: Common + Desktop'
+            $stores = @(($cstore + ',' + $dstore), $dstore)
         }
-        $icdArgs = @('/Build-ProvisioningPackage', ('/CustomizationXML:"' + $xmlPath + '"'), ('/PackagePath:"' + $ppkg + '"'), ('/StoreFile:"' + $store + '"'), '+Overwrite')
-        Out-Log 'ICD.exe baut das Paket ...'
-        $outF = Join-Path $work 'icd-out.txt'; $errF = Join-Path $work 'icd-err.txt'
-        $p = Start-Process -FilePath $icd -ArgumentList $icdArgs -Wait -PassThru -NoNewWindow -WorkingDirectory $work -RedirectStandardOutput $outF -RedirectStandardError $errF
-        if ($p.ExitCode -eq 0 -and (Test-Path $ppkg)) { Out-Log ('WLAN-Paket OK: ' + $ppkg + ' (' + (Get-Item $ppkg).Length + ' Bytes)') }
-        else {
+        $okBuild = $false
+        foreach ($store in $stores) {
+            $icdArgs = @('/Build-ProvisioningPackage', ('/CustomizationXML:"' + $xmlPath + '"'), ('/PackagePath:"' + $ppkg + '"'), ('/StoreFile:"' + $store + '"'), '+Overwrite')
+            Out-Log ('ICD.exe baut das Paket (' + ((@($store -split ',') | ForEach-Object { (Split-Path $_ -Leaf) -replace '-Provisioning\.dat$', '' }) -join ' + ') + ') ...')
+            $outF = Join-Path $work 'icd-out.txt'; $errF = Join-Path $work 'icd-err.txt'
+            $p = Start-Process -FilePath $icd -ArgumentList $icdArgs -Wait -PassThru -NoNewWindow -WorkingDirectory $work -RedirectStandardOutput $outF -RedirectStandardError $errF
+            if ($p.ExitCode -eq 0 -and (Test-Path $ppkg)) { Out-Log ('WLAN-Paket OK: ' + $ppkg + ' (' + (Get-Item $ppkg).Length + ' Bytes)'); $okBuild = $true; break }
             Out-Log ('FEHLER: ICD.exe Exitcode ' + $p.ExitCode)
             $lines = @()
-            foreach ($f in @($outF, $errF) + @(Get-ChildItem -Path $work -Filter *.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })) {
-                if (Test-Path $f) { $lines += @(Get-Content -Path $f -ErrorAction SilentlyContinue | Where-Object { $_.Trim() }) }
-            }
+            foreach ($f in @($outF, $errF)) { if (Test-Path $f) { $lines += @(Get-Content -Path $f -ErrorAction SilentlyContinue | Where-Object { $_.Trim() }) } }
             foreach ($ln in @($lines | Select-Object -Last 30)) {
                 foreach ($sec in @($c.WlanKey, $c.AdminPassword)) { if ($sec) { $ln = $ln.Replace($sec, '***') } }
                 Out-Log ('  ' + $ln)
             }
             if (-not $lines.Count) { Out-Log '  (ICD.exe hat keine Ausgabe geliefert)' }
         }
+        if (-not $okBuild) { Out-Log 'WLAN-Paket NICHT gebaut - das bisherige Paket (falls vorhanden) bleibt unveraendert.' }
     } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
     finally { Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue }   # enthaelt das WLAN-Kennwort
 })
