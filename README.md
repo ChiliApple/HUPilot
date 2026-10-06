@@ -12,6 +12,8 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen –
 
 <p align="center"><a href="Stick/HUPilot/Setup/Anleitung.html"><b>Anleitung</b></a> · <a href="INSTALL.md">Installation</a> · <a href="CHANGELOG.md">Änderungen</a> · <a href="LICENSE">Lizenz</a></p>
 
+<p align="center"><img src="Assets/screenshot-setup.png" width="640" alt="HUPilot-Setup"/></p>
+
 ---
 
 ## Ablauf am Gerät
