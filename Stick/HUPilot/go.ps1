@@ -501,7 +501,8 @@ if ($StickPkg) {
         Write-Host ''
         Write-Host '  Hinweis: Intune sperrt neue Pakete auf diesem Geraet.' -ForegroundColor Yellow
         Write-Host '  Das vorhandene WLAN-Paket bleibt - Aenderungen (z. B. lokaler Admin) kommen NICHT mit.' -ForegroundColor Yellow
-        Start-Sleep -Seconds 8
+        Write-Host '  (weiter mit beliebiger Taste oder in 30 s)' -ForegroundColor Yellow
+        [void](Read-KeyTimeout -Seconds 30)
     }
     elseif ($ppBlocked) {
         Log 'Intune sperrt Bereitstellungspakete (AllowAddProvisioningPackage=0) und es ist kein WLAN-Paket installiert'
