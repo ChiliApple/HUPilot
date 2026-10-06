@@ -56,7 +56,7 @@ $srcStick = Split-Path $srcHU -Parent
 $srcDrive = $null
 if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).ToUpper() }
 $srcCfg   = Join-Path $srcHU 'config.json'
-$SetupVer = '2.4'
+$SetupVer = '2.5'
 $GoVer    = '?'
 try { $m = Select-String -Path (Join-Path $srcHU 'go.ps1') -Pattern "^\`$Ver\s*=\s*'([^']+)'" | Select-Object -First 1; if ($m) { $GoVer = $m.Matches[0].Groups[1].Value } } catch { }
 $srcPkg   = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
@@ -213,6 +213,37 @@ function Get-ApiToken {
     }
 }
 
+function Show-SecretExpiry([string]$Token) {
+    # Secret-Ablauf (optional: braucht Application.Read.All fuer die App)
+    $h = @{ Authorization = 'Bearer ' + $Token }
+    try {
+        $c = Get-Cfg
+        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h
+        $hint = $c.ClientSecret.Substring(0, [Math]::Min(3, $c.ClientSecret.Length))
+        $mine = @($app.passwordCredentials | Where-Object { $_.hint -ceq $hint })
+        $list = $(if ($mine.Count) { $mine } else { @($app.passwordCredentials) })
+        $minDays = $null; $minEnd = $null
+        foreach ($pc in $list) {
+            $end = ([datetime]$pc.endDateTime).ToLocalTime()
+            $days = [int][Math]::Floor(($end - (Get-Date)).TotalDays)
+            if ($null -eq $minDays -or $days -lt $minDays) { $minDays = $days; $minEnd = $end }
+            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gueltig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + '  -> noch ' + $days + ' Tage'
+            if ($days -lt 0) { $txt = 'ACHTUNG ABGELAUFEN: ' + $txt } elseif ($days -le 7) { $txt = 'ACHTUNG BALD ABGELAUFEN: ' + $txt }
+            Out-Log $txt
+        }
+        if (-not $mine.Count) { Out-Log '  (verwendetes Secret nicht eindeutig erkannt - alle Secrets der App angezeigt)' }
+        if ($mine.Count -and $null -ne $minDays) {
+            Set-SubSecret ('Secret gueltig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (noch ' + $minDays + ' Tage)') ($minDays -le 7)
+        }
+    } catch {
+        Out-Log 'Secret-Ablauf nicht lesbar (optional: Anwendungsberechtigung Application.Read.All fuer HUPilot-Upload)'
+    }
+}
+function Set-SubSecret([string]$Text, [bool]$Warn) {
+    $ui.tSub.Text = 'Quelle: ' + $srcStick + '   |   ' + $Text
+    $ui.tSub.Foreground = $(if ($Warn) { [System.Windows.Media.Brushes]::Firebrick } else { [System.Windows.Media.Brushes]::DimGray })
+}
+
 $ui.bTest.Add_Click({
     $tok = Get-ApiToken; if (-not $tok) { return }
     Out-Log 'Token OK'
@@ -221,12 +252,8 @@ $ui.bTest.Add_Click({
         $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=1' -Headers $h
         Out-Log ('Autopilot-Zugriff OK (' + @($r.value).Count + ' Eintrag gelesen)')
     } catch { Out-Log ('FEHLER Autopilot-Zugriff (Berechtigung DeviceManagementServiceConfig.ReadWrite.All?): ' + $_.Exception.Message) }
-    # Secret-Ablauf (optional: braucht Application.Read.All fuer die App)
-    try {
-        $c = Get-Cfg
-        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h
-        $hint = $c.ClientSecret.Substring(0, [Math]::Min(3, $c.ClientSecret.Length))
-        $mine = @($app.passwordCredentials | Where-Object { $_.hint -ceq $hint })
+    Show-SecretExpiry -Token $tok
+})
         $list = $(if ($mine.Count) { $mine } else { @($app.passwordCredentials) })
         foreach ($pc in $list) {
             $end = ([datetime]$pc.endDateTime).ToLocalTime()
@@ -466,6 +493,16 @@ $ui.tSub.Text = 'Quelle: ' + $srcStick
 if (Test-Path $srcCfg) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - fuer 3. WLAN-Paket: Windows ADK mit Imaging and Configuration Designer installieren (Store-WCD reicht nicht)' }))
 Start-Log 'Fenster wird angezeigt'
+# Beim Start automatisch Secret-Ablauf anzeigen (nur wenn echte Werte eingetragen sind)
+$win.Add_ContentRendered({
+    $c = Get-Cfg
+    if ($c.TenantId -notmatch '^[0-9a-fA-F-]{36}$' -or $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$' -or -not $c.ClientSecret -or $c.ClientSecret.StartsWith('<')) { return }
+    Out-Log 'Pruefe Secret ...'
+    $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+    $tok = Get-ApiToken
+    if (-not $tok) { Set-SubSecret 'Secret UNGUELTIG - siehe Protokoll' $true; return }
+    Show-SecretExpiry -Token $tok
+})
 [void]$win.ShowDialog()
 Start-Log 'Fenster geschlossen'
 try { $script:Mutex.ReleaseMutex() } catch { }

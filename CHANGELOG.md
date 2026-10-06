@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.5 - 2026-10-06
+- Setup: prüft beim Start automatisch das Secret und zeigt die Restlaufzeit oben neben der Quelle (rot ab 7 Tagen)
+
 ## v2.4 - 2026-10-06
 - Setup: Anleitung (`HUPilot\Setup\Anleitung.html`), Knopf **?** und **F1**
 
