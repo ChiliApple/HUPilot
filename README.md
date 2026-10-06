@@ -30,12 +30,10 @@ Gedacht für ganze Klassensätze: 20–30 Notebooks in einer Schulstunde, ohne C
 | **Ohne Hersteller-Programme** | vor dem Zurücksetzen werden die Hersteller-Anpassungen (`C:\Recovery\Customizations`) weggeschoben, dann *Alles entfernen* über den RemoteWipe-Befehl `doWipePersistProvisionedData` – das WLAN-Paket bleibt dabei erhalten |
 | **Sicher** | jeder Fehler vor dem Zurücksetzen → **rot**, Gerät bleibt unverändert im OOBE; Logs am Gerät und am Stick, `protokoll.csv` je Stick |
 
-> **Status:** Ablauf getestet (Upload, Zurücksetzen, Autopilot, Intune). Noch offen: Nachweis an einem unberührten Gerät, dass die Hersteller-Programme wegbleiben.
-
 ## Schnellstart
 
 1. **App-Registrierung** im Tenant mit `DeviceManagementServiceConfig.ReadWrite.All` (Anwendung) und kurz gültigem Secret – [INSTALL.md](INSTALL.md#1-app-registrierung)
-2. **Stick + WLAN-Paket:** `Tools\HUPilot-Setup.cmd` (Oberfläche) – Daten eintragen → *Verbindung testen* → *Stick schreiben* → *WLAN-Paket bauen* (braucht Windows ADK)
+2. **Stick + WLAN-Paket:** Inhalt von `Stick\` auf den Stick kopieren, **`HUPilot-Setup.cmd`** am Stick starten (Oberfläche) – Daten eintragen → *Verbindung testen* → *Stick schreiben* → *WLAN-Paket bauen* (braucht Windows ADK)
    – oder von Hand: [INSTALL.md](INSTALL.md#2-stick-vorbereiten)
 4. Am Gerät im ersten Einrichtungsbildschirm: **Shift+F10** → `D:\go`
 
@@ -56,18 +54,20 @@ Danach: Windows setzt sich ohne die Hersteller-Programme zurück, wendet das WLA
 ```
 Stick:\
 ├── go.cmd
+├── HUPilot-Setup.cmd      (Oberfläche, am Admin-PC)
 └── HUPilot\
     ├── go.ps1
     ├── config.json            (aus config.example.json – Secret, nie ins Repo)
     ├── HUPilot-WLAN.ppkg      (selbst gebaut – enthält das WLAN-Kennwort)
+    ├── Setup\                 (Oberfläche + WCD-Vorlage)
     └── logs\                  (automatisch: <Seriennr>_<Zeit>.log, protokoll.csv)
 ```
 
 | Ordner im Repo | Inhalt |
 |---|---|
 | `Stick\` | Dateien für den Stick |
-| `WCD-Vorlage\` | WCD-Projekt *nur WLAN* mit Platzhaltern |
-| `Tools\HUPilot-Setup.cmd` | Oberfläche: Verbindung testen, Stick schreiben, WLAN-Paket per `ICD.exe` bauen |
+| `Stick\HUPilot\Setup\` | Setup-Oberfläche und WCD-Vorlage *nur WLAN* (reist mit dem Stick) |
+| `HUPilot-Setup.cmd` (Stick) / `Tools\HUPilot-Setup.cmd` (Repo) | Oberfläche: Verbindung testen, Stick schreiben bzw. auf weitere Sticks klonen, WLAN-Paket per `ICD.exe` bauen |
 | `Tools\New-WcdProjekt.ps1` | setzt WLAN-Name/-Kennwort aus `config.json` in die Vorlage ein |
 | `Tools\Diagnose.cmd` | Diagnose im OOBE (ändert nichts) |
 

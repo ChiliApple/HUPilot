@@ -8,7 +8,7 @@ Entra Admin Center › App-Registrierungen › **Neue Registrierung**
 4. Anwendungs-(Client-)ID und Verzeichnis-(Mandanten-)ID notieren
 
 ## 2. Stick vorbereiten
-**Am einfachsten:** `Tools\HUPilot-Setup.cmd` starten (fragt nach Adminrechten) – Felder ausfüllen, *Verbindung testen*, *Stick schreiben*, *WLAN-Paket bauen*. Das Paket wird mit `ICD.exe` aus dem **Windows ADK** gebaut; ohne ADK: Schritt 3 von Hand.
+**Am einfachsten:** Inhalt von `Stick\` auf den Stick kopieren und **`HUPilot-Setup.cmd`** im Stick-Hauptverzeichnis starten (oder `Tools\HUPilot-Setup.cmd` im Repo) (fragt nach Adminrechten) – Felder ausfüllen, *Verbindung testen*, *Stick schreiben*, *WLAN-Paket bauen*. Das Paket wird mit `ICD.exe` aus dem **Windows ADK** gebaut; ohne ADK: Schritt 3 von Hand.
 
 Von Hand:
 1. Inhalt von `Stick\` ins Hauptverzeichnis des Sticks kopieren (`go.cmd` und Ordner `HUPilot\`)
@@ -31,7 +31,7 @@ Von Hand:
 Das Paket enthält **nur** das Konfigurations-WLAN. go.ps1 wendet es vor dem Zurücksetzen an; Windows behält es beim Zurücksetzen (*doWipePersistProvisionedData*) und verbindet danach im Einrichtungsbildschirm von selbst.
 1. WCD installieren (Microsoft Store oder Windows ADK)
 2. `powershell -ExecutionPolicy Bypass -File Tools\New-WcdProjekt.ps1` – liest WLAN-Name und -Kennwort aus `config.json` am Stick (oder fragt nach) und erzeugt `WCD-Projekt\HUPilot-WLAN\`
-   (ohne Script: in `WCD-Vorlage\HUPilot-WLAN\customizations.xml` die Platzhalter `WLAN-NAME` und `WLAN-KENNWORT` mit einem Editor ersetzen)
+   (ohne Script: in `Stick\HUPilot\Setup\WCD-Vorlage\HUPilot-WLAN\customizations.xml` die Platzhalter `WLAN-NAME` und `WLAN-KENNWORT` mit einem Editor ersetzen)
 3. WCD › **Projekt öffnen** › `HUPilot-WLAN.icdproj.xml` › **Exportieren › Bereitstellungspaket** › ohne Verschlüsselung und Signatur
 4. Paket als `HUPilot-WLAN.ppkg` nach `Stick:\HUPilot\` speichern
 

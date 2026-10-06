@@ -48,12 +48,12 @@ Step 'JSON und XML lesbar' {
 }
 
 Step 'WCD-Vorlage: nur WLAN (kein CleanPC), Platzhalter' {
-    [xml]$x = Get-Content (Join-Path $root 'WCD-Vorlage\HUPilot-WLAN\customizations.xml') -Raw -Encoding UTF8
+    [xml]$x = Get-Content (Join-Path $root 'Stick\HUPilot\Setup\WCD-Vorlage\HUPilot-WLAN\customizations.xml') -Raw -Encoding UTF8
     $common = $x.WindowsCustomizations.Settings.Customizations.Common
     $names = @($common.ChildNodes | ForEach-Object { $_.LocalName })
     $extra = @($names | Where-Object { $_ -ne 'ConnectivityProfiles' })
     if ($extra.Count) { throw "nicht erlaubt: $($extra -join ', ')" }
-    $raw = Get-Content (Join-Path $root 'WCD-Vorlage\HUPilot-WLAN\customizations.xml') -Raw
+    $raw = Get-Content (Join-Path $root 'Stick\HUPilot\Setup\WCD-Vorlage\HUPilot-WLAN\customizations.xml') -Raw
     if ($raw -notmatch 'SSID="WLAN-NAME"' -or $raw -notmatch '<SecurityKey>WLAN-KENNWORT</SecurityKey>') { throw 'Platzhalter fehlen' }
 }
 

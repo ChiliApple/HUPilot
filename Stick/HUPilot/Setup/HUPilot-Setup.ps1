@@ -7,7 +7,9 @@
     - Stick schreiben: go.cmd, HUPilot\go.ps1, HUPilot\config.json
     - WLAN-Paket bauen: ICD.exe /Build-ProvisioningPackage -> Stick:\HUPilot\HUPilot-WLAN.ppkg
 .NOTES
-    Start: Tools\HUPilot-Setup.cmd (fragt nach Administratorrechten - noetig fuer ICD.exe)
+    Start: Stick:\HUPilot-Setup.cmd oder Repo: Tools\HUPilot-Setup.cmd (fragt nach Adminrechten - noetig fuer ICD.exe)
+    Vom Stick gestartet: dieser Stick ist vorausgewaehlt, config.json wird automatisch geladen.
+    Auf einen anderen Stick: kopiert go.cmd, HUPilot-Setup.cmd, go.ps1, Setup\ und schreibt config.json.
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -23,10 +25,13 @@ try {
     Add-Type -Name Win -Namespace HUPilot -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);'
     [void][HUPilot.Win]::ShowWindow([HUPilot.Win]::GetConsoleWindow(), 0)
 } catch { }
-$root     = Split-Path $PSScriptRoot -Parent
-$srcStick = Join-Path $root 'Stick'
+# Laeuft vom Stick (X:\HUPilot\Setup) oder aus dem Repo (Stick\HUPilot\Setup)
+$srcHU    = Split-Path $PSScriptRoot -Parent
+$srcStick = Split-Path $srcHU -Parent
+$srcDrive = $null
+if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).ToUpper() }
 $icd      = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe'
-$tplXml   = Join-Path $root 'WCD-Vorlage\HUPilot-WLAN\customizations.xml'
+$tplXml   = Join-Path $PSScriptRoot 'WCD-Vorlage\HUPilot-WLAN\customizations.xml'
 $enc      = New-Object System.Text.UTF8Encoding($false)
 $script:Extra = @{}
 
@@ -92,7 +97,10 @@ function Update-Drives {
     foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
         try { if ($d.IsReady -and $d.DriveType -eq 'Removable') { [void]$ui.cDrive.Items.Add(('{0} {1} ({2:N1} GB)' -f $d.Name.TrimEnd('\'), $d.VolumeLabel, ($d.TotalSize / 1GB))) } } catch { }
     }
-    if ($ui.cDrive.Items.Count) { $ui.cDrive.SelectedIndex = 0 } else { Out-Log 'Kein USB-Stick gefunden.' }
+    if ($ui.cDrive.Items.Count) {
+        $ui.cDrive.SelectedIndex = 0
+        for ($i = 0; $i -lt $ui.cDrive.Items.Count; $i++) { if ($srcDrive -and ([string]$ui.cDrive.Items[$i]).StartsWith($srcDrive)) { $ui.cDrive.SelectedIndex = $i } }
+    } else { Out-Log 'Kein USB-Stick gefunden.' }
 }
 function Get-Cfg {
     $choices = @($ui.tTagChoices.Text -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -158,11 +166,16 @@ $ui.bWrite.Add_Click({
     try {
         $dst = Join-Path $dr 'HUPilot'
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
-        Copy-Item -Path (Join-Path $srcStick 'go.cmd') -Destination (Join-Path $dr 'go.cmd') -Force
-        Copy-Item -Path (Join-Path $srcStick 'HUPilot\go.ps1') -Destination (Join-Path $dst 'go.ps1') -Force
+        if ($srcDrive -eq $dr.ToUpper()) {
+            Out-Log 'Setup laeuft von diesem Stick - Scripts sind schon drauf, nur config.json wird geschrieben'
+        } else {
+            foreach ($f in 'go.cmd', 'HUPilot-Setup.cmd') { $s = Join-Path $srcStick $f; if (Test-Path $s) { Copy-Item -Path $s -Destination (Join-Path $dr $f) -Force } }
+            Copy-Item -Path (Join-Path $srcHU 'go.ps1') -Destination (Join-Path $dst 'go.ps1') -Force
+            Copy-Item -Path $PSScriptRoot -Destination $dst -Recurse -Force
+        }
         $json = (Get-Cfg | ConvertTo-Json -Depth 3)
         [System.IO.File]::WriteAllText((Join-Path $dst 'config.json'), $json, $enc)
-        Out-Log ('Stick geschrieben: ' + $dr + '\go.cmd, ' + $dst + '\go.ps1, config.json')
+        Out-Log ('Stick geschrieben: ' + $dr + '  (go.cmd, HUPilot-Setup.cmd, HUPilot\go.ps1, HUPilot\Setup\, config.json)')
         $rootPkg = @(Get-ChildItem -Path ($dr + '\') -Filter *.ppkg -File -ErrorAction SilentlyContinue)
         if ($rootPkg.Count) { Out-Log ('ACHTUNG: .ppkg im Hauptverzeichnis entfernen (wird sonst im OOBE angewendet): ' + (($rootPkg | ForEach-Object { $_.Name }) -join ', ')) }
     } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
@@ -199,5 +212,6 @@ $ui.bPkg.Add_Click({
 })
 
 Update-Drives
+if ($srcDrive -and (Test-Path (Join-Path $srcStick 'HUPilot\config.json'))) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - Windows ADK installieren' }))
 [void]$win.ShowDialog()

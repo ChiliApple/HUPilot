@@ -15,7 +15,7 @@ param([string]$ConfigPath = '')
 
 $ErrorActionPreference = 'Stop'
 $root   = Split-Path $PSScriptRoot -Parent
-$vorl   = Join-Path $root 'WCD-Vorlage\HUPilot-WLAN'
+$vorl   = Join-Path $root 'Stick\HUPilot\Setup\WCD-Vorlage\HUPilot-WLAN'
 $ziel   = Join-Path $root 'WCD-Projekt\HUPilot-WLAN'
 
 $ssid = ''; $key = ''
