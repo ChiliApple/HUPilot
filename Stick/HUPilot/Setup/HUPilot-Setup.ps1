@@ -343,12 +343,20 @@ $ui.bPkg.Add_Click({
         $store = Join-Path (Split-Path $icd -Parent) 'Microsoft-Common-Provisioning.dat'
         $icdArgs = @('/Build-ProvisioningPackage', ('/CustomizationXML:"' + $xmlPath + '"'), ('/PackagePath:"' + $ppkg + '"'), ('/StoreFile:"' + $store + '"'), '+Overwrite')
         Out-Log 'ICD.exe baut das Paket ...'
-        $p = Start-Process -FilePath $icd -ArgumentList $icdArgs -Wait -PassThru -WindowStyle Hidden -WorkingDirectory $work
+        $outF = Join-Path $work 'icd-out.txt'; $errF = Join-Path $work 'icd-err.txt'
+        $p = Start-Process -FilePath $icd -ArgumentList $icdArgs -Wait -PassThru -NoNewWindow -WorkingDirectory $work -RedirectStandardOutput $outF -RedirectStandardError $errF
         if ($p.ExitCode -eq 0 -and (Test-Path $ppkg)) { Out-Log ('WLAN-Paket OK: ' + $ppkg + ' (' + (Get-Item $ppkg).Length + ' Bytes)') }
         else {
             Out-Log ('FEHLER: ICD.exe Exitcode ' + $p.ExitCode)
-            $l = Get-ChildItem -Path $work -Filter *.log -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($l) { Get-Content $l.FullName -Tail 15 | ForEach-Object { Out-Log ('  ' + $_) } }
+            $lines = @()
+            foreach ($f in @($outF, $errF) + @(Get-ChildItem -Path $work -Filter *.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })) {
+                if (Test-Path $f) { $lines += @(Get-Content -Path $f -ErrorAction SilentlyContinue | Where-Object { $_.Trim() }) }
+            }
+            foreach ($ln in @($lines | Select-Object -Last 30)) {
+                foreach ($sec in @($c.WlanKey, $c.AdminPassword)) { if ($sec) { $ln = $ln.Replace($sec, '***') } }
+                Out-Log ('  ' + $ln)
+            }
+            if (-not $lines.Count) { Out-Log '  (ICD.exe hat keine Ausgabe geliefert)' }
         }
     } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
     finally { Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue }   # enthaelt das WLAN-Kennwort
