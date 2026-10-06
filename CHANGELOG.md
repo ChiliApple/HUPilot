@@ -3,6 +3,7 @@
 ## v2.5 - 2026-10-06
 - go.ps1: WLAN-Paket schon installiert (identisch) → provtool wird übersprungen; scheitert provtool, zweiter Versuch als SYSTEM (behebt 0x80070005 bei erneutem Lauf am eingerichteten Gerät)
 - go.ps1: Log in UTF-8 (Umlaute in Profilnamen)
+- Setup *Status*: Doppelklick auf ein Gerät lädt Details live (Profilname, Zuweisungsdatum, Profilstatus) – die Liste kann nach Tag-Wechsel kurz den alten Profilstand zeigen
 - Setup: prüft beim Start automatisch das Secret und zeigt die Restlaufzeit oben unter dem Titel (rot ab 7 Tagen); Quelle steht im Protokoll
 
 ## v2.4 - 2026-10-06

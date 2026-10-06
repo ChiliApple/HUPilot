@@ -347,7 +347,7 @@ function Show-Status {
       <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bClose" Content="Schliessen" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
-    <DataGrid x:Name="dGrid" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
+    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details (Profil live nachladen)" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
 '@
@@ -375,6 +375,29 @@ function Show-Status {
     $g.cProto.Add_Click($refresh)
     $g.tFind.Add_TextChanged($refresh)
     $g.bClose.Add_Click({ $sw.Close() })
+    $g.dGrid.Add_MouseDoubleClick({
+        $it = $g.dGrid.SelectedItem; if (-not $it) { return }
+        $id = $script:ApIds[[string]$it.Seriennr]; if (-not $id) { return }
+        $tok = Get-ApiToken; if (-not $tok) { return }
+        try {
+            $d = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '?$expand=deploymentProfile') -Headers @{ Authorization = 'Bearer ' + $tok }
+            $fmt = { param($v) try { $t = [datetime]$v; if ($t.Year -gt 2000) { $t.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } else { '-' } } catch { '-' } }
+            $txt = @(
+                ('Seriennummer:      ' + $d.serialNumber),
+                ('Group Tag:         ' + $d.groupTag),
+                ('Profilstatus:      ' + $d.deploymentProfileAssignmentStatus),
+                ('Profil:            ' + $(if ($d.deploymentProfile) { $d.deploymentProfile.displayName } else { '-' })),
+                ('Profil zugewiesen: ' + (& $fmt $d.deploymentProfileAssignedDateTime)),
+                ('Intune:            ' + $d.enrollmentState),
+                ('Letzter Kontakt:   ' + (& $fmt $d.lastContactedDateTime)),
+                ('Benutzer:          ' + $it.Benutzer),
+                ('Name:              ' + $it.Name),
+                ('Modell:            ' + $d.manufacturer + ' ' + $d.model),
+                ('HUPilot:           ' + $it.HUPilot)
+            ) -join "`r`n"
+            [void][System.Windows.MessageBox]::Show($sw, $txt, ('Details ' + $d.serialNumber), 'OK', 'Information')
+        } catch { Out-Log ('Details ' + $it.Seriennr + ': ' + $_.Exception.Message) }
+    })
     $g.bCsv.Add_Click({
         $dlg = New-Object Microsoft.Win32.SaveFileDialog
         $dlg.Filter = 'CSV (*.csv)|*.csv'
@@ -445,6 +468,8 @@ $ui.bStatus.Add_Click({
     } catch { Out-Log 'Primaerer Benutzer nicht lesbar (optional: Anwendungsberechtigung DeviceManagementManagedDevices.Read.All fuer HUPilot-Upload)' }
     $proto = Read-Protokoll
     $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
+    $script:ApIds = @{}
+    foreach ($d in $all) { if ($d.serialNumber) { $script:ApIds[[string]$d.serialNumber] = [string]$d.id } }
     $rows = foreach ($d in $all) {
         $ps = [string]$d.deploymentProfileAssignmentStatus
         $prof = $(if ($ps -like 'assigned*') { 'zugewiesen' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
