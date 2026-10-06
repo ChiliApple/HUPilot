@@ -127,6 +127,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td><span class="ui">2. Speichern</span></td><td>schreibt <code>config.json</code></td></tr>
 <tr><td><span class="ui">3. WLAN-Paket bauen</span></td><td>baut <code>HUPilot-WLAN.ppkg</code> – braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i>. Ist ein <b>lokaler Admin</b> eingetragen, kommt er mit ins Paket: Er wird nach jedem Zurücksetzen angelegt, Kennwort und Konto laufen nie ab. Änderung = Paket neu bauen + Gerät mit Stick zurücksetzen.</td></tr>
 <tr><td><span class="ui">4. Auf Stick kopieren</span></td><td>kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>)</td></tr>
+<tr><td><span class="ui">Sticks vorbereiten</span></td><td>nur wenn das Setup vom PC läuft: mehrere USB-Sticks formatieren (NTFS), benennen und befüllen – gleichzeitig angesteckt oder nacheinander (tauschen → <i>Neu einlesen</i>). Interne Laufwerke werden nie angeboten.</td></tr>
 <tr><td><span class="ui">5. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken; Doppelklick = Details live</td></tr>
 <tr><td><span class="ui">Update</span></td><td>prüft beim Start auf GitHub, ob es eine neuere Version gibt (Gold = Update da). Klick aktualisiert die Programmdateien im Ordner/Stick; <code>config.json</code>, WLAN-Paket und <code>logs</code> bleiben.</td></tr>
 </table>

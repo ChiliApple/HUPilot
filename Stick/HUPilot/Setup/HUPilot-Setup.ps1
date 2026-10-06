@@ -122,6 +122,7 @@ $script:Extra = @{}
       <TextBlock Text="Ziel-Stick:" VerticalAlignment="Center" Margin="16,0,6,0"/>
       <ComboBox x:Name="cDrive" ToolTip="Ziel-Stick fuer 4. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000" Width="180"/>
       <Button x:Name="bReload" ToolTip="USB-Laufwerke neu einlesen." ToolTipService.ShowDuration="30000" Content="Aktualisieren" Margin="6,0,0,0" Padding="8,2"/>
+      <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC laeuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befuellen. ALLE Daten auf den gewaehlten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Margin="16,0,0,0" Padding="8,2"/>
     </StackPanel>
     <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
       <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Content="1. Verbindung testen" Padding="10,4"/>
@@ -139,7 +140,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer + '   (go.ps1 v' + $GoVer + ')'
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -195,6 +196,111 @@ $ShowHelp = {
     if (Test-Path $f) { Start-Process -FilePath $f } else { Out-Log ('Anleitung fehlt: ' + $f) }
 }
 $ui.bHelp.Add_Click($ShowHelp)
+
+# ---------- Sticks vorbereiten (nur wenn das Setup vom PC laeuft): formatieren + benennen + befuellen ----------
+$script:SrcOnUsb = $false
+$script:SrcDisk  = -1
+try {
+    $q = (Split-Path $srcStick -Qualifier).TrimEnd(':')
+    $sd = Get-Partition -DriveLetter $q -ErrorAction Stop | Get-Disk -ErrorAction Stop
+    $script:SrcDisk = [int]$sd.Number
+    if ([string]$sd.BusType -eq 'USB') { $script:SrcOnUsb = $true }
+} catch { }
+if ($srcDrive -and ([System.IO.DriveInfo]::new($srcDrive)).DriveType -eq 'Removable') { $script:SrcOnUsb = $true }
+if ($script:SrcOnUsb) { $ui.bPrep.Visibility = 'Collapsed' }
+
+function Get-UsbSticks {
+    $res = @()
+    foreach ($v in @(Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter })) {
+        try {
+            $dl = ([string]$v.DriveLetter).ToUpper()
+            $disk = Get-Partition -DriveLetter $dl -ErrorAction Stop | Get-Disk -ErrorAction Stop
+            if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { continue }
+            $res += [pscustomobject]@{
+                Letter = $dl; Disk = [int]$disk.Number
+                Text   = ('{0}:  {1,-12} {2,-6} {3,6:N1} GB   {4}' -f $dl, $(if ($v.FileSystemLabel) { $v.FileSystemLabel } else { '(ohne Name)' }), $v.FileSystem, ($v.Size / 1GB), $disk.FriendlyName)
+            }
+        } catch { }
+    }
+    return $res
+}
+
+function Show-PrepSticks {
+    [xml]$px = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot - Sticks vorbereiten" Width="720" Height="560" WindowStartupLocation="CenterOwner" FontSize="13">
+  <DockPanel Margin="12">
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="Firebrick" FontWeight="SemiBold" Margin="0,0,0,8"
+      Text="ACHTUNG: Die gewaehlten USB-Sticks werden FORMATIERT - alle Daten darauf gehen verloren. Interne Laufwerke und der Quell-Datentraeger werden nie angezeigt."/>
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+      <TextBlock Text="Name:" VerticalAlignment="Center"/>
+      <TextBox x:Name="tLabel" Width="120" Margin="6,0,0,0" MaxLength="11" ToolTip="Laufwerksname (max. 11 Zeichen, keine Sonderzeichen)."/>
+      <TextBlock Text="Dateisystem:" VerticalAlignment="Center" Margin="16,0,0,0"/>
+      <ComboBox x:Name="cFs" Width="90" Margin="6,0,0,0" ToolTip="NTFS empfohlen. FAT32 nur bis 32 GB."/>
+      <Button x:Name="bScan" Content="Neu einlesen" Padding="8,2" Margin="16,0,0,0" ToolTip="Sticks tauschen, dann neu einlesen."/>
+      <Button x:Name="bAll" Content="Alle waehlen" Padding="8,2" Margin="6,0,0,0"/>
+    </StackPanel>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Button x:Name="bGo" Content="Gewaehlte formatieren + befuellen" Padding="10,4" FontWeight="SemiBold"/>
+      <Button x:Name="bClose" Content="Schliessen" Padding="10,4" Margin="8,0,0,0"/>
+    </StackPanel>
+    <TextBox x:Name="tPLog" DockPanel.Dock="Bottom" Height="150" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+    <ListBox x:Name="lSticks" SelectionMode="Multiple" FontFamily="Consolas"/>
+  </DockPanel>
+</Window>
+'@
+    $pw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $px))
+    $pw.Owner = $win
+    if ($win.Icon) { $pw.Icon = $win.Icon }
+    $g = @{}; foreach ($n in 'tLabel','cFs','bScan','bAll','bGo','bClose','tPLog','lSticks') { $g[$n] = $pw.FindName($n) }
+    foreach ($f in 'NTFS', 'exFAT', 'FAT32') { [void]$g.cFs.Items.Add($f) }
+    $g.cFs.SelectedIndex = 0
+    $g.tLabel.Text = 'HUPILOT'
+    $script:PrepList = @()
+    $plog = { param($m) $g.tPLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $g.tPLog.ScrollToEnd(); $pw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+    $scan = {
+        $g.lSticks.Items.Clear()
+        $script:PrepList = @(Get-UsbSticks)
+        foreach ($st in $script:PrepList) { [void]$g.lSticks.Items.Add($st.Text) }
+        & $plog ('' + $script:PrepList.Count + ' USB-Stick(s) gefunden')
+    }
+    $g.bScan.Add_Click($scan)
+    $g.bAll.Add_Click({ $g.lSticks.SelectAll() })
+    $g.bClose.Add_Click({ $pw.Close() })
+    $g.bGo.Add_Click({
+        $sel = @(); foreach ($i in @($g.lSticks.SelectedItems)) { $sel += @($script:PrepList | Where-Object { $_.Text -eq [string]$i }) }
+        if (-not $sel.Count) { & $plog 'Keinen Stick gewaehlt (anklicken).'; return }
+        $label = $g.tLabel.Text.Trim(); $fs = [string]$g.cFs.SelectedItem
+        if ($label -notmatch '^[A-Za-z0-9_-]{1,11}$') { & $plog 'Name ungueltig (1-11 Zeichen: Buchstaben, Ziffern, - _)'; return }
+        if (-not (Save-Cfg)) { & $plog 'Config nicht gespeichert - siehe Hauptfenster'; return }
+        if (-not (Test-Path $srcPkg)) { & $plog 'Hinweis: kein WLAN-Paket in der Quelle (3. WLAN-Paket bauen)' }
+        $list = ($sel | ForEach-Object { '   ' + $_.Text }) -join "`r`n"
+        $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning')
+        if ($q -ne 'Yes') { return }
+        $ok = 0
+        foreach ($st in $sel) {
+            $dl = $st.Letter
+            try {
+                # Sicherheitscheck direkt vor dem Formatieren erneut
+                $disk = Get-Partition -DriveLetter $dl -ErrorAction Stop | Get-Disk -ErrorAction Stop
+                if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { throw 'kein reiner USB-Stick mehr - uebersprungen' }
+                if ($fs -eq 'FAT32' -and (Get-Volume -DriveLetter $dl).Size -gt 32GB) { throw 'FAT32 nur bis 32 GB - NTFS waehlen' }
+                & $plog ($dl + ': formatiere ...')
+                Format-Volume -DriveLetter $dl -FileSystem $fs -NewFileSystemLabel $label -Force -Confirm:$false -ErrorAction Stop | Out-Null
+                & $plog ($dl + ': kopiere HUPilot ...')
+                if (Copy-ToStick ($dl + ':')) { & $plog ($dl + ': OK - fertig, abziehen'); $ok++ } else { & $plog ($dl + ': FEHLER beim Kopieren') }
+            } catch { & $plog ($dl + ': FEHLER ' + $_.Exception.Message) }
+        }
+        & $plog ('Fertig: ' + $ok + ' von ' + $sel.Count + ' Stick(s). Naechste Sticks anstecken -> Neu einlesen.')
+        Out-Log ('Sticks vorbereitet: ' + $ok + ' von ' + $sel.Count)
+        & $scan
+    })
+    & $scan
+    [void]$pw.ShowDialog()
+    Update-Drives
+}
+$ui.bPrep.Add_Click({ Show-PrepSticks })
 
 # ---------- Online-Versionserkennung + Update (oeffentliches GitHub-Repo, kein Token) ----------
 $script:GhRepo    = 'ChiliApple/HUPilot'
@@ -352,21 +458,25 @@ function Save-Cfg {
 
 $ui.bWrite.Add_Click({ [void](Save-Cfg) })
 
-$ui.bCopy.Add_Click({
-    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewaehlt'; return }
-    if (-not (Save-Cfg)) { return }
-    if (-not (Test-Path $srcPkg)) { Out-Log 'ACHTUNG: kein HUPilot-WLAN.ppkg in der Quelle - erst 3. WLAN-Paket bauen (oder "WlanPackage": "")' }
+function Copy-ToStick([string]$dr) {
     try {
-        foreach ($f in 'go.cmd', 'HUPilot-Setup.cmd') { $sf = Join-Path $srcStick $f; if (Test-Path $sf) { Copy-Item -Path $sf -Destination (Join-Path $dr $f) -Force } }
+        foreach ($f in 'go.cmd', 'HUPilot-Setup.cmd') { $sf = Join-Path $srcStick $f; if (Test-Path $sf) { Copy-Item -Path $sf -Destination (Join-Path $dr $f) -Force -ErrorAction Stop } }
         $dst = Join-Path $dr 'HUPilot'
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { $_.Name -ne 'logs' -and -not $_.Name.StartsWith('_') })) {
-            Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force
+            Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force -ErrorAction Stop
         }
         Out-Log ('Auf Stick kopiert: ' + $srcStick + ' -> ' + $dr + '\  (ohne logs und _Ordner)')
         $rootPkg = @(Get-ChildItem -Path ($dr + '\') -Filter *.ppkg -File -ErrorAction SilentlyContinue)
         if ($rootPkg.Count) { Out-Log ('ACHTUNG: .ppkg im Hauptverzeichnis entfernen (wird sonst im OOBE angewendet): ' + (($rootPkg | ForEach-Object { $_.Name }) -join ', ')) }
-    } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
+        return ((Test-Path (Join-Path $dr 'go.cmd')) -and (Test-Path (Join-Path $dr 'HUPilot\go.ps1')) -and (Test-Path (Join-Path $dr 'HUPilot\config.json')))
+    } catch { Out-Log ('FEHLER kopieren ' + $dr + ': ' + $_.Exception.Message); return $false }
+}
+$ui.bCopy.Add_Click({
+    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewaehlt'; return }
+    if (-not (Save-Cfg)) { return }
+    if (-not (Test-Path $srcPkg)) { Out-Log 'ACHTUNG: kein HUPilot-WLAN.ppkg in der Quelle - erst 3. WLAN-Paket bauen (oder "WlanPackage": "")' }
+    [void](Copy-ToStick $dr)
 })
 
 $ui.bPkg.Add_Click({
