@@ -38,8 +38,8 @@ $GB = 'https://graph.microsoft.com/beta'
 function Log {
     param([string]$Msg)
     $line = '{0}  [{1,5:N0}s]  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), ((Get-Date) - $Start).TotalSeconds, $Msg
-    try { Add-Content -Path $LocalLog -Value $line -Encoding ASCII } catch { }
-    if ($StickLog) { try { Add-Content -Path $StickLog -Value $line -Encoding ASCII } catch { } }
+    try { Add-Content -Path $LocalLog -Value $line -Encoding UTF8 } catch { }
+    if ($StickLog) { try { Add-Content -Path $StickLog -Value $line -Encoding UTF8 } catch { } }
 }
 function Say {
     param([string]$Msg, [string]$Color = 'Gray')
@@ -481,16 +481,24 @@ function Fail-Reset {
 }
 
 # 6a. WLAN-Paket anwenden (nur WLAN - wird beim Zuruecksetzen gesichert und danach wieder angewendet)
+$SysPkg = ''
 if ($StickPkg) {
-    $prov = Join-Path $env:SystemRoot 'System32\provtool.exe'
-    if (-not (Test-Path $prov)) { Fail-Reset 'provtool.exe nicht gefunden' }
-    Log ('provtool.exe ' + $TmpPkg + ' /quiet')
-    $pr = Start-Process -FilePath $prov -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden
-    Log ('provtool Exitcode: ' + $pr.ExitCode)
-    if ($pr.ExitCode -ne 0) { Fail-Reset ('WLAN-Paket: provtool Exitcode ' + $pr.ExitCode) }
     $persist = Join-Path $env:ProgramData ('Microsoft\Provisioning\' + $WlanPkgName)
-    if (-not (Test-Path $persist)) { Log ('Hinweis: ' + $persist + ' nicht gefunden - WLAN nach dem Zuruecksetzen evtl. von Hand') }
-    else { Log 'WLAN-Paket in ProgramData\Provisioning gespeichert' }
+    $same = $false
+    if (Test-Path $persist) {
+        try { $same = ((Get-FileHash -Path $persist -Algorithm SHA256).Hash -eq (Get-FileHash -Path $TmpPkg -Algorithm SHA256).Hash) } catch { Log ('Hash-Vergleich: ' + $_.Exception.Message) }
+    }
+    if ($same) { Log 'WLAN-Paket ist bereits installiert (identisch) - provtool uebersprungen' }
+    else {
+        $prov = Join-Path $env:SystemRoot 'System32\provtool.exe'
+        if (-not (Test-Path $prov)) { Fail-Reset 'provtool.exe nicht gefunden' }
+        Log ('provtool.exe ' + $TmpPkg + ' /quiet')
+        $pr = Start-Process -FilePath $prov -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden
+        Log ('provtool Exitcode: ' + $pr.ExitCode)
+        if ($pr.ExitCode -ne 0) { Log 'provtool fehlgeschlagen - neuer Versuch als SYSTEM im Hilfsscript'; $SysPkg = $TmpPkg }
+        elseif (-not (Test-Path $persist)) { Log ('Hinweis: ' + $persist + ' nicht gefunden - WLAN nach dem Zuruecksetzen evtl. von Hand') }
+        else { Log 'WLAN-Paket in ProgramData\Provisioning gespeichert' }
+    }
 }
 
 # 6b. Hilfsscript fuer SYSTEM schreiben (WMI-Bridge braucht LocalSystem - MS Doku)
@@ -499,6 +507,20 @@ $log = 'C:\Windows\Temp\HUPilot-Wipe.log'
 $res = 'C:\Windows\Temp\HUPilot-Wipe.result'
 function L([string]$m) { try { Add-Content -Path $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  ' + $m) -Encoding ASCII } catch { } }
 L ('Start als ' + [Environment]::UserName)
+# 0. WLAN-Paket als SYSTEM installieren (nur wenn es als Benutzer nicht ging)
+$pkg = '__SYSPKG__'
+if ($pkg) {
+    $persist = Join-Path $env:ProgramData ('Microsoft\Provisioning\' + (Split-Path $pkg -Leaf))
+    if (Test-Path $persist) {
+        try { Import-Module Provisioning -ErrorAction Stop; Remove-ProvisioningPackage -Path $persist -ErrorAction Stop | Out-Null; L 'altes WLAN-Paket entfernt' } catch { L ('altes WLAN-Paket entfernen: ' + $_.Exception.Message) }
+    }
+    $pr = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\provtool.exe') -ArgumentList ('"' + $pkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden
+    L ('provtool als SYSTEM Exitcode: ' + $pr.ExitCode)
+    $ok = $false
+    if (Test-Path $persist) { try { $ok = ((Get-FileHash -Path $persist -Algorithm SHA256).Hash -eq (Get-FileHash -Path $pkg -Algorithm SHA256).Hash) } catch { } }
+    if (-not $ok) { L 'FEHLER: WLAN-Paket nicht installiert - kein Zuruecksetzen'; Set-Content -Path $res -Value ('ERR WLAN-Paket auch als SYSTEM nicht installiert (provtool ' + $pr.ExitCode + ')') -Encoding ASCII; exit 1 }
+    L 'WLAN-Paket als SYSTEM installiert'
+}
 # 1. Persistierte Pakete mit CleanPC entfernen (wuerden nach dem Zuruecksetzen erneut zuruecksetzen)
 try {
     Import-Module Provisioning -ErrorAction Stop
@@ -541,7 +563,7 @@ try {
 '@
 try {
     Remove-Item -Path $WipeResult -Force -ErrorAction SilentlyContinue
-    Set-Content -Path $WipePs1 -Value $wipe -Encoding ASCII -ErrorAction Stop
+    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg)) -Encoding ASCII -ErrorAction Stop
 } catch { Fail-Reset ('Hilfsscript schreiben: ' + $_.Exception.Message) }
 
 Banner 'ZURUECKSETZEN STARTET' 'DarkBlue' @(
