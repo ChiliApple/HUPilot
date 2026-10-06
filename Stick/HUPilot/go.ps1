@@ -577,9 +577,37 @@ Banner 'ZURUECKSETZEN STARTET' 'DarkBlue' @(
 
 # 6c. Als SYSTEM starten (geplante Aufgabe) und auf Ergebnis warten
 $tn = 'HUPilot-Wipe'
-$tr = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File ' + $WipePs1
-$o = & schtasks.exe /Create /TN $tn /RU SYSTEM /SC ONCE /ST 23:59 /RL HIGHEST /TR $tr /F 2>&1
+# Aufgabe per XML: schtasks /SC ONCE startet sonst NICHT im Akkubetrieb (bleibt "In Warteschlange")
+$taskXml = @'
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>HUPilot - Zuruecksetzen als SYSTEM</Description></RegistrationInfo>
+  <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -File "__PS1__"</Arguments></Exec></Actions>
+</Task>
+'@
+$taskFile = Join-Path $env:SystemRoot 'Temp\HUPilot-Wipe.xml'
+try { [System.IO.File]::WriteAllText($taskFile, $taskXml.Replace('__PS1__', $WipePs1), [System.Text.Encoding]::Unicode) } catch { Fail-Reset ('Aufgaben-XML schreiben: ' + $_.Exception.Message) }
+& schtasks.exe /Delete /TN $tn /F 2>&1 | Out-Null
+$o = & schtasks.exe /Create /TN $tn /XML $taskFile /F 2>&1
 Log ('schtasks create: ' + (($o | Out-String).Trim()))
+if ($LASTEXITCODE -ne 0) { Fail-Reset ('Geplante Aufgabe anlegen: ' + (($o | Out-String).Trim())) }
 $o = & schtasks.exe /Run /TN $tn 2>&1
 Log ('schtasks run: ' + (($o | Out-String).Trim()))
 $res = ''

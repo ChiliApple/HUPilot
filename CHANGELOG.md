@@ -1,6 +1,7 @@
 # Changelog
 
 ## v2.5 - 2026-10-06
+- go.ps1: SYSTEM-Aufgabe per XML – startet jetzt auch im Akkubetrieb (vorher „In Warteschlange“ → keine Rückmeldung)
 - go.ps1: grünes „STICK ABZIEHEN“ bleibt mindestens 60 s stehen
 - Setup: optionaler **lokaler Admin** (Name/Kennwort in `config.json`) – kommt per ProvisioningCommands ins WLAN-Paket und wird nach jedem Zurücksetzen angelegt; Kennwort und Konto laufen nie ab
 - go.ps1: WLAN-Paket schon installiert (identisch) → provtool wird übersprungen; scheitert provtool, zweiter Versuch als SYSTEM (behebt 0x80070005 bei erneutem Lauf am eingerichteten Gerät)
