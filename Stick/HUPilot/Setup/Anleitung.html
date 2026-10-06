@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HUPilot – Anleitung</title>
+<style>
+:root{
+  --bg:#eff1f5;--panel:#ffffff;--panel2:#e6e9ef;--text:#4c4f69;--sub:#6c6f85;--line:#ccd0da;
+  --blue:#1e66f5;--green:#40a02b;--peach:#fe640b;--red:#d20f39;--mauve:#8839ef;--teal:#179299;--yellow:#df8e1d;
+  --accent:#b9a88a;--shadow:0 2px 10px rgba(76,79,105,.08);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11111b;--panel:#1e1e2e;--panel2:#181825;--text:#cdd6f4;--sub:#a6adc8;--line:#313244;
+  --blue:#89b4fa;--green:#a6e3a1;--peach:#fab387;--red:#f38ba8;--mauve:#cba6f7;--teal:#94e2d5;--yellow:#f9e2af;--shadow:0 2px 12px rgba(0,0,0,.35);
+}}
+:root[data-theme="dark"]{
+  --bg:#11111b;--panel:#1e1e2e;--panel2:#181825;--text:#cdd6f4;--sub:#a6adc8;--line:#313244;
+  --blue:#89b4fa;--green:#a6e3a1;--peach:#fab387;--red:#f38ba8;--mauve:#cba6f7;--teal:#94e2d5;--yellow:#f9e2af;--shadow:0 2px 12px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:10px 20px;background:var(--panel);border-bottom:2px solid var(--accent);box-shadow:var(--shadow)}
+header img{width:44px;height:44px}
+header .t{font-size:22px;font-weight:700;line-height:1.1}
+header .s{font-size:12px;color:var(--sub)}
+header .sp{flex:1}
+#q{width:260px;max-width:40vw;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font:inherit}
+.tbtn{padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer;font:inherit}
+.wrap{display:grid;grid-template-columns:270px 1fr;max-width:1400px;margin:0 auto}
+nav{position:sticky;top:66px;align-self:start;height:calc(100vh - 66px);overflow:auto;padding:18px 10px 40px 18px;border-right:1px solid var(--line)}
+nav a{display:block;padding:4px 10px;border-radius:6px;color:var(--text);font-size:14px}
+nav a:hover{background:var(--panel2);text-decoration:none}
+nav a.l2{padding-left:24px;font-size:13px;color:var(--sub)}
+nav a.act{background:var(--panel2);color:var(--blue);font-weight:600}
+main{padding:24px 36px 80px;min-width:0}
+section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 28px;margin:0 0 22px;box-shadow:var(--shadow)}
+h1{font-size:28px;margin:0 0 6px}
+h2{font-size:22px;margin:0 0 12px}
+h2 .n{display:inline-grid;place-items:center;width:32px;height:32px;margin-right:10px;vertical-align:2px;border-radius:50%;background:var(--accent);color:#1e1e2e;font-size:15px}
+h3{font-size:17px;margin:22px 0 8px;color:var(--blue)}
+p{margin:8px 0}
+.lead{color:var(--sub);font-size:16px}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{background:var(--panel2);font-weight:600}
+tr:hover td{background:color-mix(in srgb,var(--panel2) 55%,transparent)}
+.ui{display:inline-block;padding:0 8px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);font-size:13px;font-weight:600;white-space:nowrap}
+.ui.g{border-color:var(--green);color:var(--green)}.ui.r{border-color:var(--red);color:var(--red)}.ui.b{border-color:var(--blue);color:var(--blue)}
+.ui.p{border-color:var(--peach);color:var(--peach)}.ui.m{border-color:var(--mauve);color:var(--mauve)}.ui.t{border-color:var(--teal);color:var(--teal)}
+kbd{padding:1px 7px;border-radius:5px;border:1px solid var(--line);border-bottom-width:2px;background:var(--panel2);font:12px Consolas,monospace}
+code{font:13px Consolas,monospace;background:var(--panel2);padding:1px 5px;border-radius:4px}
+.note{border-left:4px solid var(--blue);background:var(--panel2);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
+.note.tip{border-color:var(--green)}.note.warn{border-color:var(--peach)}.note.stop{border-color:var(--red)}
+.note b.h{display:block;margin-bottom:2px}
+.steps{counter-reset:s;list-style:none;padding:0;margin:12px 0}
+.steps>li{counter-increment:s;position:relative;padding:4px 0 10px 46px;min-height:36px}
+.steps>li::before{content:counter(s);position:absolute;left:0;top:2px;width:32px;height:32px;border-radius:50%;background:var(--blue);color:var(--panel);display:grid;place-items:center;font-weight:700}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin:12px 0}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card b{display:block;margin-bottom:4px}
+.card.g{border-top:4px solid var(--green)}.card.b{border-top:4px solid var(--blue)}.card.p{border-top:4px solid var(--peach)}.card.m{border-top:4px solid var(--mauve)}.card.t{border-top:4px solid var(--teal)}.card.r{border-top:4px solid var(--red)}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0}
+.flow span{padding:8px 14px;border-radius:20px;background:var(--panel2);border:1px solid var(--line);font-weight:600;font-size:14px}
+.flow i{color:var(--sub);font-style:normal}
+.hide{display:none!important}
+figure{margin:14px 0}figure img{max-width:100%;border-radius:10px;border:1px solid var(--line);box-shadow:var(--shadow);cursor:zoom-in}figure figcaption{color:var(--sub);font-size:13px;margin-top:4px}
+mark{background:var(--yellow);color:#1e1e2e;border-radius:3px}
+footer{color:var(--sub);font-size:12px;text-align:center;padding:10px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}nav{display:none}main{padding:16px}section{padding:18px 16px}#q{width:150px}}
+@media print{header,nav,#q,.tbtn{display:none!important}.wrap{display:block}section{box-shadow:none;break-inside:avoid-page}body{background:#fff;color:#000}}
+
+.step{display:grid;grid-template-columns:34px 1fr;gap:10px;margin:8px 0}
+.step b.k{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#1e1e2e}
+.c{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.warn{border-left:4px solid var(--peach);background:var(--panel2);padding:8px 12px;border-radius:6px;margin:10px 0}
+code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}nav{display:none}main{padding:16px}}
+</style>
+</head>
+<body>
+<header>
+  <img src="logo64.png" alt="">
+  <div><div class="t">HUPilot</div><div class="s">Windows Autopilot per USB-Stick – Anleitung</div></div>
+  <div class="sp"></div>
+</header>
+<div class="wrap">
+<nav>
+  <a href="#ueberblick">Überblick</a>
+  <a href="#vorbereitung">1 · Vorbereitung</a>
+  <a class="l2" href="#app">App-Registrierung</a>
+  <a class="l2" href="#setup">Setup-Oberfläche</a>
+  <a class="l2" href="#intune">Intune</a>
+  <a href="#geraet">2 · Am Gerät</a>
+  <a href="#danach">3 · Nach dem Einsatz</a>
+  <a href="#fehler">4 · Fehlersuche</a>
+</nav>
+<main>
+
+<section id="ueberblick">
+<h1>Überblick</h1>
+<p class="lead">Neues Gerät im ersten Einrichtungsbildschirm → <code>Shift+F10</code> → <code>D:\go</code>. Der Hardware-Hash wird mit Group Tag in Autopilot importiert, danach setzt sich das Gerät ohne Hersteller-Programme zurück und startet die Autopilot-Anmeldung.</p>
+<table>
+<tr><th>Stick</th><th>Inhalt</th></tr>
+<tr><td><code>go.cmd</code></td><td>Start am Schülergerät</td></tr>
+<tr><td><code>HUPilot-Setup.cmd</code></td><td>Oberfläche am Admin-PC</td></tr>
+<tr><td><code>HUPilot\config.json</code></td><td>Tenant, App, Secret, Tags, WLAN</td></tr>
+<tr><td><code>HUPilot\HUPilot-WLAN.ppkg</code></td><td>WLAN für die Einrichtung nach dem Zurücksetzen</td></tr>
+<tr><td><code>HUPilot\logs\</code></td><td>Log je Gerät + <code>protokoll.csv</code></td></tr>
+</table>
+</section>
+
+<section id="vorbereitung">
+<h2><span class="n">1</span>Vorbereitung</h2>
+<h3 id="app">App-Registrierung (einmal je Tenant)</h3>
+<div class="step"><b class="k">1</b><div>Entra › App-Registrierungen › <span class="ui">Neue Registrierung</span> › Name <code>HUPilot-Upload</code>, nur dieses Verzeichnis, keine Umleitungs-URI.</div></div>
+<div class="step"><b class="k">2</b><div>API-Berechtigungen › Microsoft Graph › <b>Anwendung</b> › <code>DeviceManagementServiceConfig.ReadWrite.All</code> › <span class="ui">Administratorzustimmung erteilen</span>.<br>Optional (nur Lesen): <code>Application.Read.All</code> → Secret-Ablauf, <code>DeviceManagementManagedDevices.Read.All</code> → Benutzer in der Status-Liste.</div></div>
+<div class="step"><b class="k">3</b><div>Zertifikate &amp; Geheimnisse › neues Secret, <b>kurz gültig</b> (wenige Tage) › den <b>Wert</b> kopieren, nicht die ID.</div></div>
+
+<h3 id="setup">Setup-Oberfläche</h3>
+<p><code>HUPilot-Setup.cmd</code> arbeitet immer mit dem Ordner, aus dem es gestartet wird (Stick oder Vorbereitungsordner am PC, z. B. je Schule einer).</p>
+<table>
+<tr><th>Knopf</th><th>Wirkung</th></tr>
+<tr><td><span class="ui">1. Verbindung testen</span></td><td>Anmeldung mit App + Secret, Autopilot-Zugriff, Ablauf des Secrets</td></tr>
+<tr><td><span class="ui">2. Speichern</span></td><td>schreibt <code>config.json</code></td></tr>
+<tr><td><span class="ui">3. WLAN-Paket bauen</span></td><td>baut <code>HUPilot-WLAN.ppkg</code> – braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i></td></tr>
+<tr><td><span class="ui">4. Auf Stick kopieren</span></td><td>kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>)</td></tr>
+<tr><td><span class="ui">5. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken</td></tr>
+</table>
+<div class="warn">Kein <code>.ppkg</code> ins Hauptverzeichnis des Sticks legen – Windows wendet es sonst im Einrichtungsbildschirm von selbst an. Das WLAN-Paket enthält <b>nur</b> das WLAN, nie CleanPC.</div>
+
+<h3 id="intune">Intune</h3>
+<ul>
+<li>Dynamische Gerätegruppe je Tag, z. B. <code>(device.devicePhysicalIds -any (_ -eq "[OrderID]:SN-2026"))</code>, Autopilot-Profil zuweisen.</li>
+<li>Empfohlen: Kontoeinrichtung überspringen – benutzerdefiniertes Profil an die Gerätegruppen: <code>./Vendor/MSFT/DMClient/Provider/MS DM Server/FirstSyncStatus/SkipUserStatusPage</code>, Boolesch, <code>True</code>.</li>
+</ul>
+</section>
+
+<section id="geraet">
+<h2><span class="n">2</span>Am Gerät</h2>
+<div class="step"><b class="k">1</b><div>Gerät einschalten bis zum ersten Einrichtungsbildschirm, <b>Netzteil anstecken</b>, Stick anstecken.</div></div>
+<div class="step"><b class="k">2</b><div><code>Shift+F10</code> (ggf. <code>Fn+Shift+F10</code>) → <code>D:\go</code> (anderer Laufwerksbuchstabe: <code>E:\go</code> …).</div></div>
+<div class="step"><b class="k">3</b><div>Tag wählen (Enter = Standard, Ziffer = Auswahl) und „zurücksetzen?“ (Enter = Standard, <code>N</code> = nur hochladen) – je 10 s, dann automatisch.</div></div>
+<div class="step"><b class="k">4</b><div>Bei <b>grün</b> Stick abziehen → nächstes Gerät. Das Gerät wartet auf das Autopilot-Profil und setzt sich selbst zurück.</div></div>
+<table>
+<tr><th>Farbe</th><th>Bedeutung</th></tr>
+<tr><td><span class="c" style="background:#40a02b"></span>Grün</td><td>Upload fertig – Stick abziehen</td></tr>
+<tr><td><span class="c" style="background:#df8e1d"></span>Gelb</td><td>Netzteil fehlt (wartet) · Profil nach 20 Min nicht zugewiesen (<code>J</code>/<code>N</code>)</td></tr>
+<tr><td><span class="c" style="background:#1e66f5"></span>Blau</td><td>Zurücksetzen startet</td></tr>
+<tr><td><span class="c" style="background:#d20f39"></span>Rot</td><td>Fehler – <b>nichts</b> zurückgesetzt, Grund steht am Bildschirm. Nochmal <code>D:\go</code>. Bei „Gerät ist schon eingerichtet“ nur mit <code>LOESCHEN</code> weiter.</td></tr>
+</table>
+</section>
+
+<section id="danach">
+<h2><span class="n">3</span>Nach dem Einsatz</h2>
+<ul>
+<li><span class="ui">5. Status</span> im Setup: welche Geräte registriert sind, welche noch offen – als CSV oder Ausdruck.</li>
+<li>Secret erneuern (QS-Script oder Entra), alte Secrets löschen.</li>
+<li>Per Intune-Wartung: Config-WLAN und WLAN-Paket sowie <code>C:\Recovery\HUPilot-OEM-Backup</code> entfernen; Hersteller-Store-Apps ggf. deinstallieren.</li>
+</ul>
+</section>
+
+<section id="fehler">
+<h2><span class="n">4</span>Fehlersuche</h2>
+<table>
+<tr><th>Meldung / Problem</th><th>Lösung</th></tr>
+<tr><td>Secret ABGELAUFEN / FALSCH</td><td>neues Secret (Wert, nicht ID), im Setup eintragen, speichern, auf Stick kopieren</td></tr>
+<tr><td>Kein Internet nach 2 Min</td><td>WLAN-Reichweite, Kennwort, Firewall (Autopilot/Intune-Adressen freigeben); LAN mit 802.1X geht nicht</td></tr>
+<tr><td>Gerät ist in einem anderen Tenant</td><td>beim anderen Tenant/Händler aus Autopilot entfernen lassen</td></tr>
+<tr><td>Hängt bei „Kontoeinrichtung“</td><td>SkipUserStatusPage (siehe Intune), Gerät neu starten</td></tr>
+<tr><td>Setup startet nicht</td><td><code>C:\Users\Public\HUPilot-Setup-Start.log</code></td></tr>
+</table>
+<p>Logs am Gerät: <code>C:\Windows\Temp\HUPilot.log</code>, <code>HUPilot-Wipe.log</code> · am Stick: <code>HUPilot\logs\</code></p>
+</section>
+
+</main>
+</div>
+</body>
+</html>

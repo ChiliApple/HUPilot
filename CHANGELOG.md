@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.4 - 2026-10-06
+- Setup: Anleitung (`HUPilot\Setup\Anleitung.html`), Knopf **?** und **F1**
+
 ## v2.3 - 2026-10-06
 - Setup *Status*: Spalten **Benutzer** (primärer Benutzer), Gerätename und letzter Sync aus Intune – optional `DeviceManagementManagedDevices.Read.All`; Suche auch nach Benutzer
 

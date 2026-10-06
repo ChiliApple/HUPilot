@@ -10,7 +10,7 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen –
   <a href="LICENSE"><img src="https://img.shields.io/badge/Lizenz-Nutzung%20frei-orange" alt="Lizenz"></a>
 </p>
 
-<p align="center"><a href="INSTALL.md"><b>Installation</b></a> · <a href="CHANGELOG.md">Änderungen</a> · <a href="LICENSE">Lizenz</a></p>
+<p align="center"><a href="Stick/HUPilot/Setup/Anleitung.html"><b>Anleitung</b></a> · <a href="INSTALL.md">Installation</a> · <a href="CHANGELOG.md">Änderungen</a> · <a href="LICENSE">Lizenz</a></p>
 
 ---
 

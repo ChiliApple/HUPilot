@@ -56,7 +56,7 @@ $srcStick = Split-Path $srcHU -Parent
 $srcDrive = $null
 if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).ToUpper() }
 $srcCfg   = Join-Path $srcHU 'config.json'
-$SetupVer = '2.3'
+$SetupVer = '2.4'
 $GoVer    = '?'
 try { $m = Select-String -Path (Join-Path $srcHU 'go.ps1') -Pattern "^\`$Ver\s*=\s*'([^']+)'" | Select-Object -First 1; if ($m) { $GoVer = $m.Matches[0].Groups[1].Value } } catch { }
 $srcPkg   = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
@@ -121,6 +121,7 @@ $script:Extra = @{}
       <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (nur das WLAN, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberflaeche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="3. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen." ToolTipService.ShowDuration="30000" Content="4. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geraete des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV und Drucken moeglich." ToolTipService.ShowDuration="30000" Content="5. Status" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bHelp" ToolTip="Anleitung oeffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="8,0,0,0"/>
     </StackPanel>
     <TextBox Grid.Row="5" x:Name="tLog" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
@@ -129,7 +130,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer + '   (go.ps1 v' + $GoVer + ')'
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -175,6 +176,12 @@ function Get-Secret { if ($ui.cShow.IsChecked) { return $ui.tSecret.Text.Trim() 
 function Set-Secret([string]$v) { $ui.pSecret.Password = $v; $ui.tSecret.Text = $v }
 $ui.cShow.Add_Checked({ $ui.tSecret.Text = $ui.pSecret.Password; $ui.pSecret.Visibility = 'Collapsed'; $ui.tSecret.Visibility = 'Visible' })
 $ui.cShow.Add_Unchecked({ $ui.pSecret.Password = $ui.tSecret.Text; $ui.tSecret.Visibility = 'Collapsed'; $ui.pSecret.Visibility = 'Visible' })
+$ShowHelp = {
+    $f = Join-Path $PSScriptRoot 'Anleitung.html'
+    if (Test-Path $f) { Start-Process -FilePath $f } else { Out-Log ('Anleitung fehlt: ' + $f) }
+}
+$ui.bHelp.Add_Click($ShowHelp)
+$win.Add_KeyDown({ if ($_.Key -eq 'F1') { & $ShowHelp } })
 $ui.bReload.Add_Click({ Update-Drives })
 
 $ui.bLoad.Add_Click({
