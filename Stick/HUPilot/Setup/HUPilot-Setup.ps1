@@ -254,19 +254,6 @@ $ui.bTest.Add_Click({
     } catch { Out-Log ('FEHLER Autopilot-Zugriff (Berechtigung DeviceManagementServiceConfig.ReadWrite.All?): ' + $_.Exception.Message) }
     Show-SecretExpiry -Token $tok
 })
-        $list = $(if ($mine.Count) { $mine } else { @($app.passwordCredentials) })
-        foreach ($pc in $list) {
-            $end = ([datetime]$pc.endDateTime).ToLocalTime()
-            $days = [int][Math]::Floor(($end - (Get-Date)).TotalDays)
-            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gueltig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + '  -> noch ' + $days + ' Tage'
-            if ($days -lt 0) { $txt = 'ACHTUNG ABGELAUFEN: ' + $txt } elseif ($days -le 7) { $txt = 'ACHTUNG BALD ABGELAUFEN: ' + $txt }
-            Out-Log $txt
-        }
-        if (-not $mine.Count) { Out-Log '  (verwendetes Secret nicht eindeutig erkannt - alle Secrets der App angezeigt)' }
-    } catch {
-        Out-Log 'Secret-Ablauf nicht lesbar (optional: Anwendungsberechtigung Application.Read.All fuer HUPilot-Upload)'
-    }
-})
 
 function Save-Cfg {
     if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey'))) { return $false }
