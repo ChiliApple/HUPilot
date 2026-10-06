@@ -127,7 +127,8 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td><span class="ui">2. Speichern</span></td><td>schreibt <code>config.json</code></td></tr>
 <tr><td><span class="ui">3. WLAN-Paket bauen</span></td><td>baut <code>HUPilot-WLAN.ppkg</code> – braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i>. Ist ein <b>lokaler Admin</b> eingetragen, kommt er mit ins Paket: Er wird nach jedem Zurücksetzen angelegt, Kennwort und Konto laufen nie ab. Änderung = Paket neu bauen + Gerät mit Stick zurücksetzen.</td></tr>
 <tr><td><span class="ui">4. Auf Stick kopieren</span></td><td>kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>)</td></tr>
-<tr><td><span class="ui">5. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken</td></tr>
+<tr><td><span class="ui">5. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken; Doppelklick = Details live</td></tr>
+<tr><td><span class="ui">Update</span></td><td>prüft beim Start auf GitHub, ob es eine neuere Version gibt (Gold = Update da). Klick aktualisiert die Programmdateien im Ordner/Stick; <code>config.json</code>, WLAN-Paket und <code>logs</code> bleiben.</td></tr>
 </table>
 <div class="warn">Kein <code>.ppkg</code> ins Hauptverzeichnis des Sticks legen – Windows wendet es sonst im Einrichtungsbildschirm von selbst an. Das WLAN-Paket enthält nur das WLAN und optional den lokalen Admin, nie CleanPC. Kennwörter stehen im Klartext in <code>config.json</code> und im Paket – Stick nicht aus der Hand geben.</div>
 
@@ -170,6 +171,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td>Kein Internet nach 2 Min</td><td>WLAN-Reichweite, Kennwort, Firewall (Autopilot/Intune-Adressen freigeben); LAN mit 802.1X geht nicht</td></tr>
 <tr><td>Gerät ist in einem anderen Tenant</td><td>beim anderen Tenant/Händler aus Autopilot entfernen lassen</td></tr>
 <tr><td>Hängt bei „Kontoeinrichtung“</td><td>SkipUserStatusPage (siehe Intune), Gerät neu starten</td></tr>
+<tr><td>WLAN-Paket von Intune gesperrt (gelb)</td><td>Richtlinie <code>AllowAddProvisioningPackage = 0</code> am bereits eingerichteten Gerät: vorhandenes WLAN-Paket bleibt, neues (z. B. mit lokalem Admin) kommt nicht mit. Frische Geräte im Einrichtungsbildschirm betrifft das nicht.</td></tr>
 <tr><td>Setup startet nicht</td><td><code>C:\Users\Public\HUPilot-Setup-Start.log</code></td></tr>
 </table>
 <p>Logs am Gerät: <code>C:\Windows\Temp\HUPilot.log</code>, <code>HUPilot-Wipe.log</code> · am Stick: <code>HUPilot\logs\</code></p>

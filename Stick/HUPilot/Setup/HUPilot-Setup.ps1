@@ -130,6 +130,7 @@ $script:Extra = @{}
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen." ToolTipService.ShowDuration="30000" Content="4. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geraete des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV und Drucken moeglich." ToolTipService.ShowDuration="30000" Content="5. Status" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bHelp" ToolTip="Anleitung oeffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="8,0,0,0"/>
+      <Button x:Name="bUpd" ToolTip="Prueft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfuegbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unveraendert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <TextBox Grid.Row="6" x:Name="tLog" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
@@ -138,7 +139,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer + '   (go.ps1 v' + $GoVer + ')'
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -194,6 +195,77 @@ $ShowHelp = {
     if (Test-Path $f) { Start-Process -FilePath $f } else { Out-Log ('Anleitung fehlt: ' + $f) }
 }
 $ui.bHelp.Add_Click($ShowHelp)
+
+# ---------- Online-Versionserkennung + Update (oeffentliches GitHub-Repo, kein Token) ----------
+$script:GhRepo    = 'ChiliApple/HUPilot'
+$script:UpdRemote = ''
+function Get-GhText([string]$Path) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $u = 'https://api.github.com/repos/' + $script:GhRepo + '/contents/' + (($Path -split '/' | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/') + '?ref=main'
+    $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $u -Headers @{ Accept = 'application/vnd.github.v3.raw'; 'User-Agent' = 'HUPilot-Setup' } -UseBasicParsing -TimeoutSec 10
+    if ($r.Content -is [byte[]]) { return [System.Text.Encoding]::UTF8.GetString($r.Content) }
+    return [string]$r.Content
+}
+function Get-GitBlobSha([string]$File) {
+    $b = [System.IO.File]::ReadAllBytes($File)
+    $h = [System.Text.Encoding]::ASCII.GetBytes('blob ' + $b.Length + [char]0)
+    $all = New-Object byte[] ($h.Length + $b.Length)
+    [Array]::Copy($h, 0, $all, 0, $h.Length); [Array]::Copy($b, 0, $all, $h.Length, $b.Length)
+    $sha = [System.Security.Cryptography.SHA1]::Create()
+    return (($sha.ComputeHash($all) | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+function Invoke-UpdateCheck {
+    $ui.bUpd.Content = 'Pruefe ...'
+    $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+    try {
+        $t = Get-GhText 'Stick/HUPilot/Setup/HUPilot-Setup.ps1'
+        if ($t -notmatch "\`$SetupVer\s*=\s*'([^']+)'") { throw 'Version im Repo nicht gefunden' }
+        $rv = $Matches[1]
+        if ([version]$rv -gt [version]$SetupVer) {
+            $script:UpdRemote = $rv
+            $ui.bUpd.Content = 'Update v' + $rv
+            $ui.bUpd.Background = [System.Windows.Media.Brushes]::Gold
+            Out-Log ('NEUE VERSION v' + $rv + ' verfuegbar (installiert: v' + $SetupVer + ') - Knopf "Update" klicken')
+        } else {
+            $script:UpdRemote = ''
+            $ui.bUpd.Content = 'Aktuell v' + $SetupVer
+            $ui.bUpd.ClearValue([System.Windows.Controls.Control]::BackgroundProperty)
+        }
+    } catch {
+        $ui.bUpd.Content = 'Update: offline'
+        Out-Log ('Versionspruefung nicht moeglich: ' + $_.Exception.Message)
+    }
+}
+function Invoke-Update {
+    $q = [System.Windows.MessageBox]::Show(('HUPilot auf v' + $script:UpdRemote + ' aktualisieren?' + "`r`n`r`n" + 'Ziel: ' + $srcStick + "`r`n" + 'config.json, WLAN-Paket und logs bleiben unveraendert.' + "`r`n" + 'Das Setup startet danach neu.'), 'HUPilot - Update', 'YesNo', 'Question')
+    if ($q -ne 'Yes') { return }
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $hJ = @{ Accept = 'application/vnd.github.v3+json'; 'User-Agent' = 'HUPilot-Setup' }
+        $tree = Microsoft.PowerShell.Utility\Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $script:GhRepo + '/git/trees/main?recursive=1') -Headers $hJ -TimeoutSec 15
+        $files = @($tree.tree | Where-Object { $_.type -eq 'blob' -and $_.path -like 'Stick/*' })
+        if (-not $files.Count) { throw 'keine Dateien im Repo gefunden' }
+        $n = 0; $same = 0
+        foreach ($f in $files) {
+            $rel = $f.path.Substring(6)
+            $dst = Join-Path $srcStick ($rel -replace '/', '\')
+            if ((Test-Path $dst) -and ((Get-GitBlobSha $dst) -eq $f.sha)) { $same++; continue }
+            $dir = Split-Path $dst -Parent
+            if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            $tmp = $dst + '.new'
+            $u = 'https://api.github.com/repos/' + $script:GhRepo + '/contents/' + (($f.path -split '/' | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/') + '?ref=main'
+            Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $u -Headers @{ Accept = 'application/vnd.github.v3.raw'; 'User-Agent' = 'HUPilot-Setup' } -UseBasicParsing -TimeoutSec 30 -OutFile $tmp
+            if ((Get-GitBlobSha $tmp) -ne $f.sha) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue; throw ('Pruefsumme falsch: ' + $rel) }
+            Move-Item -LiteralPath $tmp -Destination $dst -Force
+            Out-Log ('  aktualisiert: ' + $rel); $n++
+        }
+        Out-Log ('Update fertig: ' + $n + ' Datei(en) neu, ' + $same + ' unveraendert')
+    } catch { Out-Log ('FEHLER Update: ' + $_.Exception.Message); return }
+    try { $script:Mutex.ReleaseMutex() } catch { }
+    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $PSScriptRoot 'HUPilot-Setup.ps1') + '"'))
+    $win.Close()
+}
+$ui.bUpd.Add_Click({ if ($script:UpdRemote) { Invoke-Update } else { Invoke-UpdateCheck } })
 $win.Add_KeyDown({ if ($_.Key -eq 'F1') { & $ShowHelp } })
 $ui.bReload.Add_Click({ Update-Drives })
 
@@ -571,6 +643,7 @@ $win.Add_ContentRendered({
     if (-not $tok) { Set-SubSecret 'Secret UNGUELTIG - siehe Protokoll' $true; return }
     Show-SecretExpiry -Token $tok
 })
+$win.Add_ContentRendered({ Invoke-UpdateCheck })
 [void]$win.ShowDialog()
 Start-Log 'Fenster geschlossen'
 try { $script:Mutex.ReleaseMutex() } catch { }

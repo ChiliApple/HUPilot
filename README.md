@@ -34,10 +34,14 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen –
 2. `Stick\` auf Stick oder in einen Ordner kopieren, **`HUPilot-Setup.cmd`** starten:
    *Verbindung testen* → *Speichern* → *WLAN-Paket bauen* → *Auf Stick kopieren* · *Status* zeigt danach, welche Geräte fertig sind
 
+> **Status:** in Erprobung. Upload, Tag-Wechsel, Zurücksetzen, WLAN-Paket und Autopilot laufen. **Noch nicht auf einem unberührten Neugerät bestätigt:** dass nach dem Zurücksetzen keine Hersteller-Programme zurückkommen.
+
 ## Gut zu wissen
 
 - Zurücksetzen ohne Hersteller-Programme: `C:\Recovery\Customizations` wird weggeschoben, dann *Alles entfernen* (RemoteWipe `doWipePersistProvisionedData`). Hersteller-Store-Apps kann Windows trotzdem wiederherstellen.
 - **Kein CleanPC-Paket verwenden** – Windows wendet gespeicherte Pakete nach jedem Zurücksetzen erneut an (Endlosschleife).
+- Optional lokaler Admin (Kennwort/Konto laufen nie ab) – kommt mit dem WLAN-Paket. Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage`), bleibt am eingerichteten Gerät das vorhandene Paket.
+- Setup prüft beim Start online auf neue Versionen (Knopf *Update*).
 - Schutz: Gerät mit Benutzerprofil → rote Rückfrage; ohne Netzteil und unter 50 % Akku → wartet.
 - Secret kurz gültig halten, Stick nicht aus der Hand geben (`DeviceManagementServiceConfig.ReadWrite.All` gibt es nur mit Schreibrecht).
 
