@@ -16,13 +16,15 @@ Das Setup arbeitet immer mit dem Ordner, aus dem es läuft: laden, speichern, WL
 | `GroupTag`, `TagChoices`, `TagPattern` | Standard-Tag, Auswahl (max. 9), erlaubtes Muster |
 | `WlanSsid`, `WlanKey`, `WlanPackage` | Konfigurations-WLAN; Paketname (leer = ohne, z. B. nur LAN) |
 | `Reset`, `MinBattery` | Standard „zurücksetzen“, Mindest-Akku ohne Netzteil (50) |
+| `AdminName`, `AdminPassword` | optional lokaler Admin (leer = keiner), kommt mit dem WLAN-Paket |
 
 **Kein** `.ppkg` ins Hauptverzeichnis des Sticks legen.
 
 ## 3. WLAN-Paket
 *WLAN-Paket bauen* braucht das **Windows ADK** mit *Imaging and Configuration Designer* (`ICD.exe`).
 Ohne ADK: `Tools\New-WcdProjekt.ps1` → in WCD öffnen → als `HUPilot-WLAN.ppkg` exportieren.
-Das Paket enthält **nur** das WLAN – kein CleanPC, kein BPRT, kein HideOobe.
+Das Paket enthält nur das WLAN und optional den lokalen Admin – kein CleanPC, kein BPRT, kein HideOobe.
+Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go.ps1 an bereits eingerichteten Geräten kein neues Paket installieren – das vorhandene bleibt.
 
 ## 4. Intune
 - Dynamische Gerätegruppe je Tag: `(device.devicePhysicalIds -any (_ -eq "[OrderID]:SN-2026"))` + Autopilot-Profil
@@ -31,6 +33,7 @@ Das Paket enthält **nur** das WLAN – kein CleanPC, kein BPRT, kein HideOobe.
 - Später per Wartung: Config-WLAN + WLAN-Paket und `C:\Recovery\HUPilot-OEM-Backup` entfernen
 
 ## Fehlersuche
+- Updates: Knopf *Update* im Setup (prüft beim Start online)
 - Logs: Gerät `C:\Windows\Temp\HUPilot.log` und `HUPilot-Wipe.log`, Stick `HUPilot\logs\`
 - `Tools\Diagnose.cmd` im OOBE (ändert nichts)
 - Setup startet nicht: `C:\Users\Public\HUPilot-Setup-Start.log`
