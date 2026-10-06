@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.2 - 2026-10-06
+- go.ps1: Schutz – hat das Gerät Benutzerprofile oder läuft nicht im Einrichtungsbildschirm, rote Rückfrage (`LOESCHEN` eintippen)
+- go.ps1: Strom – ohne Netzteil und unter `MinBattery` % (Standard 50) wartet es vor dem Zurücksetzen auf das Netzteil
+- Setup: *5. Status* – alle Autopilot-Geräte mit Tag, Profil, Intune-Registrierung, letztem Kontakt und Eintrag aus `protokoll.csv`; Filter, CSV, Drucken
+- Setup: *Verbindung testen* zeigt den Ablauf des Secrets (optional `Application.Read.All`)
+- Setup: Version in der Titelleiste, Startprotokoll, nur eine Instanz, sichtbarer Start
+- Doku gekürzt
+
 ## v2.1 - 2026-10-05
 ### Neu
 - Setup arbeitet immer mit seiner **Quelle** (Ordner, aus dem es läuft – Stick oder Vorbereitungsordner am PC): *Neu laden*, *Speichern*, *WLAN-Paket bauen* dort; *Auf Stick kopieren* kopiert die Quelle 1:1 (ohne logs)

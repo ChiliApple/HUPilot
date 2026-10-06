@@ -1,5 +1,5 @@
 ﻿# =====================================================================
-# HUPilot  go.ps1  v2.1
+# HUPilot  go.ps1  v2.2
 # https://github.com/ChiliApple/HUPilot
 # ZIELMASCHINE: neues Windows-Geraet im OOBE (Shift+F10 -> D:\go)
 # Ablauf:
@@ -18,7 +18,8 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.1'
+$Ver        = '2.2'
+$MinBattery = 50     # % Akku ohne Netzteil, darunter wird vor dem Zuruecksetzen gewartet
 $Start      = Get-Date
 $CfgDir     = $PSScriptRoot
 $LocalLog   = 'C:\Windows\Temp\HUPilot.log'
@@ -136,6 +137,34 @@ function Read-KeyTimeout {
     return ''
 }
 
+function Get-PowerInfo {
+    # Win32_Battery.BatteryStatus: 2/3 = Netzteil, 6-9 = laedt; kein Akku = Netzbetrieb
+    try { $b = @(Get-CimInstance Win32_Battery -ErrorAction Stop) } catch { return @{ Ok = $true; Text = 'unbekannt' } }
+    if (-not $b.Count) { return @{ Ok = $true; Text = 'kein Akku (Netzbetrieb)' } }
+    $ac  = @($b | Where-Object { [int]$_.BatteryStatus -in 2, 3, 6, 7, 8, 9 }).Count -gt 0
+    $pct = [int](($b | Measure-Object -Property EstimatedChargeRemaining -Average).Average)
+    $txt = 'Akku ' + $pct + ' %' + $(if ($ac) { ', Netzteil' } else { ', OHNE Netzteil' })
+    return @{ Ok = ($ac -or $pct -ge $MinBattery); Text = $txt }
+}
+function Wait-Power {
+    $p = Get-PowerInfo
+    Log ('Strom: ' + $p.Text)
+    if ($p.Ok) { return }
+    while (-not $p.Ok) {
+        Banner 'NETZTEIL ANSTECKEN' 'DarkYellow' @(
+            '',
+            ('Strom: ' + $p.Text + '  (mind. ' + $MinBattery + ' % oder Netzteil)'),
+            'Zuruecksetzen ohne Strom kann das Geraet unbrauchbar machen.',
+            '',
+            'Wartet automatisch, bis das Netzteil steckt.   J = trotzdem weiter')
+        $k = Read-KeyTimeout 5
+        if ($k -eq 'J' -or $k -eq 'Y') { Log ('Strom-Warnung uebergangen: ' + $p.Text); break }
+        $p = Get-PowerInfo
+    }
+    Log ('Strom jetzt: ' + $p.Text)
+    try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
+}
+
 # ---------- Tag-Auswahl (10 s, sonst Standard) ----------
 $choices = @()
 if ($cfg.TagChoices) { $choices = @($cfg.TagChoices) }
@@ -171,6 +200,35 @@ Say ('Windows      : ' + $os.Caption + ' ' + $os.Version)
 if ($os.Caption -notmatch 'Pro|Education|Enterprise') {
     Fail ('Edition "' + $os.Caption + '" - Zuruecksetzen per RemoteWipe nur mit Pro/Education/Enterprise')
 }
+if ($null -ne $cfg.MinBattery) { $MinBattery = [int]$cfg.MinBattery }
+
+# ---------- Schutz: nur im Einrichtungsbildschirm (OOBE) ohne Benutzerdaten ----------
+if ($DoReset) {
+    $me = [Environment]::UserName
+    $prof = @()
+    try {
+        $prof = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | Where-Object {
+            -not $_.Special -and $_.LocalPath -match '\\Users\\' -and $_.LocalPath -notmatch '\\defaultuser\d*$' })
+    } catch { Log ('Benutzerprofile pruefen: ' + $_.Exception.Message) }
+    Log ('Benutzer: ' + $me + ' | Profile: ' + (($prof | ForEach-Object { $_.LocalPath }) -join ', '))
+    if ($prof.Count -or $me -notmatch '^defaultuser\d*$') {
+        Banner 'ACHTUNG  -  GERAET IST SCHON EINGERICHTET' 'DarkRed' @(
+            '',
+            'HUPilot ist fuer neue Geraete im Einrichtungsbildschirm gedacht.',
+            ('Angemeldet als: ' + $me),
+            ('Benutzerprofile: ' + $(if ($prof.Count) { ($prof | ForEach-Object { Split-Path $_.LocalPath -Leaf }) -join ', ' } else { 'keine' })),
+            '',
+            'Beim Zuruecksetzen gehen ALLE Daten auf dem Geraet verloren.',
+            'Zum Fortfahren  LOESCHEN  eintippen, sonst nur Enter (Abbruch).')
+        $a = Read-Host '  Eingabe'
+        if ($a -cne 'LOESCHEN') { Log 'Abbruch: Geraet hat Benutzerdaten'; Protokoll 'ABBRUCH: Benutzerdaten vorhanden'; exit 1 }
+        Log 'Benutzerdaten-Warnung mit LOESCHEN bestaetigt'
+        try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
+    }
+    Wait-Power
+    Say ('Strom        : ' + (Get-PowerInfo).Text)
+}
+
 if ($null -ne $cfg.WlanPackage) { $WlanPkgName = [string]$cfg.WlanPackage }
 if ($WlanPkgName -and $DoReset) {
     $StickPkg = Join-Path $CfgDir $WlanPkgName
@@ -407,6 +465,7 @@ if (-not $assigned) {
 }
 
 # ---------- 6. WLAN-Paket + Zuruecksetzen ohne Hersteller-Anpassungen ----------
+Wait-Power
 $ErrorActionPreference = 'Continue'
 function Fail-Reset {
     param([string]$Msg)

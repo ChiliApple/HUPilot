@@ -15,5 +15,6 @@
   "WlanSsid": "<WLAN-Name>",
   "WlanKey": "<WLAN-Kennwort>",
   "WlanPackage": "HUPilot-WLAN.ppkg",
-  "Reset": true
+  "Reset": true,
+  "MinBattery": 50
 }

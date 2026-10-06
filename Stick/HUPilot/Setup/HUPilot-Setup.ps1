@@ -56,7 +56,7 @@ $srcStick = Split-Path $srcHU -Parent
 $srcDrive = $null
 if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).ToUpper() }
 $srcCfg   = Join-Path $srcHU 'config.json'
-$SetupVer = '2.1'
+$SetupVer = '2.2'
 $GoVer    = '?'
 try { $m = Select-String -Path (Join-Path $srcHU 'go.ps1') -Pattern "^\`$Ver\s*=\s*'([^']+)'" | Select-Object -First 1; if ($m) { $GoVer = $m.Matches[0].Groups[1].Value } } catch { }
 $srcPkg   = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
@@ -68,7 +68,7 @@ $script:Extra = @{}
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="640" Height="720" WindowStartupLocation="CenterScreen" FontSize="13">
+        Title="HUPilot-Setup" Width="720" Height="720" WindowStartupLocation="CenterScreen" FontSize="13">
   <DockPanel Margin="14">
   <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
     <Image x:Name="iLogo" Width="44" Height="44"/>
@@ -120,6 +120,7 @@ $script:Extra = @{}
       <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusaetzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Content="2. Speichern" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (nur das WLAN, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberflaeche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="3. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen." ToolTipService.ShowDuration="30000" Content="4. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geraete des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV und Drucken moeglich." ToolTipService.ShowDuration="30000" Content="5. Status" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <TextBox Grid.Row="5" x:Name="tLog" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
@@ -128,7 +129,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer + '   (go.ps1 v' + $GoVer + ')'
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -190,20 +191,46 @@ $ui.bLoad.Add_Click({
     } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
 })
 
-$ui.bTest.Add_Click({
-    if (-not (Test-Fields @('TenantId', 'ClientId', 'ClientSecret'))) { return }
+function Get-ApiToken {
+    if (-not (Test-Fields @('TenantId', 'ClientId', 'ClientSecret'))) { return $null }
     $c = Get-Cfg
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $body = @{ grant_type = 'client_credentials'; client_id = $c.ClientId; client_secret = $c.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
-        $tok = (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded').access_token
-        Out-Log 'Token OK'
-        $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=1' -Headers @{ Authorization = 'Bearer ' + $tok }
-        Out-Log ('Autopilot-Zugriff OK (' + @($r.value).Count + ' Eintrag gelesen)')
+        return (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded').access_token
     } catch {
         $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }
         if ($m -match 'AADSTS7000222') { $m = 'Secret ABGELAUFEN' } elseif ($m -match 'AADSTS7000215') { $m = 'Secret FALSCH (Secret-ID statt Wert?)' }
-        Out-Log ('FEHLER: ' + $m)
+        Out-Log ('FEHLER Anmeldung: ' + $m)
+        return $null
+    }
+}
+
+$ui.bTest.Add_Click({
+    $tok = Get-ApiToken; if (-not $tok) { return }
+    Out-Log 'Token OK'
+    $h = @{ Authorization = 'Bearer ' + $tok }
+    try {
+        $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=1' -Headers $h
+        Out-Log ('Autopilot-Zugriff OK (' + @($r.value).Count + ' Eintrag gelesen)')
+    } catch { Out-Log ('FEHLER Autopilot-Zugriff (Berechtigung DeviceManagementServiceConfig.ReadWrite.All?): ' + $_.Exception.Message) }
+    # Secret-Ablauf (optional: braucht Application.Read.All fuer die App)
+    try {
+        $c = Get-Cfg
+        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h
+        $hint = $c.ClientSecret.Substring(0, [Math]::Min(3, $c.ClientSecret.Length))
+        $mine = @($app.passwordCredentials | Where-Object { $_.hint -ceq $hint })
+        $list = $(if ($mine.Count) { $mine } else { @($app.passwordCredentials) })
+        foreach ($pc in $list) {
+            $end = ([datetime]$pc.endDateTime).ToLocalTime()
+            $days = [int][Math]::Floor(($end - (Get-Date)).TotalDays)
+            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gueltig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + '  -> noch ' + $days + ' Tage'
+            if ($days -lt 0) { $txt = 'ACHTUNG ABGELAUFEN: ' + $txt } elseif ($days -le 7) { $txt = 'ACHTUNG BALD ABGELAUFEN: ' + $txt }
+            Out-Log $txt
+        }
+        if (-not $mine.Count) { Out-Log '  (verwendetes Secret nicht eindeutig erkannt - alle Secrets der App angezeigt)' }
+    } catch {
+        Out-Log 'Secret-Ablauf nicht lesbar (optional: Anwendungsberechtigung Application.Read.All fuer HUPilot-Upload)'
     }
 })
 
@@ -263,8 +290,153 @@ $ui.bPkg.Add_Click({
     finally { Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue }   # enthaelt das WLAN-Kennwort
 })
 
+function Read-Protokoll {
+    $map = @{}
+    $files = @(Join-Path $srcHU 'logs\protokoll.csv')
+    $dr = Get-Drive; if ($dr) { $files += (Join-Path $dr 'HUPilot\logs\protokoll.csv') }
+    foreach ($f in $files) {
+        if (-not (Test-Path $f)) { continue }
+        try {
+            foreach ($row in @(Import-Csv -Path $f -Delimiter ';')) {
+                if (-not $row.Seriennr) { continue }
+                if (-not $map.ContainsKey($row.Seriennr) -or [string]$row.Zeit -gt [string]$map[$row.Seriennr].Zeit) { $map[$row.Seriennr] = $row }
+            }
+            Out-Log ('Protokoll gelesen: ' + $f)
+        } catch { Out-Log ('Protokoll ' + $f + ': ' + $_.Exception.Message) }
+    }
+    return $map
+}
+
+function Show-Status {
+    param($Rows, [hashtable]$Proto, [string]$Tenant)
+    [xml]$sx = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot - Status" Width="1100" Height="640" WindowStartupLocation="CenterOwner" FontSize="12">
+  <DockPanel Margin="10">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+      <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+      <ComboBox x:Name="cTag" Width="140"/>
+      <CheckBox x:Name="cProto" Content="nur Geraete aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,0"/>
+      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,0" ToolTip="Suche in Seriennummer / Name"/>
+      <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold"/>
+    </StackPanel>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4"/>
+      <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bClose" Content="Schliessen" Padding="10,4" Margin="8,0,0,0"/>
+    </StackPanel>
+    <DataGrid x:Name="dGrid" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
+  </DockPanel>
+</Window>
+'@
+    $sw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $sx))
+    $sw.Owner = $win
+    if ($win.Icon) { $sw.Icon = $win.Icon }
+    $g = @{}; foreach ($n in 'cTag','cProto','tFind','tCount','bCsv','bPrint','bClose','dGrid') { $g[$n] = $sw.FindName($n) }
+    [void]$g.cTag.Items.Add('Alle')
+    foreach ($t in @($Rows | ForEach-Object { $_.Tag } | Where-Object { $_ } | Sort-Object -Unique)) { [void]$g.cTag.Items.Add($t) }
+    $g.cTag.SelectedIndex = 0
+    $g.cProto.IsChecked = ($Proto.Count -gt 0)
+    $g.cProto.IsEnabled = ($Proto.Count -gt 0)
+    $script:StatusView = @()
+    $refresh = {
+        $v = @($Rows)
+        if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
+        if ($g.cProto.IsChecked) { $v = @($v | Where-Object { $_.HUPilot }) }
+        if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') }) }
+        $script:StatusView = $v
+        $g.dGrid.ItemsSource = $v
+        $ok = @($v | Where-Object { $_.Intune -eq 'registriert' }).Count
+        $g.tCount.Text = ('' + $v.Count + ' Geraete  |  ' + $ok + ' in Intune registriert  |  ' + ($v.Count - $ok) + ' offen')
+    }
+    $g.cTag.Add_SelectionChanged($refresh)
+    $g.cProto.Add_Click($refresh)
+    $g.tFind.Add_TextChanged($refresh)
+    $g.bClose.Add_Click({ $sw.Close() })
+    $g.bCsv.Add_Click({
+        $dlg = New-Object Microsoft.Win32.SaveFileDialog
+        $dlg.Filter = 'CSV (*.csv)|*.csv'
+        $dlg.FileName = 'HUPilot-Status_' + ($Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') + '.csv'
+        if ($dlg.ShowDialog()) {
+            $script:StatusView | Export-Csv -Path $dlg.FileName -Delimiter ';' -NoTypeInformation -Encoding UTF8
+            Out-Log ('Status gespeichert: ' + $dlg.FileName)
+        }
+    })
+    $g.bPrint.Add_Click({
+        $pd = New-Object System.Windows.Controls.PrintDialog
+        if (-not $pd.ShowDialog()) { return }
+        $doc = New-Object System.Windows.Documents.FlowDocument
+        $doc.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe UI')
+        $doc.FontSize = 9
+        $doc.PagePadding = New-Object System.Windows.Thickness(40)
+        $doc.ColumnWidth = $pd.PrintableAreaWidth
+        $doc.PageWidth = $pd.PrintableAreaWidth
+        $doc.PageHeight = $pd.PrintableAreaHeight
+        $h1 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run('HUPilot - Status ' + $Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm') + '   (' + $g.tCount.Text + ')'))
+        $h1.FontSize = 12; $h1.FontWeight = [System.Windows.FontWeights]::Bold
+        $doc.Blocks.Add($h1)
+        $tbl = New-Object System.Windows.Documents.Table
+        $tbl.CellSpacing = 0
+        $cols = @('Seriennr', 'Tag', 'Profil', 'Intune', 'LetzterKontakt', 'Name', 'HUPilot')
+        foreach ($c in $cols) { $tbl.Columns.Add((New-Object System.Windows.Documents.TableColumn)) }
+        $rg = New-Object System.Windows.Documents.TableRowGroup
+        $hr = New-Object System.Windows.Documents.TableRow
+        foreach ($c in $cols) { $cell = New-Object System.Windows.Documents.TableCell((New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($c)))); $cell.FontWeight = [System.Windows.FontWeights]::Bold; $cell.BorderBrush = [System.Windows.Media.Brushes]::Gray; $cell.BorderThickness = New-Object System.Windows.Thickness(0, 0, 0, 1); $hr.Cells.Add($cell) }
+        $rg.Rows.Add($hr)
+        foreach ($r in $script:StatusView) {
+            $tr = New-Object System.Windows.Documents.TableRow
+            foreach ($c in $cols) { $tr.Cells.Add((New-Object System.Windows.Documents.TableCell((New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run([string]$r.$c)))))) }
+            $rg.Rows.Add($tr)
+        }
+        $tbl.RowGroups.Add($rg)
+        $doc.Blocks.Add($tbl)
+        $pd.PrintDocument(([System.Windows.Documents.IDocumentPaginatorSource]$doc).DocumentPaginator, 'HUPilot-Status')
+        Out-Log 'Status gedruckt'
+    })
+    & $refresh
+    [void]$sw.ShowDialog()
+}
+
+$ui.bStatus.Add_Click({
+    $tok = Get-ApiToken; if (-not $tok) { return }
+    $h = @{ Authorization = 'Bearer ' + $tok }
+    Out-Log 'Lade Autopilot-Geraete ...'
+    $all = @()
+    try {
+        $uri = 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=500'
+        while ($uri) {
+            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h
+            $all += @($r.value)
+            $uri = $r.'@odata.nextLink'
+        }
+    } catch { Out-Log ('FEHLER Autopilot-Liste: ' + $_.Exception.Message); return }
+    $proto = Read-Protokoll
+    $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
+    $rows = foreach ($d in $all) {
+        $ps = [string]$d.deploymentProfileAssignmentStatus
+        $prof = $(if ($ps -like 'assigned*') { 'zugewiesen' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
+        $es = [string]$d.enrollmentState
+        $lc = ''
+        try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }
+        $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
+        [pscustomobject]@{
+            Seriennr       = [string]$d.serialNumber
+            Tag            = [string]$d.groupTag
+            Profil         = $prof
+            Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
+            LetzterKontakt = $lc
+            Name           = [string]$d.displayName
+            Modell         = [string]$d.model
+            HUPilot        = $(if ($pr) { [string]$pr.Zeit + ' ' + [string]$pr.Ergebnis } else { '' })
+        }
+    }
+    Out-Log ('' + @($rows).Count + ' Autopilot-Geraete, ' + $proto.Count + ' aus protokoll.csv')
+    Show-Status -Rows @($rows) -Proto $proto -Tenant ((Get-Cfg).Tenant)
+})
+
 Update-Drives
-Out-Log ('Quelle: ' + $srcStick)
+Out-Log ('Quelle: '  + $srcStick)
 $ui.tSub.Text = 'Quelle: ' + $srcStick
 if (Test-Path $srcCfg) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - fuer 3. WLAN-Paket: Windows ADK mit Imaging and Configuration Designer installieren (Store-WCD reicht nicht)' }))
