@@ -125,11 +125,11 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><th>Knopf</th><th>Wirkung</th></tr>
 <tr><td><span class="ui">1. Verbindung testen</span></td><td>Anmeldung mit App + Secret, Autopilot-Zugriff, Ablauf des Secrets</td></tr>
 <tr><td><span class="ui">2. Speichern</span></td><td>schreibt <code>config.json</code></td></tr>
-<tr><td><span class="ui">3. WLAN-Paket bauen</span></td><td>baut <code>HUPilot-WLAN.ppkg</code> – braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i></td></tr>
+<tr><td><span class="ui">3. WLAN-Paket bauen</span></td><td>baut <code>HUPilot-WLAN.ppkg</code> – braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i>. Ist ein <b>lokaler Admin</b> eingetragen, kommt er mit ins Paket: Er wird nach jedem Zurücksetzen angelegt, Kennwort und Konto laufen nie ab. Änderung = Paket neu bauen + Gerät mit Stick zurücksetzen.</td></tr>
 <tr><td><span class="ui">4. Auf Stick kopieren</span></td><td>kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>)</td></tr>
 <tr><td><span class="ui">5. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken</td></tr>
 </table>
-<div class="warn">Kein <code>.ppkg</code> ins Hauptverzeichnis des Sticks legen – Windows wendet es sonst im Einrichtungsbildschirm von selbst an. Das WLAN-Paket enthält <b>nur</b> das WLAN, nie CleanPC.</div>
+<div class="warn">Kein <code>.ppkg</code> ins Hauptverzeichnis des Sticks legen – Windows wendet es sonst im Einrichtungsbildschirm von selbst an. Das WLAN-Paket enthält nur das WLAN und optional den lokalen Admin, nie CleanPC. Kennwörter stehen im Klartext in <code>config.json</code> und im Paket – Stick nicht aus der Hand geben.</div>
 
 <h3 id="intune">Intune</h3>
 <ul>
@@ -158,7 +158,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <ul>
 <li><span class="ui">5. Status</span> im Setup: welche Geräte registriert sind, welche noch offen – als CSV oder Ausdruck.</li>
 <li>Secret erneuern (QS-Script oder Entra), alte Secrets löschen.</li>
-<li>Per Intune-Wartung: Config-WLAN und WLAN-Paket sowie <code>C:\Recovery\HUPilot-OEM-Backup</code> entfernen; Hersteller-Store-Apps ggf. deinstallieren.</li>
+<li>Per Intune-Wartung: Config-WLAN und WLAN-Paket (bleibt sonst bei jedem Zurücksetzen erhalten – auch der lokale Admin) sowie <code>C:\Recovery\HUPilot-OEM-Backup</code> entfernen; Hersteller-Store-Apps ggf. deinstallieren.</li>
 </ul>
 </section>
 

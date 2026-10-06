@@ -68,7 +68,7 @@ $script:Extra = @{}
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="720" Height="720" WindowStartupLocation="CenterScreen" FontSize="13">
+        Title="HUPilot-Setup" Width="720" Height="800" WindowStartupLocation="CenterScreen" FontSize="13">
   <DockPanel Margin="14">
   <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
     <Image x:Name="iLogo" Width="44" Height="44"/>
@@ -80,7 +80,7 @@ $script:Extra = @{}
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
     </Grid.RowDefinitions>
     <GroupBox Grid.Row="0" Header="Tenant / App-Registrierung" Padding="6">
       <Grid>
@@ -109,28 +109,36 @@ $script:Extra = @{}
         <TextBlock Grid.Row="1" Text="Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tKey" ToolTip="Kennwort des Konfigurations-WLANs (mind. 8 Zeichen).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
       </Grid>
     </GroupBox>
-    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
+    <GroupBox Grid.Row="3" Header="Lokaler Admin (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Admin-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tAdmName" ToolTip="Lokales Administratorkonto fuer die Kustoden (max. 20 Zeichen, z. B. kustode).&#x0a;Kommt mit 3. WLAN-Paket bauen ins Paket und wird nach JEDEM Zuruecksetzen neu angelegt.&#x0a;Kennwort und Konto laufen nie ab. Leer lassen = kein lokaler Admin.&#x0a;Aenderung wirkt erst nach neuem Paket + Zuruecksetzen mit dem Stick." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Admin-Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tAdmPw" ToolTip="Kennwort des lokalen Admins (mind. 8 Zeichen, auf allen Geraeten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
+      </Grid>
+    </GroupBox>
+    <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
       <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup laeuft)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2"/>
       <TextBlock Text="Ziel-Stick:" VerticalAlignment="Center" Margin="16,0,6,0"/>
       <ComboBox x:Name="cDrive" ToolTip="Ziel-Stick fuer 4. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000" Width="180"/>
       <Button x:Name="bReload" ToolTip="USB-Laufwerke neu einlesen." ToolTipService.ShowDuration="30000" Content="Aktualisieren" Margin="6,0,0,0" Padding="8,2"/>
     </StackPanel>
-    <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
+    <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
       <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Content="1. Verbindung testen" Padding="10,4"/>
       <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusaetzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Content="2. Speichern" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (nur das WLAN, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberflaeche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="3. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberflaeche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="3. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen." ToolTipService.ShowDuration="30000" Content="4. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geraete des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV und Drucken moeglich." ToolTipService.ShowDuration="30000" Content="5. Status" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bHelp" ToolTip="Anleitung oeffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="8,0,0,0"/>
     </StackPanel>
-    <TextBox Grid.Row="5" x:Name="tLog" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+    <TextBox Grid.Row="6" x:Name="tLog" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
   </DockPanel>
 </Window>
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cDrive','bReload','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer + '   (go.ps1 v' + $GoVer + ')'
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -158,6 +166,7 @@ function Get-Cfg {
         Tenant = $ui.tTenant.Text.Trim(); TenantId = $ui.tTenantId.Text.Trim(); ClientId = $ui.tClientId.Text.Trim()
         ClientSecret = (Get-Secret); GroupTag = $ui.tTag.Text.Trim(); TagChoices = $choices
         WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = $ui.tKey.Text; WlanPackage = 'HUPilot-WLAN.ppkg'
+        AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = $ui.tAdmPw.Text
     }
     foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
     return $o
@@ -169,6 +178,10 @@ function Test-Fields([string[]]$Names) {
     if ($Names -contains 'TenantId' -and $c.TenantId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'Tenant-ID ist keine GUID'; return $false }
     if ($Names -contains 'ClientId' -and $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'App-ID ist keine GUID'; return $false }
     if ($Names -contains 'WlanKey' -and $c.WlanKey.Length -lt 8) { Out-Log 'WLAN-Kennwort kuerzer als 8 Zeichen'; return $false }
+    if ($c.AdminName) {
+        if ($c.AdminName.Length -gt 20 -or $c.AdminName -match '["/\\\[\]:;|=,+*?<>@ ]') { Out-Log 'Admin-Name ungueltig (max. 20 Zeichen, keine Leer- oder Sonderzeichen wie / \ [ ] : ; | = , + * ? < > @)'; return $false }
+        if ($c.AdminPassword.Length -lt 8) { Out-Log 'Admin-Kennwort kuerzer als 8 Zeichen'; return $false }
+    }
     return $true
 }
 
@@ -192,8 +205,9 @@ $ui.bLoad.Add_Click({
         $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
+        $ui.tAdmName.Text = [string]$c.AdminName; $ui.tAdmPw.Text = [string]$c.AdminPassword
         $script:Extra = @{}
-        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey') { $script:Extra[$pr.Name] = $pr.Value } }
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log ('Geladen: ' + $p)
     } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
 })
@@ -294,6 +308,35 @@ $ui.bPkg.Add_Click({
         $x = $x.Replace('SSID="WLAN-NAME"', 'SSID="' + [System.Security.SecurityElement]::Escape($c.WlanSsid) + '"')
         $x = $x.Replace('<SecurityKey>WLAN-KENNWORT</SecurityKey>', '<SecurityKey>' + [System.Security.SecurityElement]::Escape($c.WlanKey) + '</SecurityKey>')
         $x = [regex]::Replace($x, '<ID>\{[0-9a-fA-F-]+\}</ID>', '<ID>{' + [guid]::NewGuid().ToString() + '}</ID>')
+        if ($c.AdminName) {
+            # Optional: lokaler Admin per ProvisioningCommands (Geraetekontext, laeuft als SYSTEM - auch nach jedem Zuruecksetzen)
+            $ps1 = Join-Path $work 'HUPilot-Admin.ps1'
+            $cmd = Join-Path $work 'HUPilot-Admin.cmd'
+            $q = { param($v) "'" + ([string]$v).Replace("'", "''") + "'" }
+            $body = @(
+                '# HUPilot: lokaler Admin (aus dem WLAN-Paket, laeuft als SYSTEM)',
+                ('$n = ' + (& $q $c.AdminName)),
+                ('$pw = ' + (& $q $c.AdminPassword)),
+                '$log = Join-Path $env:SystemRoot ''Temp\HUPilot-Admin.log''',
+                'function L([string]$m) { try { Add-Content -Path $log -Value ((Get-Date -Format ''yyyy-MM-dd HH:mm:ss'') + ''  '' + $m) -Encoding UTF8 } catch { } }',
+                'try {',
+                '    $sec = ConvertTo-SecureString -String $pw -AsPlainText -Force',
+                '    $u = Get-LocalUser -Name $n -ErrorAction SilentlyContinue',
+                '    if ($u) { Set-LocalUser -Name $n -Password $sec -PasswordNeverExpires $true -AccountNeverExpires -ErrorAction Stop; Enable-LocalUser -Name $n -ErrorAction Stop; L (''Konto aktualisiert: '' + $n) }',
+                '    else { New-LocalUser -Name $n -Password $sec -PasswordNeverExpires -AccountNeverExpires -Description ''HUPilot lokaler Admin'' -ErrorAction Stop | Out-Null; L (''Konto angelegt: '' + $n) }',
+                '    $sid = (Get-LocalUser -Name $n).SID.Value',
+                '    try { Add-LocalGroupMember -SID ''S-1-5-32-544'' -Member $sid -ErrorAction Stop; L ''zu Administratoren hinzugefuegt'' }',
+                '    catch { if ($_.FullyQualifiedErrorId -like ''*MemberExists*'') { L ''bereits Administrator'' } else { throw } }',
+                '} catch { L (''FEHLER: '' + $_.Exception.Message) }',
+                'Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue'
+            ) -join "`r`n"
+            [System.IO.File]::WriteAllText($ps1, $body, (New-Object System.Text.UTF8Encoding($true)))
+            [System.IO.File]::WriteAllText($cmd, ('@"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0HUPilot-Admin.ps1" >nul 2>&1' + "`r`n" + 'exit /b 0' + "`r`n"), [System.Text.Encoding]::ASCII)
+            $pc = '<ProvisioningCommands><DeviceContext><CommandFiles><CommandFile>' + [System.Security.SecurityElement]::Escape($cmd) + '</CommandFile><CommandFile>' + [System.Security.SecurityElement]::Escape($ps1) + '</CommandFile></CommandFiles><CommandLine>cmd /c HUPilot-Admin.cmd</CommandLine></DeviceContext></ProvisioningCommands>'
+            $x = $x.Replace('</Common>', $pc + '</Common>')
+            $x = [regex]::Replace($x, '<Notes>.*?</Notes>', '<Notes>HUPilot: WLAN + lokaler Admin. KEIN Zuruecksetzen-Befehl im Paket.</Notes>')
+            Out-Log ('Paket enthaelt lokalen Admin: ' + $c.AdminName)
+        }
         $xmlPath = Join-Path $work 'customizations.xml'
         [System.IO.File]::WriteAllText($xmlPath, $x.TrimStart([char]0xFEFF), $enc)   # ohne BOM
         $ppkg = $srcPkg

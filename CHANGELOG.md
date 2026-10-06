@@ -1,6 +1,7 @@
 # Changelog
 
 ## v2.5 - 2026-10-06
+- Setup: optionaler **lokaler Admin** (Name/Kennwort in `config.json`) – kommt per ProvisioningCommands ins WLAN-Paket und wird nach jedem Zurücksetzen angelegt; Kennwort und Konto laufen nie ab
 - go.ps1: WLAN-Paket schon installiert (identisch) → provtool wird übersprungen; scheitert provtool, zweiter Versuch als SYSTEM (behebt 0x80070005 bei erneutem Lauf am eingerichteten Gerät)
 - go.ps1: Log in UTF-8 (Umlaute in Profilnamen)
 - Setup *Status*: Doppelklick auf ein Gerät lädt Details live (Profilname, Zuweisungsdatum, Profilstatus) – die Liste kann nach Tag-Wechsel kurz den alten Profilstand zeigen
