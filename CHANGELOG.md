@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.3 - 2026-10-06
+- Setup *Status*: Spalten **Benutzer** (primärer Benutzer), Gerätename und letzter Sync aus Intune – optional `DeviceManagementManagedDevices.Read.All`; Suche auch nach Benutzer
+
 ## v2.2 - 2026-10-06
 - go.ps1: Schutz – hat das Gerät Benutzerprofile oder läuft nicht im Einrichtungsbildschirm, rote Rückfrage (`LOESCHEN` eintippen)
 - go.ps1: Strom – ohne Netzteil und unter `MinBattery` % (Standard 50) wartet es vor dem Zurücksetzen auf das Netzteil

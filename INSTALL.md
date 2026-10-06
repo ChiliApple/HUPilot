@@ -3,7 +3,7 @@
 ## 1. App-Registrierung (je Tenant)
 Entra › App-Registrierungen › **Neue Registrierung** › Name `HUPilot-Upload`, nur dieses Verzeichnis, keine Umleitungs-URI
 - API-Berechtigungen › Microsoft Graph › **Anwendung** › `DeviceManagementServiceConfig.ReadWrite.All` › **Administratorzustimmung**
-- optional `Application.Read.All` – nur damit *Verbindung testen* den Ablauf des Secrets anzeigt
+- optional (nur Lesen): `Application.Read.All` → Secret-Ablauf bei *Verbindung testen*; `DeviceManagementManagedDevices.Read.All` → primärer Benutzer, Gerätename, letzter Sync bei *Status*
 - Zertifikate & Geheimnisse › neues Secret, kurz gültig › den **Wert** kopieren
 
 ## 2. Stick / Quelle

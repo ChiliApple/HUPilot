@@ -56,7 +56,7 @@ $srcStick = Split-Path $srcHU -Parent
 $srcDrive = $null
 if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).ToUpper() }
 $srcCfg   = Join-Path $srcHU 'config.json'
-$SetupVer = '2.2'
+$SetupVer = '2.3'
 $GoVer    = '?'
 try { $m = Select-String -Path (Join-Path $srcHU 'go.ps1') -Pattern "^\`$Ver\s*=\s*'([^']+)'" | Select-Object -First 1; if ($m) { $GoVer = $m.Matches[0].Groups[1].Value } } catch { }
 $srcPkg   = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
@@ -318,7 +318,7 @@ function Show-Status {
       <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,0"/>
       <ComboBox x:Name="cTag" Width="140"/>
       <CheckBox x:Name="cProto" Content="nur Geraete aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,0"/>
-      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,0" ToolTip="Suche in Seriennummer / Name"/>
+      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,0" ToolTip="Suche in Seriennummer / Geraetename / Benutzer"/>
       <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold"/>
     </StackPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
@@ -344,7 +344,7 @@ function Show-Status {
         $v = @($Rows)
         if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
         if ($g.cProto.IsChecked) { $v = @($v | Where-Object { $_.HUPilot }) }
-        if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') }) }
+        if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
         $script:StatusView = $v
         $g.dGrid.ItemsSource = $v
         $ok = @($v | Where-Object { $_.Intune -eq 'registriert' }).Count
@@ -378,7 +378,7 @@ function Show-Status {
         $doc.Blocks.Add($h1)
         $tbl = New-Object System.Windows.Documents.Table
         $tbl.CellSpacing = 0
-        $cols = @('Seriennr', 'Tag', 'Profil', 'Intune', 'LetzterKontakt', 'Name', 'HUPilot')
+        $cols = @('Seriennr', 'Tag', 'Profil', 'Intune', 'Benutzer', 'Name', 'LetzterSync', 'HUPilot')
         foreach ($c in $cols) { $tbl.Columns.Add((New-Object System.Windows.Documents.TableColumn)) }
         $rg = New-Object System.Windows.Documents.TableRowGroup
         $hr = New-Object System.Windows.Documents.TableRow
@@ -411,6 +411,17 @@ $ui.bStatus.Add_Click({
             $uri = $r.'@odata.nextLink'
         }
     } catch { Out-Log ('FEHLER Autopilot-Liste: ' + $_.Exception.Message); return }
+    # Optional: Intune-Geraete (Primaerer Benutzer, Geraetename, letzter Sync) - braucht DeviceManagementManagedDevices.Read.All
+    $md = @{}
+    try {
+        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime&`$top=999"
+        while ($uri) {
+            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h
+            foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $md['SN:' + [string]$m.serialNumber] = $m } }
+            $uri = $r.'@odata.nextLink'
+        }
+        Out-Log ('Intune-Geraete gelesen: ' + @($md.Keys | Where-Object { $_ -like 'SN:*' }).Count)
+    } catch { Out-Log 'Primaerer Benutzer nicht lesbar (optional: Anwendungsberechtigung DeviceManagementManagedDevices.Read.All fuer HUPilot-Upload)' }
     $proto = Read-Protokoll
     $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
     $rows = foreach ($d in $all) {
@@ -420,13 +431,20 @@ $ui.bStatus.Add_Click({
         $lc = ''
         try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }
         $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
+        $im = $null
+        if ($d.managedDeviceId -and $md.ContainsKey([string]$d.managedDeviceId)) { $im = $md[[string]$d.managedDeviceId] }
+        elseif ($md.ContainsKey('SN:' + [string]$d.serialNumber)) { $im = $md['SN:' + [string]$d.serialNumber] }
+        $sync = ''
+        if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { } }
         [pscustomobject]@{
             Seriennr       = [string]$d.serialNumber
             Tag            = [string]$d.groupTag
             Profil         = $prof
             Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
             LetzterKontakt = $lc
-            Name           = [string]$d.displayName
+            Benutzer       = $(if ($im -and $im.userPrincipalName) { [string]$im.userPrincipalName } else { [string]$d.userPrincipalName })
+            Name           = $(if ($im) { [string]$im.deviceName } else { [string]$d.displayName })
+            LetzterSync    = $sync
             Modell         = [string]$d.model
             HUPilot        = $(if ($pr) { [string]$pr.Zeit + ' ' + [string]$pr.Ergebnis } else { '' })
         }
