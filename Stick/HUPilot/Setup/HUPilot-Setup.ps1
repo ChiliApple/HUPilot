@@ -240,7 +240,7 @@ function Show-SecretExpiry([string]$Token) {
     }
 }
 function Set-SubSecret([string]$Text, [bool]$Warn) {
-    $ui.tSub.Text = 'Quelle: ' + $srcStick + '   |   ' + $Text
+    $ui.tSub.Text = $Text
     $ui.tSub.Foreground = $(if ($Warn) { [System.Windows.Media.Brushes]::Firebrick } else { [System.Windows.Media.Brushes]::DimGray })
 }
 
@@ -476,7 +476,7 @@ $ui.bStatus.Add_Click({
 
 Update-Drives
 Out-Log ('Quelle: '  + $srcStick)
-$ui.tSub.Text = 'Quelle: ' + $srcStick
+$ui.tSub.ToolTip = 'Quelle: ' + $srcStick
 if (Test-Path $srcCfg) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - fuer 3. WLAN-Paket: Windows ADK mit Imaging and Configuration Designer installieren (Store-WCD reicht nicht)' }))
 Start-Log 'Fenster wird angezeigt'
