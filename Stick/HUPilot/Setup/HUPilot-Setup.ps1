@@ -12,9 +12,9 @@
     Laden/Speichern/WLAN-Paket immer in der Quelle; 'Auf Stick kopieren' kopiert die Quelle 1:1 auf einen Stick.
 #>
 $ErrorActionPreference = 'Stop'
-$StartLog = Join-Path $env:TEMP 'HUPilot-Setup-Start.log'
+$StartLog = Join-Path $env:PUBLIC 'HUPilot-Setup-Start.log'   # gleicher Ort fuer Benutzer + Admin-Konto
 function Start-Log([string]$m) { try { Add-Content -Path $StartLog -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  PID ' + $PID + '  ' + $m) -Encoding UTF8 } catch { } }
-Start-Log ('Start: ' + $PSCommandPath)
+Start-Log ('Start: ' + $PSCommandPath + '  als ' + [Environment]::UserName)
 
 # --- Als Administrator neu starten (ICD-Kommandozeile braucht Adminrechte - MS Doku) ---
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -42,7 +42,7 @@ if (-not $script:Mutex.WaitOne(0)) {
 # Fehler sichtbar machen (Fenster laeuft ohne Konsole)
 trap {
     $msg = ($_ | Out-String)
-    try { Set-Content -Path (Join-Path $env:TEMP 'HUPilot-Setup-Fehler.txt') -Value $msg -Encoding UTF8 } catch { }
+    try { Set-Content -Path (Join-Path $env:PUBLIC 'HUPilot-Setup-Fehler.txt') -Value $msg -Encoding UTF8 } catch { }
     try { [void][System.Windows.MessageBox]::Show($msg, 'HUPilot-Setup - Fehler') } catch { }
     exit 1
 }
