@@ -423,6 +423,7 @@ Banner 'OK  -  STICK ABZIEHEN  -  naechstes Geraet' 'DarkGreen' @(
     '',
     'Geraet NICHT ausschalten. Es wartet jetzt auf das',
     'Autopilot-Profil und setzt sich dann selbst zurueck.')
+$GreenAt = Get-Date
 
 # ---------- 5. Auf Profil warten ----------
 $assigned = $false
@@ -464,6 +465,9 @@ if (-not $assigned) {
     if ($a -notmatch '^[jJyY]') { Log 'Abbruch durch Benutzer (kein Reset)'; exit 1 }
 }
 
+# Gruenen Hinweis mind. 60 s stehen lassen (damit man ihn sieht und den Stick abzieht)
+$rest = 60 - [int]((Get-Date) - $GreenAt).TotalSeconds
+if ($rest -gt 0) { Log ('Gruen bleibt noch ' + $rest + ' s stehen'); Start-Sleep -Seconds $rest }
 # ---------- 6. WLAN-Paket + Zuruecksetzen ohne Hersteller-Anpassungen ----------
 Wait-Power
 $ErrorActionPreference = 'Continue'
