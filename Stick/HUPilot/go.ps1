@@ -492,7 +492,28 @@ if ($StickPkg) {
     if (Test-Path $persist) {
         try { $same = ((Get-FileHash -Path $persist -Algorithm SHA256).Hash -eq (Get-FileHash -Path $TmpPkg -Algorithm SHA256).Hash) } catch { Log ('Hash-Vergleich: ' + $_.Exception.Message) }
     }
+    # Intune-Richtlinie Security/AllowAddProvisioningPackage = 0 sperrt neue Pakete (auch fuer SYSTEM)
+    $ppBlocked = $false
+    try { $pv = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Security' -Name 'AllowAddProvisioningPackage' -ErrorAction Stop; if ([int]$pv.AllowAddProvisioningPackage -eq 0) { $ppBlocked = $true } } catch { }
     if ($same) { Log 'WLAN-Paket ist bereits installiert (identisch) - provtool uebersprungen' }
+    elseif ($ppBlocked -and (Test-Path $persist)) {
+        Log 'Intune sperrt Bereitstellungspakete (AllowAddProvisioningPackage=0) - vorhandenes WLAN-Paket bleibt, neues wird NICHT installiert'
+        Write-Host ''
+        Write-Host '  Hinweis: Intune sperrt neue Pakete auf diesem Geraet.' -ForegroundColor Yellow
+        Write-Host '  Das vorhandene WLAN-Paket bleibt - Aenderungen (z. B. lokaler Admin) kommen NICHT mit.' -ForegroundColor Yellow
+        Start-Sleep -Seconds 8
+    }
+    elseif ($ppBlocked) {
+        Log 'Intune sperrt Bereitstellungspakete (AllowAddProvisioningPackage=0) und es ist kein WLAN-Paket installiert'
+        Banner 'ACHTUNG  -  WLAN-PAKET VON INTUNE GESPERRT' 'DarkYellow' @(
+            '',
+            'Intune verbietet auf diesem Geraet neue Bereitstellungspakete.',
+            'Nach dem Zuruecksetzen ist das Konfigurations-WLAN NICHT da:',
+            'LAN-Kabel anstecken oder WLAN im Einrichtungsbildschirm von Hand waehlen.')
+        $a = Read-Host '  J = trotzdem zuruecksetzen, Enter = abbrechen'
+        if ($a -notmatch '^[jJyY]') { Fail-Reset 'WLAN-Paket von Intune gesperrt (AllowAddProvisioningPackage=0) - abgebrochen' }
+        Log 'Trotzdem zuruecksetzen (ohne WLAN-Paket) bestaetigt'
+    }
     else {
         $prov = Join-Path $env:SystemRoot 'System32\provtool.exe'
         if (-not (Test-Path $prov)) { Fail-Reset 'provtool.exe nicht gefunden' }
@@ -515,9 +536,7 @@ L ('Start als ' + [Environment]::UserName)
 $pkg = '__SYSPKG__'
 if ($pkg) {
     $persist = Join-Path $env:ProgramData ('Microsoft\Provisioning\' + (Split-Path $pkg -Leaf))
-    if (Test-Path $persist) {
-        try { Import-Module Provisioning -ErrorAction Stop; Remove-ProvisioningPackage -Path $persist -ErrorAction Stop | Out-Null; L 'altes WLAN-Paket entfernt' } catch { L ('altes WLAN-Paket entfernen: ' + $_.Exception.Message) }
-    }
+    # Altes Paket NICHT entfernen: neues Paket hat eine eigene ID und wird zusaetzlich installiert
     $pr = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\provtool.exe') -ArgumentList ('"' + $pkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden
     L ('provtool als SYSTEM Exitcode: ' + $pr.ExitCode)
     $ok = $false

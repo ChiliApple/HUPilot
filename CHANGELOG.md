@@ -1,6 +1,7 @@
 # Changelog
 
 ## v2.5 - 2026-10-06
+- go.ps1: erkennt die Intune-Sperre für Bereitstellungspakete (`AllowAddProvisioningPackage=0`) – vorhandenes WLAN-Paket bleibt, sonst Rückfrage; altes Paket wird nicht mehr entfernt
 - go.ps1: SYSTEM-Aufgabe per XML – startet jetzt auch im Akkubetrieb (vorher „In Warteschlange“ → keine Rückmeldung)
 - go.ps1: grünes „STICK ABZIEHEN“ bleibt mindestens 60 s stehen
 - Setup: optionaler **lokaler Admin** (Name/Kennwort in `config.json`) – kommt per ProvisioningCommands ins WLAN-Paket und wird nach jedem Zurücksetzen angelegt; Kennwort und Konto laufen nie ab
