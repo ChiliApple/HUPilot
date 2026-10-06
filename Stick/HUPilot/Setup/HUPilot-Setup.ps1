@@ -341,6 +341,13 @@ $ui.bPkg.Add_Click({
         [System.IO.File]::WriteAllText($xmlPath, $x.TrimStart([char]0xFEFF), $enc)   # ohne BOM
         $ppkg = $srcPkg
         $store = Join-Path (Split-Path $icd -Parent) 'Microsoft-Common-Provisioning.dat'
+        if ($c.AdminName) {
+            # ProvisioningCommands gibt es nur im Desktop-Speicher (Common kennt sie nicht)
+            $dstore = Join-Path (Split-Path $icd -Parent) 'Microsoft-Desktop-Provisioning.dat'
+            if (-not (Test-Path $dstore)) { Out-Log ('FEHLER: ' + $dstore + ' fehlt - ADK-Feature "Imaging and Configuration Designer" vollstaendig installieren'); return }
+            $store = $store + ',' + $dstore
+            Out-Log 'Einstellungsspeicher: Common + Desktop'
+        }
         $icdArgs = @('/Build-ProvisioningPackage', ('/CustomizationXML:"' + $xmlPath + '"'), ('/PackagePath:"' + $ppkg + '"'), ('/StoreFile:"' + $store + '"'), '+Overwrite')
         Out-Log 'ICD.exe baut das Paket ...'
         $outF = Join-Path $work 'icd-out.txt'; $errF = Join-Path $work 'icd-err.txt'
