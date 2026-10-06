@@ -96,6 +96,49 @@ function Test-Net {
     } catch { return $false }
 }
 
+$script:ClockOk = $false
+function Sync-Clock {
+    # Uhr per HTTP-Date-Header stellen (ohne TLS/NTP - eine falsche Uhr laesst Token/TLS scheitern)
+    if ($script:ClockOk) { return }
+    try {
+        $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri 'http://www.msftconnecttest.com/connecttest.txt' -UseBasicParsing -TimeoutSec 5
+        $d = [string]$r.Headers['Date']
+        if (-not $d) { return }
+        $srv = [DateTimeOffset]::Parse($d, [Globalization.CultureInfo]::InvariantCulture)
+        $diff = [int]([DateTimeOffset]::UtcNow - $srv).TotalSeconds
+        $script:ClockOk = $true
+        if ([Math]::Abs($diff) -gt 120) {
+            Set-Date -Date $srv.LocalDateTime | Out-Null
+            Log ('Uhr korrigiert um ' + (-$diff) + ' s (war ' + $diff + ' s daneben)')
+        } else { Log ('Uhr OK (Abweichung ' + $diff + ' s)') }
+    } catch { Log ('Uhrzeit-Pruefung: ' + $_.Exception.Message) }
+}
+
+$OfflineHdr = 'Device Serial Number,Windows Product ID,Hardware Hash,Group Tag,Assigned User'
+function Save-Offline {
+    # Hash fuer spaeteren Upload am Stick speichern (Format wie Microsoft-CSV, ANSI, ohne Anfuehrungszeichen)
+    param([string]$Why)
+    Log ('OFFLINE: ' + $Why)
+    try {
+        $f = Join-Path $CfgDir 'logs\hashes.csv'
+        $rows = @()
+        if (Test-Path $f) { $rows = @(Get-Content -Path $f | Where-Object { $_ -and $_ -ne $OfflineHdr -and -not $_.StartsWith($Serial + ',') }) }
+        $rows += ($Serial + ',,' + $hash + ',' + $cfg.GroupTag + ',' + $AssignUpn)
+        Set-Content -Path $f -Value (@($OfflineHdr) + $rows) -Encoding ASCII -ErrorAction Stop
+        Protokoll ('OFFLINE: Hash gespeichert (' + $Why + ')')
+    } catch { Fail ($Why + '  (Hash konnte auch nicht am Stick gespeichert werden: ' + $_.Exception.Message + ')') }
+    Banner 'HASH GESPEICHERT  -  SPAETER HOCHLADEN' 'DarkYellow' @(
+        '',
+        ('Grund: ' + $Why),
+        '',
+        ('Hash + Tag ' + $cfg.GroupTag + ' liegen am Stick: HUPilot\logs\hashes.csv'),
+        'Am PC: HUPilot-Setup > "Hashes importieren".',
+        'Geraet wurde NICHT zurueckgesetzt - Stick kann abgezogen werden.')
+    Read-Host '  Enter = Fenster schliessen' | Out-Null
+    exit 2
+}
+
+$AssignUpn = ''
 try { $Host.UI.RawUI.WindowTitle = 'HUPilot v' + $Ver } catch { }
 Clear-Host
 Write-Host ''
@@ -179,6 +222,18 @@ if ($sel -match '^[1-9]$' -and [int]$sel -le $choices.Count) { $cfg.GroupTag = $
 if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungueltig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
 Write-Host ''
 
+# ---------- Optional: Benutzer vorab zuweisen (config "AskUser": true) ----------
+if ($cfg.AskUser -eq $true) {
+    Write-Host '  Benutzer vorab zuweisen? Anmeldename (UPN) eintippen, Enter = keiner' -ForegroundColor Cyan
+    while ($true) {
+        $u = ([string](Read-Host '  UPN')).Trim()
+        if (-not $u) { break }
+        if ($u -match '^[^@\s,]+@[^@\s,]+\.[^@\s,]+$') { $AssignUpn = $u; break }
+        Write-Host '  Ungueltig - Form name@schule.at' -ForegroundColor Yellow
+    }
+    Write-Host ''
+}
+
 # ---------- Zuruecksetzen ja/nein (10 s, sonst Standard aus config.json "Reset") ----------
 $DoReset = $true
 if ($null -ne $cfg.Reset) { $DoReset = [bool]$cfg.Reset }
@@ -193,6 +248,7 @@ Write-Host ''
 Say ('Seriennummer : ' + $Serial) 'White'
 Say ('Tenant       : ' + $cfg.Tenant) 'White'
 Say ('Group Tag    : ' + $cfg.GroupTag) 'White'
+if ($AssignUpn) { Say ('Benutzer     : ' + $AssignUpn) 'White' }
 Say ('Zuruecksetzen: ' + $(if ($DoReset) { 'JA' } else { 'NEIN - nur Upload' })) 'White'
 
 $os = Get-CimInstance Win32_OperatingSystem
@@ -235,10 +291,21 @@ if ($WlanPkgName -and $DoReset) {
     if (-not (Test-Path $StickPkg)) { Fail ('WLAN-Paket fehlt am Stick: ' + $StickPkg + '  (ohne WLAN-Paket: "WlanPackage": "" in config.json)') }
 }
 
+# ---------- Hash (vor dem Netz - wird bei Offline am Stick gespeichert) ----------
+$hash = $null
+try {
+    $dd = Get-CimInstance -Namespace root/cimv2/mdm/dmmap -Class MDM_DevDetail_Ext01 -Filter "InstanceID='Ext' AND ParentID='./DevDetail'"
+    $hash = $dd.DeviceHardwareData
+} catch { Log ('Hash-Fehler: ' + $_.Exception.Message) }
+if (-not $hash) { Fail 'Hardware-Hash nicht lesbar' }
+Say ('Hash gelesen (' + $hash.Length + ' Zeichen)') 'Green'
+
+
 # ---------- 2. Netz / WLAN ----------
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Write-Host ''
 Say 'Pruefe Internet ...'
+Sync-Clock
 if (-not (Test-Net $cfg.TenantId)) {
     Say ('Kein Internet - verbinde WLAN "' + $cfg.WlanSsid + '" ...') 'Yellow'
     $ssidX = [System.Security.SecurityElement]::Escape([string]$cfg.WlanSsid)
@@ -274,6 +341,7 @@ if (-not (Test-Net $cfg.TenantId)) {
         }
         Start-Sleep -Seconds 10
         Write-Host '.' -NoNewline
+        Sync-Clock
         if (Test-Net $cfg.TenantId) { $ok = $true; break }
     }
     Write-Host ''
@@ -281,10 +349,11 @@ if (-not (Test-Net $cfg.TenantId)) {
         $st = ''
         try { $st = ((netsh wlan show interfaces | Select-String 'SSID|Status|State|Signal') -join ' / ') } catch { }
         Log ('WLAN-Status: ' + $st)
-        Fail 'Kein Internet nach 2 Min (WLAN-Reichweite/Kennwort/Firewall pruefen)'
+        Save-Offline 'Kein Internet nach 2 Min (WLAN-Reichweite/Kennwort/Firewall pruefen)'
     }
 }
 Say 'Internet OK' 'Green'
+Sync-Clock
 
 # ---------- 3a. Token ----------
 $tok = $null
@@ -295,24 +364,78 @@ for ($i = 1; $i -le 3 -and -not $tok; $i++) {
     } catch {
         $m = Get-ErrText $_
         Log ('Token-Versuch ' + $i + ': ' + $m)
-        if ($m -match 'AADSTS7000222') { Fail 'Secret ABGELAUFEN - neues Secret in config.json eintragen' }
-        if ($m -match 'AADSTS7000215') { Fail 'Secret FALSCH (Secret-ID statt Wert?)' }
+        if ($m -match 'AADSTS7000222') { Save-Offline 'Secret ABGELAUFEN - neues Secret in config.json eintragen' }
+        if ($m -match 'AADSTS7000215') { Save-Offline 'Secret FALSCH (Secret-ID statt Wert?)' }
         Start-Sleep -Seconds 5
     }
 }
-if (-not $tok) { Fail 'Anmeldung am Tenant fehlgeschlagen (siehe Log)' }
+if (-not $tok) { Save-Offline 'Anmeldung am Tenant fehlgeschlagen (siehe Log)' }
 $h  = @{ Authorization = 'Bearer ' + $tok }
 $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
 Say 'Anmeldung Tenant OK' 'Green'
 
-# ---------- 3b. Hash ----------
-$hash = $null
-try {
-    $dd = Get-CimInstance -Namespace root/cimv2/mdm/dmmap -Class MDM_DevDetail_Ext01 -Filter "InstanceID='Ext' AND ParentID='./DevDetail'"
-    $hash = $dd.DeviceHardwareData
-} catch { Log ('Hash-Fehler: ' + $_.Exception.Message) }
-if (-not $hash) { Fail 'Hardware-Hash nicht lesbar' }
-Say ('Hash gelesen (' + $hash.Length + ' Zeichen)') 'Green'
+# ---------- Tag-Pruefung: gibt es fuer den Tag ein Autopilot-Profil? (optional Group.Read.All) ----------
+function Test-RuleTag {
+    param([string]$Rule, [string]$Tag)
+    if (-not $Rule) { return $false }
+    $full = '[OrderID]:' + $Tag
+    foreach ($m in [regex]::Matches($Rule, '-(eq|startsWith|contains|match)\s*"(\[OrderID\]:[^"]*)"', 'IgnoreCase')) {
+        $op = $m.Groups[1].Value.ToLower(); $v = $m.Groups[2].Value
+        if ($op -eq 'eq' -and $full -ieq $v) { return $true }
+        if ($op -eq 'startswith' -and $full.StartsWith($v, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($op -eq 'contains' -and $full.IndexOf($v, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+        if ($op -eq 'match') { try { if ($full -match $v) { return $true } } catch { } }
+    }
+    return $false
+}
+function Get-TagProfiles {
+    # Rueckgabe: Liste der Profilnamen fuer den Tag; $null = nicht pruefbar
+    param([string]$Tag)
+    try { $pr = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments') -Headers $h).value) }
+    catch { Log ('Tag-Pruefung Profile: ' + (Get-ErrText $_)); return $null }
+    $names = @(); $gcache = @{}
+    foreach ($p in $pr) {
+        foreach ($a in @($p.assignments)) {
+            $t = $a.target; $ty = [string]$t.'@odata.type'
+            if ($ty -like '*allDevicesAssignmentTarget') { $names += [string]$p.displayName; continue }
+            if ($ty -notlike '*.groupAssignmentTarget') { continue }
+            $gid = [string]$t.groupId
+            if (-not $gcache.ContainsKey($gid)) {
+                try { $gcache[$gid] = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/groups/' + $gid + '?$select=displayName,membershipRule') -Headers $h }
+                catch { Log ('Tag-Pruefung Gruppe (Group.Read.All?): ' + (Get-ErrText $_)); return $null }
+            }
+            if (Test-RuleTag ([string]$gcache[$gid].membershipRule) $Tag) { $names += ([string]$p.displayName + ' (' + [string]$gcache[$gid].displayName + ')') }
+        }
+    }
+    return @($names | Select-Object -Unique)
+}
+$tp = Get-TagProfiles $cfg.GroupTag
+if ($null -eq $tp) { Log 'Tag-Pruefung nicht moeglich (optional: Group.Read.All fuer die App)' }
+elseif ($tp.Count) { Say ('Profil fuer Tag: ' + ($tp -join ', ')) 'Green' }
+else {
+    Log ('Tag-Pruefung: KEIN Profil fuer ' + $cfg.GroupTag)
+    Write-Host ''
+    Write-Host ('  ACHTUNG: Fuer Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
+    Write-Host '  Das Geraet wuerde nach dem Upload vergeblich auf ein Profil warten.' -ForegroundColor Yellow
+    Write-Host '  [A] Abbrechen   -   [Enter] oder 20 s: trotzdem hochladen' -ForegroundColor Yellow
+    $k = Read-KeyTimeout 20
+    if ($k -eq 'A') { Log 'Abbruch: kein Profil fuer Tag'; Protokoll 'ABBRUCH: kein Profil fuer Tag'; exit 1 }
+}
+
+# ---------- Benutzer pruefen (optional User.Read.All) ----------
+$AssignName = ''
+if ($AssignUpn) {
+    try {
+        $usr = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/users/' + [uri]::EscapeDataString($AssignUpn) + '?$select=displayName,userPrincipalName') -Headers $h
+        $AssignName = [string]$usr.displayName
+        Say ('Benutzer gefunden: ' + $AssignName) 'Green'
+    } catch {
+        $m = Get-ErrText $_
+        if ($m -match 'Request_ResourceNotFound|does not exist') { Say ('Benutzer ' + $AssignUpn + ' NICHT gefunden - wird nicht zugewiesen') 'Yellow'; $AssignUpn = '' }
+        else { Log ('Benutzer-Pruefung nicht moeglich (User.Read.All?): ' + $m) }
+    }
+    if (-not $AssignName -and $AssignUpn) { $AssignName = $AssignUpn.Split('@')[0] }
+}
 
 # ---------- 3c. Autopilot ----------
 function Get-ApDevice {
@@ -393,6 +516,17 @@ else {
     try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h | Out-Null } catch { }
     Say 'Import abgeschlossen' 'Green'
     try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotSettings/sync') -Headers $h | Out-Null; Log 'Autopilot-Sync angestossen' } catch { Log ('Sync: ' + (Get-ErrText $_)) }
+}
+
+if ($AssignUpn) {
+    $apU = $null
+    for ($i = 0; $i -lt 6 -and -not $apU; $i++) { $apU = Get-ApDevice; if (-not $apU) { Start-Sleep -Seconds 10 } }
+    if ($apU) {
+        try {
+            Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $apU.id + '/assignUserToDevice') -Headers $hj -Body (@{ userPrincipalName = $AssignUpn; addressableUserName = $AssignName } | ConvertTo-Json) | Out-Null
+            Say ('Benutzer zugewiesen: ' + $AssignUpn) 'Green'
+        } catch { Say ('Benutzer zuweisen fehlgeschlagen: ' + (Get-ErrText $_)) 'Yellow' }
+    } else { Say 'Benutzer zuweisen: Geraet in Autopilot noch nicht sichtbar - spaeter im Portal' 'Yellow' }
 }
 
 # ---------- 4. WLAN-Paket lokal kopieren ----------

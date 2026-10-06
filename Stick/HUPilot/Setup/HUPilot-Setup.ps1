@@ -68,7 +68,7 @@ $script:Extra = @{}
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="890" Height="800" WindowStartupLocation="CenterScreen" FontSize="13">
+        Title="HUPilot-Setup" Width="890" Height="840" WindowStartupLocation="CenterScreen" FontSize="13">
   <DockPanel Margin="14">
   <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
     <Image x:Name="iLogo" Width="44" Height="44"/>
@@ -80,7 +80,7 @@ $script:Extra = @{}
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
     </Grid.RowDefinitions>
     <GroupBox Grid.Row="0" Header="Tenant / App-Registrierung" Padding="6">
       <Grid>
@@ -96,9 +96,10 @@ $script:Extra = @{}
     <GroupBox Grid.Row="1" Header="Group Tag" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="Standard" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tTag" ToolTip="Group Tag, den die Geraete standardmaessig bekommen (z. B. SN-2026).&#x0a;Am Geraet: Enter oder 10 s warten = dieser Tag." ToolTipService.ShowDuration="30000" Margin="2"/>
         <TextBlock Grid.Row="1" Text="Auswahl (Komma)" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tTagChoices" ToolTip="Auswahl am Geraet (max. 9), durch Komma getrennt.&#x0a;Am Geraet mit Taste 1-9 waehlbar - z. B. fuer Nachzuegler aus anderen Jahrgaengen." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cAskUser" Margin="2,4,0,0" Content="Am Geraet nach Benutzer (UPN) fragen und vorab zuweisen" ToolTip="go.ps1 fragt nach dem Tag nach einem Anmeldenamen (Enter = keiner) und weist ihn in Autopilot zu.&#x0a;Sinnvoll fuer Einzelgeraete, nicht fuer ganze Klassen. Pruefung des Namens: optional User.Read.All." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="2" Header="Konfigurations-WLAN (WPA2-Personal)" Padding="6" Margin="0,6,0,0">
@@ -133,14 +134,18 @@ $script:Extra = @{}
       <Button x:Name="bHelp" ToolTip="Anleitung oeffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="8,0,0,0"/>
       <Button x:Name="bUpd" ToolTip="Prueft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfuegbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unveraendert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
-    <TextBox Grid.Row="6" x:Name="tLog" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+    <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
+      <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geraete in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob fuer einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Content="6. Tags pruefen" Padding="10,4"/>
+      <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien koennen hinzugefuegt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Content="7. Hashes importieren" Padding="10,4" Margin="8,0,0,0"/>
+    </StackPanel>
+    <TextBox Grid.Row="7" x:Name="tLog" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
   </DockPanel>
 </Window>
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cAskUser','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer + '   (go.ps1 v' + $GoVer + ')'
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -168,7 +173,7 @@ function Get-Cfg {
         Tenant = $ui.tTenant.Text.Trim(); TenantId = $ui.tTenantId.Text.Trim(); ClientId = $ui.tClientId.Text.Trim()
         ClientSecret = (Get-Secret); GroupTag = $ui.tTag.Text.Trim(); TagChoices = $choices
         WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = $ui.tKey.Text; WlanPackage = 'HUPilot-WLAN.ppkg'
-        AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = $ui.tAdmPw.Text
+        AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = $ui.tAdmPw.Text; AskUser = [bool]$ui.cAskUser.IsChecked
     }
     foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
     return $o
@@ -383,9 +388,9 @@ $ui.bLoad.Add_Click({
         $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
-        $ui.tAdmName.Text = [string]$c.AdminName; $ui.tAdmPw.Text = [string]$c.AdminPassword
+        $ui.tAdmName.Text = [string]$c.AdminName; $ui.tAdmPw.Text = [string]$c.AdminPassword; $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
         $script:Extra = @{}
-        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword') { $script:Extra[$pr.Name] = $pr.Value } }
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','AskUser') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log ('Geladen: ' + $p)
     } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
 })
@@ -753,6 +758,230 @@ $win.Add_ContentRendered({
     if (-not $tok) { Set-SubSecret 'Secret UNGUELTIG - siehe Protokoll' $true; return }
     Show-SecretExpiry -Token $tok
 })
+
+# ---------- Gemeinsam: Autopilot-Liste, Tag-Regeln ----------
+function Get-ApAll($h) {
+    $all = @()
+    $uri = 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=500'
+    while ($uri) {
+        $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h
+        $all += @($r.value)
+        $uri = $r.'@odata.nextLink'
+    }
+    return $all
+}
+function Test-RuleTag([string]$Rule, [string]$Tag) {
+    if (-not $Rule) { return $false }
+    $full = '[OrderID]:' + $Tag
+    foreach ($m in [regex]::Matches($Rule, '-(eq|startsWith|contains|match)\s*"(\[OrderID\]:[^"]*)"', 'IgnoreCase')) {
+        $op = $m.Groups[1].Value.ToLower(); $v = $m.Groups[2].Value
+        if ($op -eq 'eq' -and $full -ieq $v) { return $true }
+        if ($op -eq 'startswith' -and $full.StartsWith($v, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($op -eq 'contains' -and $full.IndexOf($v, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+        if ($op -eq 'match') { try { if ($full -match $v) { return $true } } catch { } }
+    }
+    return $false
+}
+function Show-Grid {
+    param([string]$Title, $Rows, [string]$Info)
+    [xml]$gx = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="1000" Height="520" WindowStartupLocation="CenterOwner" FontSize="12">
+  <DockPanel Margin="10">
+    <TextBlock x:Name="tInfo" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <Button x:Name="bClose" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Content="Schliessen" Padding="10,4" Margin="0,8,0,0"/>
+    <DataGrid x:Name="dGrid" AutoGenerateColumns="True" IsReadOnly="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
+  </DockPanel>
+</Window>
+'@
+    $gw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $gx))
+    $gw.Owner = $win; $gw.Title = $Title
+    if ($win.Icon) { $gw.Icon = $win.Icon }
+    $gw.FindName('tInfo').Text = $Info
+    $gw.FindName('dGrid').ItemsSource = @($Rows)
+    $gw.FindName('bClose').Add_Click({ $gw.Close() })
+    [void]$gw.ShowDialog()
+}
+
+# ---------- 6. Tags pruefen ----------
+$ui.bTags.Add_Click({
+    $tok = Get-ApiToken; if (-not $tok) { return }
+    $h = @{ Authorization = 'Bearer ' + $tok }
+    Out-Log 'Lade Profile, Gruppen und Geraete ...'
+    $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+    try { $profs = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments' -Headers $h).value) }
+    catch { Out-Log ('FEHLER Profile lesen: ' + $_.Exception.Message); return }
+    $gcache = @{}; $gErr = $false; $targets = @()
+    foreach ($p in $profs) {
+        foreach ($a in @($p.assignments)) {
+            $ty = [string]$a.target.'@odata.type'
+            if ($ty -like '*allDevicesAssignmentTarget') { $targets += [pscustomobject]@{ Profil = [string]$p.displayName; Gruppe = 'Alle Geraete'; Rule = '*' }; continue }
+            if ($ty -notlike '*.groupAssignmentTarget') { continue }
+            $gid = [string]$a.target.groupId
+            if (-not $gcache.ContainsKey($gid)) {
+                try { $gcache[$gid] = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/groups/' + $gid + '?$select=displayName,membershipRule') -Headers $h }
+                catch { $gErr = $true; $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' } }
+            }
+            $targets += [pscustomobject]@{ Profil = [string]$p.displayName; Gruppe = [string]$gcache[$gid].displayName; Rule = [string]$gcache[$gid].membershipRule }
+        }
+    }
+    $devs = @(); try { $devs = @(Get-ApAll $h) } catch { Out-Log ('Autopilot-Liste: ' + $_.Exception.Message) }
+    $c = Get-Cfg
+    $tags = @(@($c.GroupTag) + @($c.TagChoices) + @($devs | ForEach-Object { [string]$_.groupTag }) | Where-Object { $_ } | Sort-Object -Unique)
+    $rows = foreach ($t in $tags) {
+        $m = @($targets | Where-Object { $_.Rule -eq '*' -or (Test-RuleTag $_.Rule $t) })
+        $n = @($devs | Where-Object { [string]$_.groupTag -eq $t }).Count
+        [pscustomobject]@{
+            Tag       = $t
+            AmStick   = $(if ($t -eq $c.GroupTag) { 'Standard' } elseif (@($c.TagChoices) -contains $t) { 'Auswahl' } else { '' })
+            Geraete   = $n
+            Profil    = (@($m | ForEach-Object { $_.Profil } | Select-Object -Unique) -join ', ')
+            Gruppe    = (@($m | ForEach-Object { $_.Gruppe } | Select-Object -Unique) -join ', ')
+            Status    = $(if ($m.Count) { 'OK' } elseif ($gErr) { 'unklar (Gruppen nicht lesbar)' } else { 'KEIN PROFIL' })
+        }
+    }
+    $bad = @($rows | Where-Object { $_.Status -eq 'KEIN PROFIL' -and $_.AmStick })
+    Out-Log ('Tags: ' + @($rows).Count + ', ohne Profil (am Stick waehlbar): ' + $bad.Count + $(if ($gErr) { '  - Gruppen nicht lesbar: Group.Read.All fuer HUPilot-Upload ergaenzen' } else { '' }))
+    $info = 'Je Tag: Geraete in Autopilot, passende dynamische Gruppe ([OrderID]-Regel) und daran zugewiesenes Autopilot-Profil.'
+    if ($bad.Count) { $info += '  ACHTUNG: ' + (($bad | ForEach-Object { $_.Tag }) -join ', ') + ' am Stick waehlbar, aber ohne Profil.' }
+    if ($gErr) { $info += '  Gruppen nicht lesbar - Anwendungsberechtigung Group.Read.All ergaenzen.' }
+    Show-Grid -Title ('HUPilot - Tags  (' + $c.Tenant + ')') -Rows $rows -Info $info
+})
+
+# ---------- 7. Offline-Hashes importieren ----------
+function Read-HashCsv([string]$File) {
+    $out = @()
+    foreach ($l in @(Get-Content -Path $File -ErrorAction SilentlyContinue)) {
+        if (-not $l -or $l -like 'Device Serial Number*') { continue }
+        $p = $l.Split(',')
+        if ($p.Count -lt 3 -or -not $p[0] -or -not $p[2]) { continue }
+        $out += [pscustomobject]@{ Seriennr = $p[0].Trim(); Tag = $(if ($p.Count -gt 3) { $p[3].Trim() } else { '' }); Benutzer = $(if ($p.Count -gt 4) { $p[4].Trim() } else { '' }); Status = 'offen'; Datei = $File; Hash = $p[2].Trim(); ImpId = ''; Done = $false }
+    }
+    return $out
+}
+function Show-HashImport {
+    [xml]$hx = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot - Hashes importieren" Width="1000" Height="560" WindowStartupLocation="CenterOwner" FontSize="12">
+  <DockPanel Margin="10">
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Text="Offline gespeicherte Hashes (HUPilot\logs\hashes.csv aus Quelle und Ziel-Stick). Schon vorhandene Geraete bekommen nur den Tag. Erledigte Zeilen wandern nach hashes-erledigt.csv."/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Button x:Name="bAdd" Content="CSV hinzufuegen ..." Padding="10,4"/>
+      <Button x:Name="bImp" Content="Importieren" FontWeight="SemiBold" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bClose" Content="Schliessen" Padding="10,4" Margin="8,0,0,0"/>
+    </StackPanel>
+    <TextBox x:Name="tHLog" DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
+    <DataGrid x:Name="dGrid" AutoGenerateColumns="False" IsReadOnly="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Seriennr" Binding="{Binding Seriennr}"/>
+        <DataGridTextColumn Header="Tag" Binding="{Binding Tag}"/>
+        <DataGridTextColumn Header="Benutzer" Binding="{Binding Benutzer}"/>
+        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="260"/>
+        <DataGridTextColumn Header="Datei" Binding="{Binding Datei}" Width="*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</Window>
+'@
+    $hw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $hx))
+    $hw.Owner = $win
+    if ($win.Icon) { $hw.Icon = $win.Icon }
+    $g = @{}; foreach ($n in 'bAdd','bImp','bClose','tHLog','dGrid') { $g[$n] = $hw.FindName($n) }
+    $script:HRows = @()
+    $hlog = { param($m) $g.tHLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $g.tHLog.ScrollToEnd(); $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+    $refresh = { $g.dGrid.ItemsSource = $null; $g.dGrid.ItemsSource = @($script:HRows); $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+    $addFile = {
+        param($f)
+        if (-not (Test-Path $f)) { return }
+        $new = @(Read-HashCsv $f)
+        foreach ($r in $new) { $script:HRows = @($script:HRows | Where-Object { $_.Seriennr -ne $r.Seriennr }) + $r }
+        & $hlog ('' + $new.Count + ' Hash(es) aus ' + $f)
+    }
+    & $addFile (Join-Path $srcHU 'logs\hashes.csv')
+    $dr = Get-Drive; if ($dr) { & $addFile (Join-Path $dr 'HUPilot\logs\hashes.csv') }
+    & $refresh
+    $g.bClose.Add_Click({ $hw.Close() })
+    $g.bAdd.Add_Click({
+        $dlg = New-Object Microsoft.Win32.OpenFileDialog
+        $dlg.Filter = 'CSV (*.csv)|*.csv'; $dlg.Multiselect = $true
+        if ($dlg.ShowDialog()) { foreach ($f in $dlg.FileNames) { & $addFile $f }; & $refresh }
+    })
+    $g.bImp.Add_Click({
+        $todo = @($script:HRows | Where-Object { -not $_.Done })
+        if (-not $todo.Count) { & $hlog 'Nichts zu importieren.'; return }
+        $tok = Get-ApiToken; if (-not $tok) { & $hlog 'Anmeldung fehlgeschlagen - siehe Hauptfenster'; return }
+        $h  = @{ Authorization = 'Bearer ' + $tok }
+        $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
+        $GB = 'https://graph.microsoft.com/beta/deviceManagement'
+        $c = Get-Cfg
+        foreach ($r in $todo) {
+            if (-not $r.Tag) { $r.Tag = $c.GroupTag }
+            try {
+                $f = [uri]::EscapeDataString("contains(serialNumber,'" + $r.Seriennr + "')")
+                $ex = @(@((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h).value) | Where-Object { $_.serialNumber -eq $r.Seriennr })[0]
+                if ($ex) {
+                    if ([string]$ex.groupTag -ne $r.Tag) { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/windowsAutopilotDeviceIdentities/' + $ex.id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = $r.Tag } | ConvertTo-Json) | Out-Null; $r.Status = 'war vorhanden - Tag gesetzt' }
+                    else { $r.Status = 'war vorhanden (Tag passt)' }
+                    if ($r.Benutzer) { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/windowsAutopilotDeviceIdentities/' + $ex.id + '/assignUserToDevice') -Headers $hj -Body (@{ userPrincipalName = $r.Benutzer; addressableUserName = $r.Benutzer.Split('@')[0] } | ConvertTo-Json) | Out-Null; $r.Status += ', Benutzer zugewiesen' }
+                    $r.Done = $true
+                } else {
+                    $body = @{
+                        '@odata.type' = '#microsoft.graph.importedWindowsAutopilotDeviceIdentity'
+                        serialNumber = $r.Seriennr; productKey = ''; groupTag = $r.Tag; hardwareIdentifier = $r.Hash
+                        state = @{ '@odata.type' = 'microsoft.graph.importedWindowsAutopilotDeviceIdentityState'; deviceImportStatus = 'pending'; deviceRegistrationId = ''; deviceErrorCode = 0; deviceErrorName = '' }
+                    }
+                    if ($r.Benutzer) { $body.assignedUserPrincipalName = $r.Benutzer }
+                    $imp = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities') -Headers $hj -Body ($body | ConvertTo-Json -Depth 4)
+                    $r.ImpId = [string]$imp.id; $r.Status = 'Import laeuft ...'
+                }
+            } catch { $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }; $r.Status = 'FEHLER: ' + $m }
+            & $hlog ($r.Seriennr + ': ' + $r.Status)
+        }
+        & $refresh
+        $limit = (Get-Date).AddMinutes(15)
+        while (@($script:HRows | Where-Object { $_.ImpId -and -not $_.Done -and $_.Status -like 'Import*' }).Count -and (Get-Date) -lt $limit) {
+            for ($i = 0; $i -lt 10; $i++) { Start-Sleep -Milliseconds 1000; $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+            foreach ($r in @($script:HRows | Where-Object { $_.ImpId -and -not $_.Done -and $_.Status -like 'Import*' })) {
+                try {
+                    $st = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities/' + $r.ImpId) -Headers $h
+                    $s2 = [string]$st.state.deviceImportStatus
+                    if ($s2 -eq 'complete') { $r.Status = 'OK - importiert'; $r.Done = $true }
+                    elseif ($s2 -eq 'error') { $r.Status = 'FEHLER: ' + [string]$st.state.deviceErrorName + ' (' + [string]$st.state.deviceErrorCode + ')' }
+                    if ($s2 -in 'complete', 'error') {
+                        try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities/' + $r.ImpId) -Headers $h | Out-Null } catch { }
+                        & $hlog ($r.Seriennr + ': ' + $r.Status)
+                    }
+                } catch { }
+            }
+            & $refresh
+        }
+        foreach ($r in @($script:HRows | Where-Object { -not $_.Done -and $_.Status -like 'Import*' })) { $r.Status = 'Import nach 15 Min nicht fertig - spaeter nochmal' }
+        try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/windowsAutopilotSettings/sync') -Headers $h | Out-Null } catch { }
+        # Erledigte Zeilen aus den Dateien nehmen und nach hashes-erledigt.csv verschieben
+        foreach ($f in @($script:HRows | ForEach-Object { $_.Datei } | Select-Object -Unique)) {
+            try {
+                $done = @($script:HRows | Where-Object { $_.Done -and $_.Datei -eq $f } | ForEach-Object { $_.Seriennr })
+                if (-not $done.Count) { continue }
+                $lines = @(Get-Content -Path $f)
+                $keep = @($lines | Where-Object { $sn = $_.Split(',')[0]; -not ($done -contains $sn) })
+                $moved = @($lines | Where-Object { $sn = $_.Split(',')[0]; $done -contains $sn })
+                $erl = Join-Path (Split-Path $f -Parent) 'hashes-erledigt.csv'
+                if (-not (Test-Path $erl)) { Set-Content -Path $erl -Value 'Device Serial Number,Windows Product ID,Hardware Hash,Group Tag,Assigned User' -Encoding ASCII }
+                Add-Content -Path $erl -Value $moved -Encoding ASCII
+                Set-Content -Path $f -Value $keep -Encoding ASCII
+                & $hlog ('' + $moved.Count + ' erledigt -> ' + $erl)
+            } catch { & $hlog ('Datei ' + $f + ': ' + $_.Exception.Message) }
+        }
+        & $refresh
+        $ok = @($script:HRows | Where-Object { $_.Done }).Count
+        & $hlog ('Fertig: ' + $ok + ' von ' + @($script:HRows).Count + ' erledigt.')
+        Out-Log ('Hashes importiert: ' + $ok + ' von ' + @($script:HRows).Count)
+    })
+    [void]$hw.ShowDialog()
+}
+$ui.bHash.Add_Click({ Show-HashImport })
 $win.Add_ContentRendered({ Invoke-UpdateCheck })
 [void]$win.ShowDialog()
 Start-Log 'Fenster geschlossen'

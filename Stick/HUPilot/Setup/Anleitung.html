@@ -129,6 +129,8 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td><span class="ui">4. Auf Stick kopieren</span></td><td>kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>)</td></tr>
 <tr><td><span class="ui">Sticks vorbereiten</span></td><td>nur wenn das Setup vom PC läuft: mehrere USB-Sticks formatieren (NTFS), benennen und befüllen – gleichzeitig angesteckt oder nacheinander (tauschen → <i>Neu einlesen</i>). Interne Laufwerke werden nie angeboten.</td></tr>
 <tr><td><span class="ui">5. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken; Doppelklick = Details live</td></tr>
+<tr><td><span class="ui">6. Tags prüfen</span></td><td>je Tag: Geräte in Autopilot, passende dynamische Gruppe und Autopilot-Profil – zeigt Tags ohne Profil, bevor es losgeht (Gruppen lesen: <code>Group.Read.All</code>)</td></tr>
+<tr><td><span class="ui">7. Hashes importieren</span></td><td>lädt offline gespeicherte Hashes (<code>HUPilot\logs\hashes.csv</code>) von Quelle und Stick hoch; vorhandene Geräte bekommen nur den Tag; Erledigtes wandert nach <code>hashes-erledigt.csv</code></td></tr>
 <tr><td><span class="ui">Update</span></td><td>prüft beim Start auf GitHub, ob es eine neuere Version gibt (Gold = Update da). Klick aktualisiert die Programmdateien im Ordner/Stick; <code>config.json</code>, WLAN-Paket und <code>logs</code> bleiben.</td></tr>
 </table>
 <div class="warn">Kein <code>.ppkg</code> ins Hauptverzeichnis des Sticks legen – Windows wendet es sonst im Einrichtungsbildschirm von selbst an. Das WLAN-Paket enthält nur das WLAN und optional den lokalen Admin, nie CleanPC. Kennwörter stehen im Klartext in <code>config.json</code> und im Paket – Stick nicht aus der Hand geben.</div>
@@ -149,7 +151,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <table>
 <tr><th>Farbe</th><th>Bedeutung</th></tr>
 <tr><td><span class="c" style="background:#40a02b"></span>Grün</td><td>Upload fertig – Stick abziehen</td></tr>
-<tr><td><span class="c" style="background:#df8e1d"></span>Gelb</td><td>Netzteil fehlt (wartet) · Profil nach 20 Min nicht zugewiesen (<code>J</code>/<code>N</code>)</td></tr>
+<tr><td><span class="c" style="background:#df8e1d"></span>Gelb</td><td>Netzteil fehlt (wartet) · kein Profil für den Tag (<code>A</code> = abbrechen) · Profil nach 20 Min nicht zugewiesen · <b>Hash gespeichert</b> (offline – später <i>7. Hashes importieren</i>)</td></tr>
 <tr><td><span class="c" style="background:#1e66f5"></span>Blau</td><td>Zurücksetzen startet</td></tr>
 <tr><td><span class="c" style="background:#d20f39"></span>Rot</td><td>Fehler – <b>nichts</b> zurückgesetzt, Grund steht am Bildschirm. Nochmal <code>D:\go</code>. Bei „Gerät ist schon eingerichtet“ nur mit <code>LOESCHEN</code> weiter.</td></tr>
 </table>
@@ -172,6 +174,8 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td>Kein Internet nach 2 Min</td><td>WLAN-Reichweite, Kennwort, Firewall (Autopilot/Intune-Adressen freigeben); LAN mit 802.1X geht nicht</td></tr>
 <tr><td>Gerät ist in einem anderen Tenant</td><td>beim anderen Tenant/Händler aus Autopilot entfernen lassen</td></tr>
 <tr><td>Hängt bei „Kontoeinrichtung“</td><td>SkipUserStatusPage (siehe Intune), Gerät neu starten</td></tr>
+<tr><td>Gelb „HASH GESPEICHERT“</td><td>kein Internet oder Secret abgelaufen/falsch: Hash liegt am Stick, Gerät nicht zurückgesetzt. Am PC <i>7. Hashes importieren</i>, danach Gerät nochmal mit <code>go</code> (wird dann nur zurückgesetzt).</td></tr>
+<tr><td>Gelb „KEIN Autopilot-Profil“ für den Tag</td><td>dynamische Gruppe/Profil für den Tag fehlt – <i>6. Tags prüfen</i>; mit <b>A</b> abbrechen oder trotzdem hochladen</td></tr>
 <tr><td>WLAN-Paket von Intune gesperrt (gelb)</td><td>Richtlinie <code>AllowAddProvisioningPackage = 0</code> am bereits eingerichteten Gerät: vorhandenes WLAN-Paket bleibt, neues (z. B. mit lokalem Admin) kommt nicht mit. Frische Geräte im Einrichtungsbildschirm betrifft das nicht.</td></tr>
 <tr><td>Setup startet nicht</td><td><code>C:\Users\Public\HUPilot-Setup-Start.log</code></td></tr>
 </table>

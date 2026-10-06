@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unveröffentlicht
+- go.ps1: **Offline-Modus** – ohne Internet oder bei abgelaufenem/falschem Secret wird der Hash am Stick gespeichert (`logs\hashes.csv`, Microsoft-CSV-Format), gelbe Meldung, kein Zurücksetzen
+- go.ps1: Uhrzeit per HTTP-Date stellen (falsche Uhr → Token/TLS scheitern)
+- go.ps1: **Tag-Prüfung** – Warnung, wenn für den Tag kein Autopilot-Profil zugewiesen ist (optional `Group.Read.All`)
+- go.ps1: optional **Benutzer vorab zuweisen** (`AskUser`, Prüfung optional `User.Read.All`)
+- Setup: **6. Tags prüfen**, **7. Hashes importieren**, Schalter „nach Benutzer fragen“
 - Setup: **Sticks vorbereiten** (nur vom PC) – mehrere USB-Sticks formatieren, benennen und mit HUPilot befüllen
 
 ## v2.0 - 2026-10-06
