@@ -6,6 +6,7 @@
 - go.ps1: **Tag-Prüfung** – Warnung, wenn für den Tag kein Autopilot-Profil zugewiesen ist (optional `Group.Read.All`)
 - go.ps1: optional **Benutzer vorab zuweisen** (`AskUser`, Prüfung optional `User.Read.All`)
 - Setup: **6. Tags prüfen**, **7. Hashes importieren**, Schalter „nach Benutzer fragen“
+- Setup: Secret-Restlaufzeit in Tagen + Stunden, rot erst unter 24 Std
 - Setup *Status*: Spalte **RegDatum** (Intune-Registrierung, neueste oben) und Knopf **Aktualisieren**
 - Setup: **Sticks vorbereiten** (nur vom PC) – mehrere USB-Sticks formatieren, benennen und mit HUPilot befüllen
 

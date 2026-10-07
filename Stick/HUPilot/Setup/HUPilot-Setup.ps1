@@ -410,6 +410,11 @@ function Get-ApiToken {
     }
 }
 
+function Format-Rest([TimeSpan]$Span) {
+    if ($Span.TotalSeconds -le 0) { return 'abgelaufen' }
+    $d = [int][Math]::Floor($Span.TotalDays)
+    return ('noch ' + $(if ($d) { '' + $d + ' Tag' + $(if ($d -ne 1) { 'e' } else { '' }) + ' ' } else { '' }) + $Span.Hours + ' Std')
+}
 function Show-SecretExpiry([string]$Token) {
     # Secret-Ablauf (optional: braucht Application.Read.All fuer die App)
     $h = @{ Authorization = 'Bearer ' + $Token }
@@ -422,15 +427,16 @@ function Show-SecretExpiry([string]$Token) {
         $minDays = $null; $minEnd = $null
         foreach ($pc in $list) {
             $end = ([datetime]$pc.endDateTime).ToLocalTime()
-            $days = [int][Math]::Floor(($end - (Get-Date)).TotalDays)
+            $span = $end - (Get-Date)
+            $days = $span.TotalDays
             if ($null -eq $minDays -or $days -lt $minDays) { $minDays = $days; $minEnd = $end }
-            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gueltig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + '  -> noch ' + $days + ' Tage'
-            if ($days -lt 0) { $txt = 'ACHTUNG ABGELAUFEN: ' + $txt } elseif ($days -le 7) { $txt = 'ACHTUNG BALD ABGELAUFEN: ' + $txt }
+            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gueltig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + '  -> ' + (Format-Rest $span)
+            if ($days -lt 0) { $txt = 'ACHTUNG ABGELAUFEN: ' + $txt } elseif ($days -lt 1) { $txt = 'ACHTUNG BALD ABGELAUFEN: ' + $txt }
             Out-Log $txt
         }
         if (-not $mine.Count) { Out-Log '  (verwendetes Secret nicht eindeutig erkannt - alle Secrets der App angezeigt)' }
         if ($mine.Count -and $null -ne $minDays) {
-            Set-SubSecret ('Secret gueltig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (noch ' + $minDays + ' Tage)') ($minDays -le 7)
+            Set-SubSecret ('Secret gueltig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (' + (Format-Rest ($minEnd - (Get-Date))) + ')') ($minDays -lt 1)
         }
     } catch {
         Out-Log 'Secret-Ablauf nicht lesbar (optional: Anwendungsberechtigung Application.Read.All fuer HUPilot-Upload)'
