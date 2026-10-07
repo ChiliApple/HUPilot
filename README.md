@@ -34,7 +34,7 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen –
 
 1. App-Registrierung `HUPilot-Upload` – [INSTALL.md](INSTALL.md)
 2. `Stick\` auf Stick oder in einen Ordner kopieren, **`HUPilot-Setup.cmd`** starten:
-   *Verbindung testen* → *Speichern* → *WLAN-Paket bauen* → *Auf Stick kopieren* · *Status* zeigt danach, welche Geräte fertig sind
+   *Verbindung testen* → *Tags prüfen* → *Speichern* → *WLAN-Paket bauen* → *Auf Stick kopieren* · *Status* zeigt danach, welche Geräte fertig sind
 
 > **Status:** in Erprobung. Upload, Tag-Wechsel, Zurücksetzen, WLAN-Paket und Autopilot laufen. **Noch nicht auf einem unberührten Neugerät bestätigt:** dass nach dem Zurücksetzen keine Hersteller-Programme zurückkommen.
 

@@ -120,16 +120,17 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <div class="step"><b class="k">3</b><div>Zertifikate &amp; Geheimnisse › neues Secret, <b>kurz gültig</b> (wenige Tage) › den <b>Wert</b> kopieren, nicht die ID.</div></div>
 
 <h3 id="setup">Setup-Oberfläche</h3>
+<p>Knöpfe in drei Zeilen nach Ablauf: <b>Vorbereiten</b> (1–4), <b>Stick</b> (5 / Sticks vorbereiten), <b>Danach</b> (6–7). Oben rechts: Desktop-Verknüpfung (nur am PC), Anleitung, Update.</p>
 <p><code>HUPilot-Setup.cmd</code> arbeitet immer mit dem Ordner, aus dem es gestartet wird (Stick oder Vorbereitungsordner am PC, z. B. je Schule einer).</p>
 <table>
 <tr><th>Knopf</th><th>Wirkung</th></tr>
 <tr><td><span class="ui">1. Verbindung testen</span></td><td>Anmeldung mit App + Secret, Autopilot-Zugriff, Ablauf des Secrets</td></tr>
-<tr><td><span class="ui">2. Speichern</span></td><td>schreibt <code>config.json</code></td></tr>
-<tr><td><span class="ui">3. WLAN-Paket bauen</span></td><td>baut <code>HUPilot-WLAN.ppkg</code> – braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i>. Ist ein <b>lokaler Admin</b> eingetragen, kommt er mit ins Paket: Er wird nach jedem Zurücksetzen angelegt, Kennwort und Konto laufen nie ab. Änderung = Paket neu bauen + Gerät mit Stick zurücksetzen.</td></tr>
-<tr><td><span class="ui">4. Auf Stick kopieren</span></td><td>kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>)</td></tr>
+<tr><td><span class="ui">2. Tags prüfen</span></td><td>je Tag: Geräte in Autopilot, passende dynamische Gruppe und Autopilot-Profil – zeigt Tags ohne Profil, bevor es losgeht (Gruppen lesen: <code>Group.Read.All</code>)</td></tr>
+<tr><td><span class="ui">3. Speichern</span></td><td>schreibt <code>config.json</code></td></tr>
+<tr><td><span class="ui">4. WLAN-Paket bauen</span></td><td>baut <code>HUPilot-WLAN.ppkg</code> – braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i>. Ist ein <b>lokaler Admin</b> eingetragen, kommt er mit ins Paket: Er wird nach jedem Zurücksetzen angelegt, Kennwort und Konto laufen nie ab. Änderung = Paket neu bauen + Gerät mit Stick zurücksetzen.</td></tr>
+<tr><td><span class="ui">5. Auf Stick kopieren</span></td><td>kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>)</td></tr>
 <tr><td><span class="ui">Sticks vorbereiten</span></td><td>nur wenn das Setup vom PC läuft: mehrere USB-Sticks formatieren (NTFS), benennen und befüllen – gleichzeitig angesteckt oder nacheinander (tauschen → <i>Neu einlesen</i>). Interne Laufwerke werden nie angeboten.</td></tr>
-<tr><td><span class="ui">5. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken; Doppelklick = Details live</td></tr>
-<tr><td><span class="ui">6. Tags prüfen</span></td><td>je Tag: Geräte in Autopilot, passende dynamische Gruppe und Autopilot-Profil – zeigt Tags ohne Profil, bevor es losgeht (Gruppen lesen: <code>Group.Read.All</code>)</td></tr>
+<tr><td><span class="ui">6. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken; Doppelklick = Details live</td></tr>
 <tr><td><span class="ui">7. Hashes importieren</span></td><td>lädt offline gespeicherte Hashes (<code>HUPilot\logs\hashes.csv</code>) von Quelle und Stick hoch; vorhandene Geräte bekommen nur den Tag; Erledigtes wandert nach <code>hashes-erledigt.csv</code></td></tr>
 <tr><td><span class="ui">Update</span></td><td>prüft beim Start auf GitHub, ob es eine neuere Version gibt (Gold = Update da). Klick aktualisiert die Programmdateien im Ordner/Stick; <code>config.json</code>, WLAN-Paket und <code>logs</code> bleiben.</td></tr>
 </table>
@@ -160,7 +161,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <section id="danach">
 <h2><span class="n">3</span>Nach dem Einsatz</h2>
 <ul>
-<li><span class="ui">5. Status</span> im Setup: welche Geräte registriert sind, welche noch offen – als CSV oder Ausdruck.</li>
+<li><span class="ui">6. Status</span> im Setup: welche Geräte registriert sind, welche noch offen – als CSV oder Ausdruck.</li>
 <li>Secret erneuern (QS-Script oder Entra), alte Secrets löschen.</li>
 <li>Per Intune-Wartung: Config-WLAN und WLAN-Paket (bleibt sonst bei jedem Zurücksetzen erhalten – auch der lokale Admin) sowie <code>C:\Recovery\HUPilot-OEM-Backup</code> entfernen; Hersteller-Store-Apps ggf. deinstallieren.</li>
 </ul>
@@ -175,7 +176,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td>Gerät ist in einem anderen Tenant</td><td>beim anderen Tenant/Händler aus Autopilot entfernen lassen</td></tr>
 <tr><td>Hängt bei „Kontoeinrichtung“</td><td>SkipUserStatusPage (siehe Intune), Gerät neu starten</td></tr>
 <tr><td>Gelb „HASH GESPEICHERT“</td><td>kein Internet oder Secret abgelaufen/falsch: Hash liegt am Stick, Gerät nicht zurückgesetzt. Am PC <i>7. Hashes importieren</i>, danach Gerät nochmal mit <code>go</code> (wird dann nur zurückgesetzt).</td></tr>
-<tr><td>Gelb „KEIN Autopilot-Profil“ für den Tag</td><td>dynamische Gruppe/Profil für den Tag fehlt – <i>6. Tags prüfen</i>; mit <b>A</b> abbrechen oder trotzdem hochladen</td></tr>
+<tr><td>Gelb „KEIN Autopilot-Profil“ für den Tag</td><td>dynamische Gruppe/Profil für den Tag fehlt – <i>2. Tags prüfen</i>; mit <b>A</b> abbrechen oder trotzdem hochladen</td></tr>
 <tr><td>WLAN-Paket von Intune gesperrt (gelb)</td><td>Richtlinie <code>AllowAddProvisioningPackage = 0</code> am bereits eingerichteten Gerät: vorhandenes WLAN-Paket bleibt, neues (z. B. mit lokalem Admin) kommt nicht mit. Frische Geräte im Einrichtungsbildschirm betrifft das nicht.</td></tr>
 <tr><td>Setup startet nicht</td><td><code>C:\Users\Public\HUPilot-Setup-Start.log</code></td></tr>
 </table>
