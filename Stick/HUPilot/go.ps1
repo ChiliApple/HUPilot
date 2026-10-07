@@ -413,7 +413,8 @@ function Get-TagProfiles {
             if (Test-RuleTag ([string]$gcache[$gid].membershipRule) $Tag) { $names += ([string]$p.displayName + ' (' + [string]$gcache[$gid].displayName + ')') }
         }
     }
-    return @($names | Select-Object -Unique)
+    # Komma: leere Liste NICHT zu $null aufloesen lassen ($null = nicht pruefbar)
+    return ,@($names | Select-Object -Unique)
 }
 $tp = Get-TagProfiles $cfg.GroupTag
 if ($null -eq $tp) { Log 'Tag-Pruefung nicht moeglich (optional: Group.Read.All fuer die App)' }
