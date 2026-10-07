@@ -140,6 +140,8 @@ function Save-Offline {
 
 $AssignUpn = ''
 try { $Host.UI.RawUI.WindowTitle = 'HUPilot v' + $Ver } catch { }
+# Farben zuruecksetzen (nach einem frueheren Lauf im selben Fenster bleibt sonst gruen/gelb/rot stehen)
+try { $Host.UI.RawUI.BackgroundColor = 'Black'; $Host.UI.RawUI.ForegroundColor = 'Gray' } catch { }
 Clear-Host
 Write-Host ''
 Write-Host ('  HUPilot v' + $Ver) -ForegroundColor Cyan
