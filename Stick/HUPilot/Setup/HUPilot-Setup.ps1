@@ -70,13 +70,17 @@ $script:Extra = @{}
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HUPilot-Setup" Width="890" Height="840" WindowStartupLocation="CenterScreen" FontSize="13">
   <DockPanel Margin="14">
-  <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+  <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+      <Button VerticalAlignment="Center" x:Name="bHelp" ToolTip="Anleitung oeffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="0,0,0,0"/>
+      <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prueft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfuegbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unveraendert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
+    </StackPanel>
     <Image x:Name="iLogo" Width="44" Height="44"/>
     <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
       <TextBlock Text="HUPilot" FontSize="20" FontWeight="SemiBold"/>
       <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="Gray"/>
     </StackPanel>
-  </StackPanel>
+  </DockPanel>
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
@@ -131,8 +135,6 @@ $script:Extra = @{}
       <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberflaeche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="3. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen." ToolTipService.ShowDuration="30000" Content="4. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geraete des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV und Drucken moeglich." ToolTipService.ShowDuration="30000" Content="5. Status" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bHelp" ToolTip="Anleitung oeffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="8,0,0,0"/>
-      <Button x:Name="bUpd" ToolTip="Prueft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfuegbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unveraendert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
       <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geraete in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob fuer einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Content="6. Tags pruefen" Padding="10,4"/>
