@@ -553,7 +553,7 @@ if (-not $DoReset) {
     Log 'Nur Upload gewaehlt - kein Zuruecksetzen'
     Banner 'OK  -  HOCHGELADEN  -  STICK ABZIEHEN' 'DarkGreen' @(
         '',
-        ('Group Tag: ' + $cfg.GroupTag),
+        ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
         'Geraet wurde NICHT zurueckgesetzt.',
         'Fuer Autopilot: Geraet spaeter zuruecksetzen (Einstellungen > System >',
         'Wiederherstellung) oder per Intune "Zuruecksetzen".')
@@ -563,6 +563,7 @@ if (-not $DoReset) {
 
 Banner 'OK  -  STICK ABZIEHEN  -  naechstes Geraet' 'DarkGreen' @(
     '',
+    ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
     'Geraet NICHT ausschalten. Es wartet jetzt auf das',
     'Autopilot-Profil und setzt sich dann selbst zurueck.')
 $GreenAt = Get-Date
