@@ -8,6 +8,7 @@
 - Setup: **6. Tags prüfen**, **7. Hashes importieren**, Schalter „nach Benutzer fragen“
 - Setup: Secret-Restlaufzeit in Tagen + Stunden, rot erst unter 24 Std
 - Setup *Status*: Spalte **RegDatum** (Intune-Registrierung, neueste oben) und Knopf **Aktualisieren**
+- Setup: Knopf oben rechts legt eine Desktop-Verknüpfung (mit Symbol) zum Vorbereitungsordner an
 - Setup: **Sticks vorbereiten** (nur vom PC) – mehrere USB-Sticks formatieren, benennen und mit HUPilot befüllen
 
 ## v2.0 - 2026-10-06

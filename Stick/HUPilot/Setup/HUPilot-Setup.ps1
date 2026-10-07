@@ -72,6 +72,7 @@ $script:Extra = @{}
   <DockPanel Margin="14">
   <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+      <Button VerticalAlignment="Center" x:Name="bLnk" FontFamily="Segoe MDL2 Assets" Content="&#xE718;" Width="32" Padding="0,5" Margin="0,0,8,0" ToolTip="Desktop-Verknuepfung zu diesem Ordner anlegen (oeffentlicher Desktop, mit HUPilot-Symbol)." ToolTipService.ShowDuration="30000"/>
       <Button VerticalAlignment="Center" x:Name="bHelp" ToolTip="Anleitung oeffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="0,0,0,0"/>
       <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prueft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfuegbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unveraendert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
@@ -147,7 +148,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cAskUser','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cAskUser','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer + '   (go.ps1 v' + $GoVer + ')'
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -770,6 +771,28 @@ function Get-StatusData {
 $ui.bStatus.Add_Click({
     $d = Get-StatusData; if (-not $d) { return }
     Show-Status -Rows @($d.Rows) -Proto $d.Proto -Tenant ((Get-Cfg).Tenant)
+})
+
+# Desktop-Verknuepfung (nur wenn das Setup vom PC laeuft)
+if ($script:SrcOnUsb) { $ui.bLnk.Visibility = 'Collapsed' }
+$ui.bLnk.Add_Click({
+    try {
+        $c = Get-Cfg
+        $nm = $(if ($c.Tenant) { [string]$c.Tenant } else { Split-Path $srcStick -Leaf })
+        $nm = 'HUPilot ' + ($nm -replace '[\\/:*?"<>|]', '')
+        $dsk = [Environment]::GetFolderPath('CommonDesktopDirectory')
+        $lnk = Join-Path $dsk ($nm + '.lnk')
+        $ws = New-Object -ComObject WScript.Shell
+        $sc = $ws.CreateShortcut($lnk)
+        $sc.TargetPath = Join-Path $srcStick 'HUPilot-Setup.cmd'
+        $sc.WorkingDirectory = $srcStick
+        $ico = Join-Path $PSScriptRoot 'icon.ico'
+        if (Test-Path $ico) { $sc.IconLocation = $ico + ',0' }
+        $sc.Description = 'HUPilot-Setup - ' + $srcStick
+        $sc.WindowStyle = 7
+        $sc.Save()
+        Out-Log ('Desktop-Verknuepfung angelegt: ' + $lnk)
+    } catch { Out-Log ('FEHLER Verknuepfung: ' + $_.Exception.Message) }
 })
 
 Update-Drives
