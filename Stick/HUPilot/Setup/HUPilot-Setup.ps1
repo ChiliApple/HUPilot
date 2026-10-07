@@ -584,6 +584,7 @@ function Show-Status {
       <CheckBox x:Name="cProto" Content="nur Geraete aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,0"/>
       <TextBox x:Name="tFind" Width="160" Margin="14,0,0,0" ToolTip="Suche in Seriennummer / Geraetename / Benutzer"/>
       <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold"/>
+      <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" Margin="14,0,0,0" ToolTip="Alle Daten neu aus Autopilot/Intune laden"/>
     </StackPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
       <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4"/>
@@ -597,15 +598,20 @@ function Show-Status {
     $sw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $sx))
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
-    $g = @{}; foreach ($n in 'cTag','cProto','tFind','tCount','bCsv','bPrint','bClose','dGrid') { $g[$n] = $sw.FindName($n) }
-    [void]$g.cTag.Items.Add('Alle')
-    foreach ($t in @($Rows | ForEach-Object { $_.Tag } | Where-Object { $_ } | Sort-Object -Unique)) { [void]$g.cTag.Items.Add($t) }
-    $g.cTag.SelectedIndex = 0
+    $g = @{}; foreach ($n in 'cTag','cProto','tFind','tCount','bCsv','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
+    $script:SRows = @($Rows)
+    $fillTags = {
+        $keep = [string]$g.cTag.SelectedItem
+        $g.cTag.Items.Clear(); [void]$g.cTag.Items.Add('Alle')
+        foreach ($t in @($script:SRows | ForEach-Object { $_.Tag } | Where-Object { $_ } | Sort-Object -Unique)) { [void]$g.cTag.Items.Add($t) }
+        if ($keep -and $g.cTag.Items.Contains($keep)) { $g.cTag.SelectedItem = $keep } else { $g.cTag.SelectedIndex = 0 }
+    }
+    & $fillTags
     $g.cProto.IsChecked = ($Proto.Count -gt 0)
     $g.cProto.IsEnabled = ($Proto.Count -gt 0)
     $script:StatusView = @()
     $refresh = {
-        $v = @($Rows)
+        $v = @($script:SRows)
         if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
         if ($g.cProto.IsChecked) { $v = @($v | Where-Object { $_.HUPilot }) }
         if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
@@ -618,6 +624,14 @@ function Show-Status {
     $g.cProto.Add_Click($refresh)
     $g.tFind.Add_TextChanged($refresh)
     $g.bClose.Add_Click({ $sw.Close() })
+    $g.bReload.Add_Click({
+        $g.bReload.IsEnabled = $false; $g.tCount.Text = 'lade ...'
+        $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+        $d = Get-StatusData
+        if ($d) { $script:SRows = @($d.Rows); & $fillTags }
+        & $refresh
+        $g.bReload.IsEnabled = $true
+    })
     $g.dGrid.Add_MouseDoubleClick({
         $it = $g.dGrid.SelectedItem; if (-not $it) { return }
         $id = $script:ApIds[[string]$it.Seriennr]; if (-not $id) { return }
@@ -685,8 +699,8 @@ function Show-Status {
     [void]$sw.ShowDialog()
 }
 
-$ui.bStatus.Add_Click({
-    $tok = Get-ApiToken; if (-not $tok) { return }
+function Get-StatusData {
+    $tok = Get-ApiToken; if (-not $tok) { return $null }
     $h = @{ Authorization = 'Bearer ' + $tok }
     Out-Log 'Lade Autopilot-Geraete ...'
     $all = @()
@@ -697,11 +711,11 @@ $ui.bStatus.Add_Click({
             $all += @($r.value)
             $uri = $r.'@odata.nextLink'
         }
-    } catch { Out-Log ('FEHLER Autopilot-Liste: ' + $_.Exception.Message); return }
+    } catch { Out-Log ('FEHLER Autopilot-Liste: ' + $_.Exception.Message); return $null }
     # Optional: Intune-Geraete (Primaerer Benutzer, Geraetename, letzter Sync) - braucht DeviceManagementManagedDevices.Read.All
     $md = @{}
     try {
-        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime&`$top=999"
+        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime,enrolledDateTime&`$top=999"
         while ($uri) {
             $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h
             foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $md['SN:' + [string]$m.serialNumber] = $m } }
@@ -723,13 +737,15 @@ $ui.bStatus.Add_Click({
         $im = $null
         if ($d.managedDeviceId -and $md.ContainsKey([string]$d.managedDeviceId)) { $im = $md[[string]$d.managedDeviceId] }
         elseif ($md.ContainsKey('SN:' + [string]$d.serialNumber)) { $im = $md['SN:' + [string]$d.serialNumber] }
-        $sync = ''
+        $sync = ''; $reg = ''
         if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { } }
+        if ($im) { try { $rd = [datetime]$im.enrolledDateTime; if ($rd.Year -gt 2000) { $reg = $rd.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { } }
         [pscustomobject]@{
             Seriennr       = [string]$d.serialNumber
             Tag            = [string]$d.groupTag
             Profil         = $prof
             Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
+            RegDatum       = $reg
             LetzterKontakt = $lc
             Benutzer       = $(if ($im -and $im.userPrincipalName) { [string]$im.userPrincipalName } else { [string]$d.userPrincipalName })
             Name           = $(if ($im) { [string]$im.deviceName } else { [string]$d.displayName })
@@ -738,8 +754,14 @@ $ui.bStatus.Add_Click({
             HUPilot        = $(if ($pr) { [string]$pr.Zeit + ' ' + [string]$pr.Ergebnis } else { '' })
         }
     }
+    # Neueste Intune-Registrierung oben, Geraete ohne Datum unten
+    $rows = @(@($rows | Where-Object { $_.RegDatum } | Sort-Object RegDatum -Descending) + @($rows | Where-Object { -not $_.RegDatum }))
     Out-Log ('' + @($rows).Count + ' Autopilot-Geraete, ' + $proto.Count + ' aus protokoll.csv')
-    Show-Status -Rows @($rows) -Proto $proto -Tenant ((Get-Cfg).Tenant)
+    return @{ Rows = $rows; Proto = $proto }
+}
+$ui.bStatus.Add_Click({
+    $d = Get-StatusData; if (-not $d) { return }
+    Show-Status -Rows @($d.Rows) -Proto $d.Proto -Tenant ((Get-Cfg).Tenant)
 })
 
 Update-Drives
