@@ -94,11 +94,21 @@ function Show-Prov {
     Write-Host ''
     Write-Host '  C:\Recovery:' -ForegroundColor White
     foreach ($x in 'C:\Recovery\Customizations', 'C:\Recovery\AutoApply', 'C:\Recovery\HUPilot-OEM-Backup') {
-        if (Test-Path $x) { $s = (Get-ChildItem $x -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum; Write-Host ('  ' + $x + '  ' + [math]::Round($s / 1MB) + ' MB') } else { Write-Host ('  ' + $x + '  -') }
+        try {
+            $null = Get-Item -LiteralPath $x -Force -ErrorAction Stop
+            $sz = (Get-ChildItem $x -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+            Write-Host ('  ' + $x + '  vorhanden, ' + [math]::Round($sz / 1MB) + ' MB')
+        } catch [System.UnauthorizedAccessException] { Write-Host ('  ' + $x + '  kein Zugriff (nur SYSTEM) - Inhalt unbekannt') -ForegroundColor Yellow }
+        catch {
+            if ($_.FullyQualifiedErrorId -like '*UnauthorizedAccess*' -or $_.Exception.Message -match 'verweigert|denied') { Write-Host ('  ' + $x + '  kein Zugriff (nur SYSTEM) - Inhalt unbekannt') -ForegroundColor Yellow }
+            else { Write-Host ('  ' + $x + '  nicht vorhanden') }
+        }
     }
     Write-Host ''
     Write-Host '  Geplante Aufgabe HUPilot-Wipe:' -ForegroundColor White
-    $q = @(cmd.exe /c 'schtasks /query /tn HUPilot-Wipe /v /fo list 2>&1' | Where-Object { $_ -match 'Status|Letztes|Last Result|Energie|Power|existiert|exist' } | Select-Object -First 6)
+    $all = @(cmd.exe /c 'schtasks /query /tn HUPilot-Wipe /v /fo list 2>&1')
+    $q = @($all | Where-Object { $_ -match 'Status|Letztes|Last Result|Energie|Power' } | Select-Object -First 6)
+    if ($LASTEXITCODE -ne 0 -or -not $q.Count) { Write-Host '  nicht vorhanden (normal, solange kein Zuruecksetzen laeuft)' }
     foreach ($x in $q) { Write-Host ('  ' + ([string]$x).Trim()) }
 }
 function Save-All {
