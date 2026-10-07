@@ -36,5 +36,5 @@ Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go
 ## Fehlersuche
 - Updates: Knopf *Update* im Setup (prüft beim Start online)
 - Logs: Gerät `C:\Windows\Temp\HUPilot.log` und `HUPilot-Wipe.log`, Stick `HUPilot\logs\`
-- `Tools\Diagnose.cmd` im OOBE (ändert nichts)
+- Am Gerät: `D:\diag` – Diagnose-Menü zum Abfotografieren (ändert nichts), *7* speichert alles am Stick
 - Setup startet nicht: `C:\Users\Public\HUPilot-Setup-Start.log`

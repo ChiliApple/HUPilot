@@ -178,6 +178,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td>Gelb „HASH GESPEICHERT“</td><td>kein Internet oder Secret abgelaufen/falsch: Hash liegt am Stick, Gerät nicht zurückgesetzt. Am PC <i>7. Hashes importieren</i>, danach Gerät nochmal mit <code>go</code> (wird dann nur zurückgesetzt).</td></tr>
 <tr><td>Gelb „KEIN Autopilot-Profil“ für den Tag</td><td>dynamische Gruppe/Profil für den Tag fehlt – <i>2. Tags prüfen</i>; mit <b>A</b> abbrechen oder trotzdem hochladen</td></tr>
 <tr><td>WLAN-Paket von Intune gesperrt (gelb)</td><td>Richtlinie <code>AllowAddProvisioningPackage = 0</code> am bereits eingerichteten Gerät: vorhandenes WLAN-Paket bleibt, neues (z. B. mit lokalem Admin) kommt nicht mit. Frische Geräte im Einrichtungsbildschirm betrifft das nicht.</td></tr>
+<tr><td>Fehler am Gerät</td><td><code>D:\diag</code> (Shift+F10 bzw. Admin-CMD) – Menü: Log, Fehler, Zurücksetzen, Gerät, Netzwerk, WLAN-Paket/Intune-Sperre; jede Seite abfotografieren. <b>7</b> speichert alles in <code>HUPilot\logs\diag-….txt</code> am Stick.</td></tr>
 <tr><td>Setup startet nicht</td><td><code>C:\Users\Public\HUPilot-Setup-Start.log</code></td></tr>
 </table>
 <p>Logs am Gerät: <code>C:\Windows\Temp\HUPilot.log</code>, <code>HUPilot-Wipe.log</code> · am Stick: <code>HUPilot\logs\</code></p>

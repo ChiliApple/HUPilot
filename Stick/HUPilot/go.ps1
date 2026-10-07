@@ -78,6 +78,7 @@ function Fail {
         '',
         'Stick kann abgezogen werden. Geraet bleibt im OOBE.',
         'Nochmal: Stick rein, Shift+F10, D:\go',
+        'Diagnose zum Abfotografieren: D:\diag',
         ('Log: ' + $LocalLog))
     Read-Host '  Enter = Fenster schliessen' | Out-Null
     exit 1
@@ -620,7 +621,8 @@ function Fail-Reset {
         'Autopilot-Upload ist OK, nur das Zuruecksetzen ist nicht gestartet.',
         ('Grund: ' + $Msg),
         ('Log: ' + $LocalLog + ' und ' + $WipeLog),
-        'Nochmal: Stick rein, Shift+F10, D:\go  (Upload wird uebersprungen)')
+        'Nochmal: Stick rein, Shift+F10, D:\go  (Upload wird uebersprungen)',
+        'Diagnose zum Abfotografieren: D:\diag')
     Read-Host '  Enter = Fenster schliessen' | Out-Null
     exit 1
 }
