@@ -849,7 +849,11 @@ $ui.bTags.Add_Click({
             $gid = [string]$a.target.groupId
             if (-not $gcache.ContainsKey($gid)) {
                 try { $gcache[$gid] = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/groups/' + $gid + '?$select=displayName,membershipRule') -Headers $h }
-                catch { $gErr = $true; $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' } }
+                catch {
+                    $em = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $em = $_.ErrorDetails.Message }
+                    if ($em -match 'Authorization_RequestDenied|Forbidden|403|Insufficient privileges') { $gErr = $true; $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' } }
+                    else { Out-Log ('Profil "' + $p.displayName + '" ist einer nicht mehr vorhandenen Gruppe zugewiesen: ' + $gid); $gcache[$gid] = [pscustomobject]@{ displayName = ('(geloescht) ' + $gid); membershipRule = '' } }
+                }
             }
             $targets += [pscustomobject]@{ Profil = [string]$p.displayName; Gruppe = [string]$gcache[$gid].displayName; Rule = [string]$gcache[$gid].membershipRule }
         }

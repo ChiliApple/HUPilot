@@ -402,7 +402,11 @@ function Get-TagProfiles {
             $gid = [string]$t.groupId
             if (-not $gcache.ContainsKey($gid)) {
                 try { $gcache[$gid] = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/groups/' + $gid + '?$select=displayName,membershipRule') -Headers $h }
-                catch { Log ('Tag-Pruefung Gruppe (Group.Read.All?): ' + (Get-ErrText $_)); return $null }
+                catch {
+                    $em = Get-ErrText $_
+                    if ($em -match 'Authorization_RequestDenied|Forbidden|403|Insufficient privileges') { Log ('Tag-Pruefung Gruppe (Group.Read.All fehlt): ' + $em); return $null }
+                    Log ('Tag-Pruefung: Gruppe ' + $gid + ' nicht lesbar/geloescht - uebersprungen'); $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' }
+                }
             }
             if (Test-RuleTag ([string]$gcache[$gid].membershipRule) $Tag) { $names += ([string]$p.displayName + ' (' + [string]$gcache[$gid].displayName + ')') }
         }
