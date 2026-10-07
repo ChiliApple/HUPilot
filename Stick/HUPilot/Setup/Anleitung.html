@@ -105,10 +105,11 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <table>
 <tr><th>Stick</th><th>Inhalt</th></tr>
 <tr><td><code>go.cmd</code></td><td>Start am Schülergerät</td></tr>
+<tr><td><code>diag.cmd</code></td><td>Diagnose-Menü am Gerät (bei Fehlern)</td></tr>
 <tr><td><code>HUPilot-Setup.cmd</code></td><td>Oberfläche am Admin-PC</td></tr>
 <tr><td><code>HUPilot\config.json</code></td><td>Tenant, App, Secret, Tags, WLAN</td></tr>
 <tr><td><code>HUPilot\HUPilot-WLAN.ppkg</code></td><td>WLAN für die Einrichtung nach dem Zurücksetzen</td></tr>
-<tr><td><code>HUPilot\logs\</code></td><td>Log je Gerät + <code>protokoll.csv</code></td></tr>
+<tr><td><code>HUPilot\logs\</code></td><td>Log je Gerät, <code>protokoll.csv</code>, offline gespeicherte Hashes <code>hashes.csv</code>, Diagnose-Dateien</td></tr>
 </table>
 </section>
 
@@ -147,8 +148,9 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <h2><span class="n">2</span>Am Gerät</h2>
 <div class="step"><b class="k">1</b><div>Gerät einschalten bis zum ersten Einrichtungsbildschirm, <b>Netzteil anstecken</b>, Stick anstecken.</div></div>
 <div class="step"><b class="k">2</b><div><code>Shift+F10</code> (ggf. <code>Fn+Shift+F10</code>) → <code>D:\go</code> (anderer Laufwerksbuchstabe: <code>E:\go</code> …).</div></div>
-<div class="step"><b class="k">3</b><div>Tag wählen (Enter = Standard, Ziffer = Auswahl) und „zurücksetzen?“ (Enter = Standard, <code>N</code> = nur hochladen) – je 10 s, dann automatisch.</div></div>
-<div class="step"><b class="k">4</b><div>Bei <b>grün</b> Stick abziehen → nächstes Gerät. Das Gerät wartet auf das Autopilot-Profil und setzt sich selbst zurück.</div></div>
+<div class="step"><b class="k">3</b><div>Tag wählen (Enter = Standard, Ziffer = Auswahl), ggf. Benutzer (UPN, nur wenn im Setup eingeschaltet) und „zurücksetzen?“ (Enter = Standard, <code>N</code> = nur hochladen) – je 10 s, dann automatisch. Hat der Tag kein Autopilot-Profil, kommt eine gelbe Warnung (<code>A</code> = abbrechen).</div></div>
+<div class="step"><b class="k">4</b><div>Bei <b>grün</b> Stick abziehen → nächstes Gerät. Das Gerät wartet auf das Autopilot-Profil und setzt sich selbst zurück – <b>nicht ausschalten</b>.</div></div>
+<p>Läuft Windows schon (eingerichtetes Gerät): CMD <b>als Administrator</b>, <code>D:</code>, <code>go</code> – rote Rückfrage mit <code>LOESCHEN</code> bestätigen. Kein Internet oder Secret abgelaufen: der Hash wird am Stick gespeichert (gelb) und später am PC mit <i>7. Hashes importieren</i> hochgeladen.</p>
 <table>
 <tr><th>Farbe</th><th>Bedeutung</th></tr>
 <tr><td><span class="c" style="background:#40a02b"></span>Grün</td><td>Upload fertig – Stick abziehen</td></tr>
@@ -161,7 +163,8 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <section id="danach">
 <h2><span class="n">3</span>Nach dem Einsatz</h2>
 <ul>
-<li><span class="ui">6. Status</span> im Setup: welche Geräte registriert sind, welche noch offen – als CSV oder Ausdruck.</li>
+<li><span class="ui">6. Status</span> im Setup: welche Geräte registriert sind (neueste oben), welche noch offen – als CSV oder Ausdruck.</li>
+<li><span class="ui">7. Hashes importieren</span>: offline gespeicherte Hashes von den Sticks hochladen, dann die Geräte nochmal mit <code>go</code> zurücksetzen.</li>
 <li>Secret erneuern (QS-Script oder Entra), alte Secrets löschen.</li>
 <li>Per Intune-Wartung: Config-WLAN und WLAN-Paket (bleibt sonst bei jedem Zurücksetzen erhalten – auch der lokale Admin) sowie <code>C:\Recovery\HUPilot-OEM-Backup</code> entfernen; Hersteller-Store-Apps ggf. deinstallieren.</li>
 </ul>
@@ -171,8 +174,8 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <h2><span class="n">4</span>Fehlersuche</h2>
 <table>
 <tr><th>Meldung / Problem</th><th>Lösung</th></tr>
-<tr><td>Secret ABGELAUFEN / FALSCH</td><td>neues Secret (Wert, nicht ID), im Setup eintragen, speichern, auf Stick kopieren</td></tr>
-<tr><td>Kein Internet nach 2 Min</td><td>WLAN-Reichweite, Kennwort, Firewall (Autopilot/Intune-Adressen freigeben); LAN mit 802.1X geht nicht</td></tr>
+<tr><td>Secret ABGELAUFEN / FALSCH</td><td>Hash wird am Stick gespeichert (gelb). Neues Secret (Wert, nicht ID) im Setup eintragen, speichern, auf Stick kopieren, dann <i>7. Hashes importieren</i></td></tr>
+<tr><td>Kein Internet nach 2 Min</td><td>Hash wird am Stick gespeichert (gelb). WLAN-Reichweite, Kennwort, Firewall prüfen (Autopilot/Intune-Adressen; <code>D:\diag</code> › 5 zeigt, was erreichbar ist); LAN mit 802.1X geht nicht. Die Uhrzeit stellt go selbst.</td></tr>
 <tr><td>Gerät ist in einem anderen Tenant</td><td>beim anderen Tenant/Händler aus Autopilot entfernen lassen</td></tr>
 <tr><td>Hängt bei „Kontoeinrichtung“</td><td>SkipUserStatusPage (siehe Intune), Gerät neu starten</td></tr>
 <tr><td>Gelb „HASH GESPEICHERT“</td><td>kein Internet oder Secret abgelaufen/falsch: Hash liegt am Stick, Gerät nicht zurückgesetzt. Am PC <i>7. Hashes importieren</i>, danach Gerät nochmal mit <code>go</code> (wird dann nur zurückgesetzt).</td></tr>

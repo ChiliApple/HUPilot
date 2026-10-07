@@ -1,13 +1,14 @@
 # Changelog
 
-## Unveröffentlicht
+## v2.1 - 2026-10-07
 - **`diag.cmd`** am Stick: Diagnose-Menü (Log, Fehler, Zurücksetzen, Gerät, Netzwerk, WLAN-Paket/Intune-Sperre, alles speichern) – ersetzt `Tools\Diagnose.cmd`
 - go.ps1/go.cmd: Konsolenfarben werden beim Start und am Ende zurückgesetzt (erneutes `go` im selben Fenster blieb grün/gelb/rot)
 - go.ps1: **Offline-Modus** – ohne Internet oder bei abgelaufenem/falschem Secret wird der Hash am Stick gespeichert (`logs\hashes.csv`, Microsoft-CSV-Format), gelbe Meldung, kein Zurücksetzen
 - go.ps1: Uhrzeit per HTTP-Date stellen (falsche Uhr → Token/TLS scheitern)
 - go.ps1: **Tag-Prüfung** – Warnung, wenn für den Tag kein Autopilot-Profil zugewiesen ist (optional `Group.Read.All`)
 - go.ps1: optional **Benutzer vorab zuweisen** (`AskUser`, Prüfung optional `User.Read.All`)
-- Setup: **6. Tags prüfen**, **7. Hashes importieren**, Schalter „nach Benutzer fragen“
+- Setup: Knöpfe nach Ablauf geordnet (*Vorbereiten* 1–4 · *Stick* 5 · *Danach* 6–7), Anleitung/Update oben rechts
+- Setup: **2. Tags prüfen**, **7. Hashes importieren**, Schalter „nach Benutzer fragen“
 - Setup: Secret-Restlaufzeit in Tagen + Stunden, rot erst unter 24 Std
 - Setup *Status*: Spalte **RegDatum** (Intune-Registrierung, neueste oben) und Knopf **Aktualisieren**
 - Setup: Knopf oben rechts legt eine Desktop-Verknüpfung (mit Symbol) zum Vorbereitungsordner an

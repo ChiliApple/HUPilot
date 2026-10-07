@@ -1,5 +1,5 @@
 ﻿# =====================================================================
-# HUPilot  go.ps1  v2.0
+# HUPilot  go.ps1  v2.1
 # https://github.com/ChiliApple/HUPilot
 # ZIELMASCHINE: neues Windows-Geraet im OOBE (Shift+F10 -> D:\go)
 # Ablauf:
@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.0'
+$Ver        = '2.1'
 $MinBattery = 50     # % Akku ohne Netzteil, darunter wird vor dem Zuruecksetzen gewartet
 $Start      = Get-Date
 $CfgDir     = $PSScriptRoot

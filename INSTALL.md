@@ -9,6 +9,7 @@ Entra › App-Registrierungen › **Neue Registrierung** › Name `HUPilot-Uploa
 ## 2. Stick / Quelle
 `Stick\` auf den Stick oder in einen Vorbereitungsordner kopieren (z. B. je Schule einer), `HUPilot-Setup.cmd` starten.
 Das Setup arbeitet immer mit dem Ordner, aus dem es läuft: laden, speichern, WLAN-Paket bauen; *Auf Stick kopieren* kopiert ihn 1:1 (ohne `logs` und `_`-Ordner).
+Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der Pin-Knopf oben rechts legt eine Desktop-Verknüpfung an.
 
 | config.json | |
 |---|---|
