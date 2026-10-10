@@ -49,7 +49,8 @@ function Show-Device {
         Write-Host ('  Hash         : ' + $(if ($dd.DeviceHardwareData) { 'lesbar (' + ([string]$dd.DeviceHardwareData).Length + ' Zeichen)' } else { 'NICHT lesbar' }))
     } catch { Write-Host '  Hash         : NICHT lesbar' -ForegroundColor Red }
     try { $c = Get-Content (Join-Path $CfgDir 'config.json') -Raw | ConvertFrom-Json; Write-Host ('  Stick-Config : ' + $c.Tenant + ' | Tag ' + $c.GroupTag + ' | WLAN ' + $c.WlanSsid) } catch { Write-Host '  Stick-Config : nicht lesbar' -ForegroundColor Red }
-    try { $v = Select-String -Path (Join-Path $CfgDir 'go.ps1') -Pattern "^\`$Ver\s*=\s*'([^']+)'" | Select-Object -First 1; Write-Host ('  go.ps1       : v' + $v.Matches[0].Groups[1].Value) } catch { }
+    try { $v = Get-Content -LiteralPath (Join-Path $CfgDir 'Config\version.json') -Raw | ConvertFrom-Json; Write-Host ('  HUPilot      : v' + $v.version + ' (' + $v.buildDate + ')') } catch { Write-Host '  HUPilot      : Version nicht lesbar' }
+    try { $i = Get-Content -LiteralPath (Join-Path $CfgDir 'Config\installed.json') -Raw | ConvertFrom-Json; Write-Host ('  Update       : ' + $i.Date + ', ' + $i.Check) } catch { }
 }
 function Show-Net {
     Head 'Netzwerk / WLAN'

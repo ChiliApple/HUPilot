@@ -133,7 +133,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td><span class="ui">Sticks vorbereiten</span></td><td>nur wenn das Setup vom PC läuft: mehrere USB-Sticks formatieren (NTFS), benennen und befüllen – gleichzeitig angesteckt oder nacheinander (tauschen → <i>Neu einlesen</i>). Interne Laufwerke werden nie angeboten.</td></tr>
 <tr><td><span class="ui">6. Status</span></td><td>Liste aller Autopilot-Geräte – Filter, CSV, Drucken; Doppelklick = Details live</td></tr>
 <tr><td><span class="ui">7. Hashes importieren</span></td><td>lädt offline gespeicherte Hashes (<code>HUPilot\logs\hashes.csv</code>) von Quelle und Stick hoch; vorhandene Geräte bekommen nur den Tag; Erledigtes wandert nach <code>hashes-erledigt.csv</code></td></tr>
-<tr><td><span class="ui">Update</span></td><td>prüft beim Start auf GitHub, ob es eine neuere Version gibt (Gold = Update da). Klick aktualisiert die Programmdateien im Ordner/Stick; <code>config.json</code>, WLAN-Paket und <code>logs</code> bleiben.</td></tr>
+<tr><td><span class="ui">Update</span></td><td>prüft beim Start auf GitHub, ob es eine neuere <b>freigegebene</b> Version gibt (Gold = Update da). Klick: das Setup schließt sich, ein Fenster lädt die Version, prüft <b>jede Datei</b> (Prüfsumme + Signatur des Herausgebers), ersetzt erst dann alles auf einmal und startet das Setup neu. Bei einem Fehler bleibt der alte Stand. <code>config.json</code>, WLAN-Paket und <code>logs</code> bleiben immer.<br><b>Rechtsklick:</b> andere Version / Vorversion, Kanal <i>Stabil</i> (Standard) oder <i>Test</i> (auch Vorab-Versionen), jetzt prüfen.<br>Danach Sticks neu befüllen (<span class="ui">5. Auf Stick kopieren</span> bzw. <span class="ui">Sticks vorbereiten</span>).</td></tr>
 </table>
 <div class="warn">Kein <code>.ppkg</code> ins Hauptverzeichnis des Sticks legen – Windows wendet es sonst im Einrichtungsbildschirm von selbst an. Das WLAN-Paket enthält nur das WLAN und optional den lokalen Admin, nie CleanPC. Kennwörter stehen im Klartext in <code>config.json</code> und im Paket – Stick nicht aus der Hand geben.</div>
 
@@ -183,6 +183,8 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td>WLAN-Paket von Intune gesperrt (gelb)</td><td>Richtlinie <code>AllowAddProvisioningPackage = 0</code> am bereits eingerichteten Gerät: vorhandenes WLAN-Paket bleibt, neues (z. B. mit lokalem Admin) kommt nicht mit. Frische Geräte im Einrichtungsbildschirm betrifft das nicht.</td></tr>
 <tr><td>Fehler am Gerät</td><td><code>D:\diag</code> (Shift+F10 bzw. Admin-CMD) – Menü: Log, Fehler, Zurücksetzen, Gerät, Netzwerk, WLAN-Paket/Intune-Sperre; jede Seite abfotografieren. <b>7</b> speichert alles in <code>HUPilot\logs\diag-….txt</code> am Stick.</td></tr>
 <tr><td>Setup startet nicht</td><td><code>C:\Users\Public\HUPilot-Setup-Start.log</code></td></tr>
+<tr><td>„Das letzte Update wurde abgebrochen“</td><td>Setup bietet Pull an: <b>Ja</b> stellt den alten Stand wieder her und lädt die Version neu. Am Gerät startet <code>go</code> in diesem Zustand nicht – Stick am PC mit <code>HUPilot-Setup.cmd</code> reparieren.</td></tr>
+<tr><td>Update: „kein signiertes Release“</td><td>neue Version ist noch nicht freigegeben – später erneut prüfen (Rechtsklick › Jetzt nach Updates suchen)</td></tr>
 </table>
 <p>Logs am Gerät: <code>C:\Windows\Temp\HUPilot.log</code>, <code>HUPilot-Wipe.log</code> · am Stick: <code>HUPilot\logs\</code></p>
 </section>

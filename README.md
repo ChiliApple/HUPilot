@@ -44,7 +44,7 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen –
 - **Kein CleanPC-Paket verwenden** – Windows wendet gespeicherte Pakete nach jedem Zurücksetzen erneut an (Endlosschleife).
 - Optional lokaler Admin (Kennwort/Konto laufen nie ab) – kommt mit dem WLAN-Paket. Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage`), bleibt am eingerichteten Gerät das vorhandene Paket.
 - Kein Internet / Secret abgelaufen → Hash wird am Stick gespeichert und später im Setup hochgeladen. Die Uhrzeit stellt go selbst.
-- Setup prüft beim Start online auf neue Versionen (Knopf *Update*).
+- Setup prüft beim Start online auf neue Versionen (Knopf *Update*, gold = neu). Updates kommen als GitHub-Release mit Prüfsumme und Signatur des Herausgebers und werden erst nach Freigabe angeboten (Kanal *Stabil*; *Test* per Rechtsklick).
 - Schutz: Gerät mit Benutzerprofil → rote Rückfrage; ohne Netzteil und unter 50 % Akku → wartet.
 - Secret kurz gültig halten, Stick nicht aus der Hand geben (`DeviceManagementServiceConfig.ReadWrite.All` gibt es nur mit Schreibrecht).
 

@@ -10,7 +10,10 @@
     Start: Stick:\HUPilot-Setup.cmd oder Repo: Tools\HUPilot-Setup.cmd (fragt nach Adminrechten - noetig fuer ICD.exe)
     Quelle = der Ordner, aus dem das Setup laeuft (Stick ODER Vorbereitungsordner am PC).
     Laden/Speichern/WLAN-Paket immer in der Quelle; 'Auf Stick kopieren' kopiert die Quelle 1:1 auf einen Stick.
+    Update: Knopf oben rechts -> Pull.ps1 (GitHub-Release, Pruefsumme + Signatur). Version: HUPilot\Config\version.json
+    -SmokeTest <Datei>: nur Fenster oeffnen, 2 s laufen lassen, schliessen, Ergebnis in <Datei> (automatische Tests)
 #>
+param([string]$SmokeTest = '')
 $ErrorActionPreference = 'Stop'
 $StartLog = Join-Path $env:PUBLIC 'HUPilot-Setup-Start.log'   # gleicher Ort fuer Benutzer + Admin-Konto
 function Start-Log([string]$m) { try { Add-Content -Path $StartLog -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  PID ' + $PID + '  ' + $m) -Encoding UTF8 } catch { } }
@@ -32,18 +35,12 @@ if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Securit
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Start-Log 'als Admin gestartet'
-# Nur eine Instanz
-$script:Mutex = New-Object System.Threading.Mutex($false, 'Global\HUPilot-Setup')
-if (-not $script:Mutex.WaitOne(0)) {
-    Start-Log 'laeuft bereits -> Ende'
-    [void][System.Windows.MessageBox]::Show('HUPilot-Setup laeuft bereits (evtl. unsichtbar im Hintergrund).' + [Environment]::NewLine + 'Task-Manager > Details > powershell.exe beenden und neu starten.', 'HUPilot-Setup')
-    exit 0
-}
 # Fehler sichtbar machen (Fenster laeuft ohne Konsole)
 trap {
     $msg = ($_ | Out-String)
     try { Set-Content -Path (Join-Path $env:PUBLIC 'HUPilot-Setup-Fehler.txt') -Value $msg -Encoding UTF8 } catch { }
-    try { [void][System.Windows.MessageBox]::Show($msg, 'HUPilot-Setup - Fehler') } catch { }
+    if ($SmokeTest) { try { Set-Content -LiteralPath $SmokeTest -Value ('FEHLER: ' + $msg) -Encoding UTF8 } catch { } }
+    else { try { [void][System.Windows.MessageBox]::Show($msg, 'HUPilot-Setup - Fehler') } catch { } }
     exit 1
 }
 try {
@@ -56,9 +53,26 @@ $srcStick = Split-Path $srcHU -Parent
 $srcDrive = $null
 if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).ToUpper() }
 $srcCfg   = Join-Path $srcHU 'config.json'
-$SetupVer = '2.1'
-$GoVer    = '?'
-try { $m = Select-String -Path (Join-Path $srcHU 'go.ps1') -Pattern "^\`$Ver\s*=\s*'([^']+)'" | Select-Object -First 1; if ($m) { $GoVer = $m.Matches[0].Groups[1].Value } } catch { }
+$CfgDirHU = Join-Path $srcHU 'Config'
+# Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
+$SetupVer = '2.2'
+try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
+# Nur eine Instanz je Ablage (Stick bzw. Ordner)
+$mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
+$script:Mutex = New-Object System.Threading.Mutex($false, $mxName)
+if (-not $script:Mutex.WaitOne(0)) {
+    Start-Log 'laeuft bereits -> Ende'
+    [void][System.Windows.MessageBox]::Show('HUPilot-Setup laeuft bereits fuer ' + $srcStick + ' (evtl. unsichtbar im Hintergrund).' + [Environment]::NewLine + 'Task-Manager > Details > powershell.exe beenden und neu starten.', 'HUPilot-Setup')
+    exit 0
+}
+# Abgebrochenes Update: nicht mit einem Mischstand starten - Pull.ps1 stellt den bisherigen Stand wieder her
+if (Test-Path -LiteralPath (Join-Path $CfgDirHU 'pull-journal.json')) {
+    Start-Log 'pull-journal.json vorhanden -> kein Start'
+    $q = [System.Windows.MessageBox]::Show('Das letzte Update wurde abgebrochen (HUPilot\Config\pull-journal.json).' + [Environment]::NewLine + [Environment]::NewLine + 'Jetzt Pull.ps1 ausfuehren? Es stellt den bisherigen Stand wieder her und laedt die Version neu.', 'HUPilot-Setup', 'YesNo', 'Warning')
+    try { $script:Mutex.ReleaseMutex() } catch { }
+    if ($q -eq 'Yes') { Start-Process -FilePath powershell.exe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $PSScriptRoot 'Pull.ps1') + '" -Target "' + $srcStick.TrimEnd('\') + '"') }
+    exit 0
+}
 $srcPkg   = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
 $icd      = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe'
 $tplXml   = Join-Path $PSScriptRoot 'WCD-Vorlage\HUPilot-WLAN\customizations.xml'
@@ -152,7 +166,7 @@ $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $x
 $ui = @{}
 foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cAskUser','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
 
-$win.Title = 'HUPilot-Setup v' + $SetupVer + '   (go.ps1 v' + $GoVer + ')'
+$win.Title = 'HUPilot-Setup v' + $SetupVer
 # Icon (Titelleiste + Taskleiste) und Logo
 try {
     $ico = Join-Path $PSScriptRoot 'icon.ico'
@@ -312,76 +326,275 @@ function Show-PrepSticks {
 }
 $ui.bPrep.Add_Click({ Show-PrepSticks })
 
-# ---------- Online-Versionserkennung + Update (oeffentliches GitHub-Repo, kein Token) ----------
-$script:GhRepo    = 'ChiliApple/HUPilot'
+# ---------- Update: GitHub-Releases, Kanal Stabil/Test, Pruefsumme + Signatur (gleicher Ablauf wie HU-MultiTenant / HUMig) ----------
+#   Klick: bei neuer Version Pull.ps1 starten (laedt + prueft ALLE Dateien, ersetzt erst dann, startet das Setup neu), sonst pruefen
+#   Rechtsklick: andere Version, Kanal, jetzt pruefen, GitHub-Token, Release signieren / freigeben (nur Herausgeber)
+#   Einstellungen: HUPilot\Config\update.json (lokal). Installierte Version: HUPilot\Config\installed.json (schreibt Pull.ps1)
+$script:UpdLib    = Join-Path $PSScriptRoot 'Core-Update.ps1'
+$script:PullPs    = Join-Path $PSScriptRoot 'Pull.ps1'
 $script:UpdRemote = ''
-function Get-GhText([string]$Path) {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $u = 'https://api.github.com/repos/' + $script:GhRepo + '/contents/' + (($Path -split '/' | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/') + '?ref=main'
-    $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $u -Headers @{ Accept = 'application/vnd.github.v3.raw'; 'User-Agent' = 'HUPilot-Setup' } -UseBasicParsing -TimeoutSec 10
-    if ($r.Content -is [byte[]]) { return [System.Text.Encoding]::UTF8.GetString($r.Content) }
-    return [string]$r.Content
+$script:UpdCfg    = $null
+if (Test-Path -LiteralPath $script:UpdLib) { try { . $script:UpdLib } catch { Start-Log ('Core-Update.ps1 nicht ladbar: ' + $_.Exception.Message) } }
+
+function Step-Ui { try { $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) } catch { } }
+function Get-UpdCfg {
+    if (-not (Get-Command Get-HMUpdateConfig -ErrorAction SilentlyContinue)) { return $null }
+    $script:UpdCfg = Get-HMUpdateConfig $CfgDirHU
+    return $script:UpdCfg
 }
-function Get-GitBlobSha([string]$File) {
-    $b = [System.IO.File]::ReadAllBytes($File)
-    $h = [System.Text.Encoding]::ASCII.GetBytes('blob ' + $b.Length + [char]0)
-    $all = New-Object byte[] ($h.Length + $b.Length)
-    [Array]::Copy($h, 0, $all, 0, $h.Length); [Array]::Copy($b, 0, $all, $h.Length, $b.Length)
-    $sha = [System.Security.Cryptography.SHA1]::Create()
-    return (($sha.ComputeHash($all) | ForEach-Object { $_.ToString('x2') }) -join '')
+function Format-Channel([string]$c) { if ($c -eq 'Test') { 'Test' } else { 'Stabil' } }
+function Get-GhTokenFile { return (Join-Path $CfgDirHU ('GitHubToken_{0}.xml' -f ("$($env:USERDOMAIN)_$($env:USERNAME)" -replace '[^\w\.\-]', '_'))) }
+function Read-GhToken {
+    if ("$env:HU_GITHUB_TOKEN".Trim()) { return "$env:HU_GITHUB_TOKEN".Trim() }
+    $f = Get-GhTokenFile
+    if (Test-Path -LiteralPath $f) { try { $c = Import-Clixml -Path $f -ErrorAction Stop; if ($c -is [System.Management.Automation.PSCredential]) { return $c.GetNetworkCredential().Password.Trim() } } catch { } }
+    return ''
 }
-function Invoke-UpdateCheck {
-    $ui.bUpd.Content = 'Pruefe ...'
-    $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+function Save-GhToken([string]$File, [string]$Message) {
+    $c = $null
+    try { $c = Get-Credential -UserName 'github' -Message $Message } catch { $c = $null }
+    if (-not $c -or -not $c.GetNetworkCredential().Password.Trim()) { Out-Log 'Kein Token eingegeben'; return $false }
     try {
-        $t = Get-GhText 'Stick/HUPilot/Setup/HUPilot-Setup.ps1'
-        if ($t -notmatch "\`$SetupVer\s*=\s*'([^']+)'") { throw 'Version im Repo nicht gefunden' }
-        $rv = $Matches[1]
-        if ([version]$rv -gt [version]$SetupVer) {
-            $script:UpdRemote = $rv
-            $ui.bUpd.Content = 'Update v' + $rv
-            $ui.bUpd.Background = [System.Windows.Media.Brushes]::Gold
-            Out-Log ('NEUE VERSION v' + $rv + ' verfuegbar (installiert: v' + $SetupVer + ') - Knopf "Update" klicken')
-        } else {
-            $script:UpdRemote = ''
-            $ui.bUpd.Content = 'Aktuell v' + $SetupVer
-            $ui.bUpd.ClearValue([System.Windows.Controls.Control]::BackgroundProperty)
-        }
-    } catch {
-        $ui.bUpd.Content = 'Update: offline'
-        Out-Log ('Versionspruefung nicht moeglich: ' + $_.Exception.Message)
+        $d = Split-Path $File -Parent
+        if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+        $c | Export-Clixml -Path $File -Force -ErrorAction Stop
+        return $true
+    } catch { Out-Log ('Token nicht gespeichert: ' + $_.Exception.Message); return $false }
+}
+# update.json schreiben (vorhandene Einstellungen bleiben)
+function Set-UpdSetting([string]$Name, $Value) {
+    $f = Join-Path $CfgDirHU 'update.json'
+    $o = [ordered]@{}
+    if (Test-Path -LiteralPath $f) { try { $u = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json; foreach ($p in $u.PSObject.Properties) { $o[$p.Name] = $p.Value } } catch { } }
+    $o[$Name] = $Value
+    if (-not (Test-Path -LiteralPath $CfgDirHU)) { New-Item -ItemType Directory -Path $CfgDirHU -Force | Out-Null }
+    [pscustomobject]$o | ConvertTo-Json | Set-Content -LiteralPath $f -Encoding UTF8
+}
+function Set-UpdButton([string]$RemoteVer = '', [bool]$Pre = $false, [string]$Text = '') {
+    if ($RemoteVer) {
+        $ui.bUpd.Content = 'Update v' + $RemoteVer + $(if ($Pre) { ' (Test)' })
+        $ui.bUpd.Background = [System.Windows.Media.Brushes]::Gold
+        $ui.bUpd.FontWeight = 'Bold'
+    } else {
+        $ui.bUpd.Content = $(if ($Text) { $Text } else { 'Aktuell v' + $SetupVer })
+        $ui.bUpd.ClearValue([System.Windows.Controls.Control]::BackgroundProperty)
+        $ui.bUpd.ClearValue([System.Windows.Controls.Control]::FontWeightProperty)
     }
 }
-function Invoke-Update {
-    $q = [System.Windows.MessageBox]::Show(('HUPilot auf v' + $script:UpdRemote + ' aktualisieren?' + "`r`n`r`n" + 'Ziel: ' + $srcStick + "`r`n" + 'config.json, WLAN-Paket und logs bleiben unveraendert.' + "`r`n" + 'Das Setup startet danach neu.'), 'HUPilot - Update', 'YesNo', 'Question')
+function Get-HttpCode($e) { $code = 0; try { $code = [int]$e.Exception.Response.StatusCode } catch { }; return $code }
+
+function Invoke-UpdateCheck([switch]$Quiet) {
+    $c = Get-UpdCfg
+    if (-not $c) { Set-UpdButton -Text 'Update ...'; Out-Log 'Update-Pruefung: HUPilot\Setup\Core-Update.ps1 fehlt'; return }
+    $ui.bUpd.Content = 'Pruefe ...'; Step-Ui
+    $chan = $(if ($c.UseBranch) { 'Branch ' + $c.Branch } else { 'Kanal ' + (Format-Channel $c.Channel) })
+    try {
+        $tok = Read-GhToken
+        if ($c.UseBranch) {
+            $h = @{ Accept = 'application/vnd.github.v3.raw'; 'User-Agent' = 'HUPilot-Setup' }
+            if ($tok) { $h.Authorization = 'token ' + $tok }
+            $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri ('https://api.github.com/repos/' + $c.Owner + '/' + $c.Repo + '/contents/Stick/HUPilot/Config/version.json?ref=' + $c.Branch) -Headers $h -UseBasicParsing -TimeoutSec 20
+            $txt = $(if ($r.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content })
+            $rv = [string]($txt | ConvertFrom-Json).version; $pre = $true
+        } else {
+            $rel = Select-HMRelease @(Get-HMReleases $c.Owner $c.Repo $tok) $c.Channel -SignedOnly:$c.RequireSignature
+            if (-not $rel) {
+                $script:UpdRemote = ''; Set-UpdButton
+                if (-not $Quiet) { Out-Log ('Update-Pruefung: kein ' + $(if ($c.RequireSignature) { 'signiertes ' }) + 'Release im ' + $chan) }
+                return
+            }
+            $rv = [string]$rel.Version; $pre = [bool]$rel.Prerelease
+        }
+        $cmp = 0; try { $cmp = ([version]$rv).CompareTo([version]$SetupVer) } catch { }
+        if ($cmp -gt 0) {
+            $script:UpdRemote = $rv
+            Set-UpdButton $rv $pre
+            Out-Log ('NEUE VERSION v' + $rv + ' verfuegbar (installiert: v' + $SetupVer + ', ' + $chan + ') - Knopf "Update" klicken')
+        } else {
+            $script:UpdRemote = ''
+            Set-UpdButton
+            if (-not $Quiet) { Out-Log ('Version aktuell: v' + $SetupVer + ' (' + $chan + $(if ($c.RequireSignature) { ', nur signierte Updates' }) + ')') }
+        }
+    } catch {
+        $code = Get-HttpCode $_
+        Set-UpdButton -Text 'Update: offline'
+        if ($code -in 401, 403, 404) { Out-Log ('Update-Pruefung: ' + $c.Owner + '/' + $c.Repo + ' nicht erreichbar (HTTP ' + $code + ')') }
+        else { Out-Log ('Versionspruefung nicht moeglich: ' + $_.Exception.Message) }
+    }
+}
+
+# Pull.ps1 starten (eigenes Fenster), Setup beenden - Pull wartet, bis das Setup zu ist, und startet es danach neu
+function Start-Pull([string]$Version = '') {
+    if (-not (Test-Path -LiteralPath $script:PullPs)) { Out-Log ('Pull.ps1 nicht gefunden: ' + $script:PullPs); return }
+    $c = Get-UpdCfg
+    $what = $(if ($Version) { 'Version ' + $Version } elseif ($script:UpdRemote) { 'v' + $script:UpdRemote } else { 'die neueste Version im Kanal ' + (Format-Channel $(if ($c) { $c.Channel } else { 'Stable' })) })
+    $chk = $(if ($c -and $c.RequireSignature) { 'Pruefsumme + Signatur werden geprueft' } else { 'Pruefsumme wird geprueft' })
+    $q = [System.Windows.MessageBox]::Show($win, ('HUPilot-Setup schliessen, ' + $what + ' von GitHub laden und neu starten?' + "`r`n`r`n" + '  Ziel:         ' + $srcStick + "`r`n" + '  Installiert:  v' + $SetupVer + "`r`n" + '  ' + $chk + "`r`n`r`n" + 'config.json, WLAN-Paket und logs bleiben unveraendert.'), 'HUPilot - Update', 'YesNo', 'Question')
     if ($q -ne 'Yes') { return }
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $hJ = @{ Accept = 'application/vnd.github.v3+json'; 'User-Agent' = 'HUPilot-Setup' }
-        $tree = Microsoft.PowerShell.Utility\Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $script:GhRepo + '/git/trees/main?recursive=1') -Headers $hJ -TimeoutSec 15
-        $files = @($tree.tree | Where-Object { $_.type -eq 'blob' -and $_.path -like 'Stick/*' })
-        if (-not $files.Count) { throw 'keine Dateien im Repo gefunden' }
-        $n = 0; $same = 0
-        foreach ($f in $files) {
-            $rel = $f.path.Substring(6)
-            $dst = Join-Path $srcStick ($rel -replace '/', '\')
-            if ((Test-Path $dst) -and ((Get-GitBlobSha $dst) -eq $f.sha)) { $same++; continue }
-            $dir = Split-Path $dst -Parent
-            if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-            $tmp = $dst + '.new'
-            $u = 'https://api.github.com/repos/' + $script:GhRepo + '/contents/' + (($f.path -split '/' | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/') + '?ref=main'
-            Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $u -Headers @{ Accept = 'application/vnd.github.v3.raw'; 'User-Agent' = 'HUPilot-Setup' } -UseBasicParsing -TimeoutSec 30 -OutFile $tmp
-            if ((Get-GitBlobSha $tmp) -ne $f.sha) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue; throw ('Pruefsumme falsch: ' + $rel) }
-            Move-Item -LiteralPath $tmp -Destination $dst -Force
-            Out-Log ('  aktualisiert: ' + $rel); $n++
-        }
-        Out-Log ('Update fertig: ' + $n + ' Datei(en) neu, ' + $same + ' unveraendert')
-    } catch { Out-Log ('FEHLER Update: ' + $_.Exception.Message); return }
-    try { $script:Mutex.ReleaseMutex() } catch { }
-    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $PSScriptRoot 'HUPilot-Setup.ps1') + '"'))
-    $win.Close()
+        $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $argLine = '-NoProfile -ExecutionPolicy Bypass -File "' + $script:PullPs + '" -Target "' + $srcStick.TrimEnd('\') + '" -WaitPid ' + $PID
+        if ($Version) { $argLine += ' -Version ' + $Version }
+        Start-Process -FilePath $exe -ArgumentList $argLine -WorkingDirectory $env:TEMP | Out-Null
+        Start-Log ('Pull gestartet: ' + $argLine)
+        try { $script:Mutex.ReleaseMutex() } catch { }
+        $win.Close()
+    } catch { Out-Log ('Update-Start fehlgeschlagen: ' + $_.Exception.Message) }
 }
-$ui.bUpd.Add_Click({ if ($script:UpdRemote) { Invoke-Update } else { Invoke-UpdateCheck } })
+
+# Liste zur Auswahl (Versionen). Rueckgabe: gewaehlte Zeile oder $null
+function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkText) {
+    [xml]$vx = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="860" Height="440" WindowStartupLocation="CenterOwner" FontSize="13" ShowInTaskbar="False">
+  <DockPanel Margin="12">
+    <TextBlock x:Name="tHint" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Button x:Name="bOk" Padding="10,4" FontWeight="SemiBold"/>
+      <Button x:Name="bNo" Content="Abbrechen" Padding="10,4" Margin="8,0,0,0" IsCancel="True"/>
+    </StackPanel>
+    <DataGrid x:Name="gV" AutoGenerateColumns="True" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"/>
+  </DockPanel>
+</Window>
+'@
+    $vw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $vx))
+    $vw.Owner = $win; if ($win.Icon) { $vw.Icon = $win.Icon }
+    $vw.Title = $Title
+    $g = @{}; foreach ($n in 'tHint', 'bOk', 'bNo', 'gV') { $g[$n] = $vw.FindName($n) }
+    $g.tHint.Text = $Hint; $g.bOk.Content = $OkText
+    $g.gV.ItemsSource = @($Rows)
+    $st = @{ Sel = $null }
+    $g.bOk.Add_Click({ if ($g.gV.SelectedItem) { $st.Sel = $g.gV.SelectedItem; $vw.Close() } })
+    $g.gV.Add_MouseDoubleClick({ if ($g.gV.SelectedItem) { $st.Sel = $g.gV.SelectedItem; $vw.Close() } })
+    $g.bNo.Add_Click({ $vw.Close() })
+    [void]$vw.ShowDialog()
+    return $st.Sel
+}
+function Show-VersionPicker {
+    $c = Get-UpdCfg
+    if (-not $c) { Out-Log 'HUPilot\Setup\Core-Update.ps1 fehlt'; return }
+    Out-Log 'Versionen werden von GitHub gelesen ...'; Step-Ui
+    try { $list = @(Get-HMReleases $c.Owner $c.Repo (Read-GhToken)) }
+    catch { Out-Log ('Versionen nicht lesbar: ' + $_.Exception.Message); return }
+    if (-not $list.Count) { Out-Log 'Keine Releases gefunden.'; return }
+    $rows = foreach ($x in $list) {
+        $cmp = 0; try { $cmp = $x.Version.CompareTo([version]$SetupVer) } catch { }
+        $first = @("$($x.Notes)" -split "`r?`n" | Where-Object { "$_".Trim() -and "$_" -notmatch '^\s*#' } | ForEach-Object { ("$_".Trim().TrimStart('-', ' ', '*') -replace '\*\*|`', '') })[0]
+        [pscustomobject][ordered]@{
+            Version = "$($x.Version)"; Kanal = $(if ($x.Prerelease) { 'Test' } else { 'Stabil' })
+            Stand = $(if ($cmp -eq 0) { 'installiert' } elseif ($cmp -lt 0) { 'aelter' } else { 'neuer' })
+            Datum = "$($x.Date)"; Pruefsumme = $(if ($x.ManifestUrl) { 'ja' } else { 'nein' }); Signatur = $(if ($x.SignatureUrl) { 'ja' } else { 'nein' }); Aenderungen = "$first"
+        }
+    }
+    $sel = Show-Pick 'HUPilot - Version waehlen' ('Installiert: v' + $SetupVer + '. Version markieren, dann installieren. config.json, WLAN-Paket und logs bleiben erhalten.' + $(if ($c.RequireSignature) { ' Nur signierte Versionen sind installierbar.' })) @($rows) 'Diese Version installieren'
+    if (-not $sel) { return }
+    if ($c.RequireSignature -and $sel.Signatur -ne 'ja') { [void][System.Windows.MessageBox]::Show($win, ('Version ' + $sel.Version + ' ist nicht signiert und kann nicht installiert werden.'), 'HUPilot - Update', 'OK', 'Warning'); return }
+    Start-Pull -Version $sel.Version
+}
+
+# --- Herausgeber: Release signieren / freigeben (Zertifikat mit privatem Schluessel nur auf dessen PC) ---
+function Get-SignTokenFile { return (Join-Path $env:APPDATA 'HUPilot\GitHubSignToken.xml') }
+function Read-SignToken {
+    $f = Get-SignTokenFile
+    if (Test-Path -LiteralPath $f) { try { $c = Import-Clixml -Path $f; if ($c -is [System.Management.Automation.PSCredential]) { return $c.GetNetworkCredential().Password.Trim() } } catch { } }
+    return ''
+}
+function Get-SignToken($Cfg) {
+    $t = Read-SignToken
+    if ($t) { return $t }
+    if (-not (Save-GhToken (Get-SignTokenFile) ('GitHub-Token mit Schreibrecht fuer ' + $Cfg.Owner + '/' + $Cfg.Repo + " (Fine-grained PAT, 'Contents: Read and write'). Wird verschluesselt nur fuer deinen Windows-Benutzer gespeichert."))) { return '' }
+    return (Read-SignToken)
+}
+function Test-CanSign {
+    $c = Get-UpdCfg
+    if (-not $c -or -not (Get-Command Get-HMSigningCert -ErrorAction SilentlyContinue)) { return $false }
+    return [bool](Get-HMSigningCert $c.SignerThumbprint)
+}
+function Show-Msg([string]$Text, [string]$Title, [string]$Icon = 'Information') { [void][System.Windows.MessageBox]::Show($win, $Text, $Title, 'OK', $Icon) }
+
+function Start-ReleaseSigning {
+    $c = Get-UpdCfg; if (-not $c) { return }
+    Out-Log ('=== Release signieren (' + $c.Owner + '/' + $c.Repo + ') ===')
+    $cert = Get-HMSigningCert $c.SignerThumbprint
+    if (-not $cert) { $m = 'Signatur-Zertifikat ' + $c.SignerThumbprint + ' mit privatem Schluessel ist auf diesem PC nicht vorhanden (oder abgelaufen).'; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
+    Out-Log ('Zertifikat: ' + $cert.Subject + ' - gueltig bis ' + $cert.NotAfter.ToString('dd.MM.yyyy'))
+    $tok = Get-SignToken $c
+    if (-not $tok) { Out-Log 'Abgebrochen: kein GitHub-Token mit Schreibrecht.'; return }
+    Step-Ui
+    try { $all = @(Get-HMReleases $c.Owner $c.Repo $tok) } catch { $m = 'Releases nicht lesbar: ' + $_.Exception.Message; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
+    $tags = @($all | Where-Object { $_.ManifestUrl -and -not $_.SignatureUrl } | ForEach-Object { "$($_.Tag)" })
+    $noMan = @($all | Where-Object { -not $_.ManifestUrl } | Select-Object -First 5 | ForEach-Object { "$($_.Tag)" })
+    if ($noMan.Count) { Out-Log ('Ohne Pruefsummen-Datei (automatische Tests noch nicht fertig oder fehlgeschlagen): ' + ($noMan -join ', ')) }
+    if (-not $tags.Count) { Out-Log 'Nichts zu signieren - alle Releases mit Pruefsumme sind bereits signiert.'; Show-Msg ('Nichts zu signieren - alle Releases mit Pruefsumme sind bereits signiert.' + "`r`n`r`n" + 'Eine neue Version entsteht erst mit dem Merge nach main (danach ein paar Minuten warten, bis die automatischen Tests die Pruefsummen-Datei angehaengt haben).') 'Release signieren'; return }
+    $q = [System.Windows.MessageBox]::Show($win, ('Diese Releases jetzt signieren?' + "`r`n`r`n" + ($tags -join ', ') + "`r`n`r`n" + 'Danach werden sie allen Installationen angeboten (je nach Kanal Stabil/Test).'), 'Release signieren', 'YesNo', 'Question')
+    if ($q -ne 'Yes') { Out-Log 'Signieren abgebrochen.'; return }
+    Out-Log ('Signiere ' + ($tags -join ', ') + ' ...'); Step-Ui
+    try { $res = @(Invoke-HMReleaseSigning $c.Owner $c.Repo $c.SignerThumbprint $tok ([string[]]$tags)) }
+    catch { $m = 'Signieren fehlgeschlagen: ' + $_.Exception.Message; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
+    foreach ($x in $res) { Out-Log ($x.Tag + ': ' + $x.Text) }
+    $sum = ($res | ForEach-Object { $_.Tag + ': ' + $_.Text }) -join "`r`n"
+    if (@($res | Where-Object { -not $_.Ok }).Count) {
+        Show-Msg ('Signieren mit Fehlern:' + "`r`n`r`n" + $sum) 'Release signieren' 'Error'
+        if (@($res | Where-Object { -not $_.Ok -and "$($_.Text)" -match 'Schreibrecht' }).Count) { Remove-Item -LiteralPath (Get-SignTokenFile) -Force -ErrorAction SilentlyContinue; Out-Log 'Gespeicherter Schreib-Token geloescht - beim naechsten Signieren neu eingeben.' }
+    } else { Show-Msg ('Signiert:' + "`r`n`r`n" + $sum + "`r`n`r`n" + 'Naechster Schritt: Rechtsklick auf Update > Release freigeben.') 'Release signieren' }
+    Invoke-UpdateCheck -Quiet
+}
+
+function Start-ReleasePublish {
+    $c = Get-UpdCfg; if (-not $c) { return }
+    Out-Log ('=== Release freigeben (' + $c.Owner + '/' + $c.Repo + ') ===')
+    $tok = Get-SignToken $c
+    if (-not $tok) { Out-Log 'Abgebrochen: kein GitHub-Token mit Schreibrecht.'; return }
+    Step-Ui
+    try { $l = @(Get-HMReleases $c.Owner $c.Repo $tok) } catch { $m = 'Releases nicht lesbar: ' + $_.Exception.Message; Out-Log $m; Show-Msg $m 'Release freigeben' 'Error'; return }
+    $stable = @($l | Where-Object { -not $_.Prerelease } | Select-Object -First 1)[0]
+    $cand = @($l | Where-Object { $_.Prerelease -and $_.ManifestUrl -and $_.SignatureUrl -and (-not $stable -or $_.Version -gt $stable.Version) } | Select-Object -First 1)[0]
+    $uns = @($l | Where-Object { $_.Prerelease -and -not $_.SignatureUrl -and (-not $stable -or $_.Version -gt $stable.Version) } | ForEach-Object { $_.Tag })
+    $stTxt = $(if ($stable) { $stable.Tag } else { '-' })
+    Out-Log ('Bisher freigegeben: ' + $stTxt)
+    if (-not $cand) { $m = 'Kein signiertes Vorab-Release neuer als ' + $stTxt + '.' + $(if ($uns.Count) { ' Noch nicht signiert: ' + ($uns -join ', ') + " - zuerst 'Release signieren'." }); Out-Log $m; Show-Msg $m 'Release freigeben' 'Warning'; return }
+    $q = [System.Windows.MessageBox]::Show($win, ($cand.Tag + ' jetzt freigeben?' + "`r`n`r`n" + 'Danach ist es im Kanal Stabil die neueste Version und wird ALLEN Installationen als Update angeboten.' + "`r`n" + 'Bisher freigegeben: ' + $stTxt), 'Release freigeben', 'YesNo', 'Question')
+    if ($q -ne 'Yes') { Out-Log 'Freigabe abgebrochen.'; return }
+    Out-Log ('Gebe ' + $cand.Tag + ' frei ... (Signatur wird vorher erneut geprueft)'); Step-Ui
+    try {
+        Publish-HMRelease $c.Owner $c.Repo $cand.Tag $c.SignerThumbprint $tok
+        Out-Log ($cand.Tag + ': freigegeben (Kanal Stabil)')
+        Show-Msg ($cand.Tag + ' ist freigegeben (Kanal Stabil) und wird allen Installationen als Update angeboten.') 'Release freigeben'
+        Invoke-UpdateCheck -Quiet
+    } catch {
+        $code = Get-HttpCode $_
+        if ($code -in 401, 403, 404) { Remove-Item -LiteralPath (Get-SignTokenFile) -Force -ErrorAction SilentlyContinue; $m = 'Freigabe fehlgeschlagen: kein Schreibrecht (HTTP ' + $code + ') - gespeicherter Token wurde geloescht, beim naechsten Versuch neu eingeben.' }
+        else { $m = 'Freigabe fehlgeschlagen: ' + $_.Exception.Message }
+        Out-Log $m; Show-Msg $m 'Release freigeben' 'Error'
+    }
+}
+
+$ui.bUpd.Add_Click({ if ($script:UpdRemote) { Start-Pull } else { Invoke-UpdateCheck } })
+$cmU = New-Object System.Windows.Controls.ContextMenu
+$addU = { param($h, $sb) $mi = New-Object System.Windows.Controls.MenuItem; $mi.Header = $h; $mi.Add_Click($sb); [void]$cmU.Items.Add($mi); $mi }
+[void](& $addU 'Andere Version / Vorversion installieren ...' { Show-VersionPicker })
+[void](& $addU 'Jetzt nach Updates suchen' { Invoke-UpdateCheck })
+[void]$cmU.Items.Add((New-Object System.Windows.Controls.Separator))
+$script:miStable = & $addU 'Kanal Stabil (nur freigegebene Versionen)' { Set-UpdSetting 'Channel' 'Stable'; Out-Log 'Update-Kanal: Stabil'; Invoke-UpdateCheck }
+$script:miTest   = & $addU 'Kanal Test (auch Vorab-Versionen)' { Set-UpdSetting 'Channel' 'Test'; Out-Log 'Update-Kanal: Test'; Invoke-UpdateCheck }
+[void](& $addU 'GitHub-Token (nur privates Repo) ...' {
+    $f = Get-GhTokenFile; $has = Test-Path -LiteralPath $f
+    $a = [System.Windows.MessageBox]::Show($win, ('Gespeicherter GitHub-Token: ' + $(if ($has) { 'vorhanden' } else { 'keiner' }) + "`r`n`r`n" + "Nur fuer PRIVATE Repos noetig (Fine-grained PAT, nur 'Contents: Read')." + "`r`n`r`n" + 'Ja = Token eingeben/ersetzen' + "`r`n" + 'Nein = gespeicherten Token loeschen'), 'GitHub-Token', 'YesNoCancel', 'Question')
+    if ($a -eq 'Yes') { if (Save-GhToken $f 'GitHub-Token (Nur-Lese) als Kennwort eingeben (DPAPI, nur fuer deinen Benutzer lesbar)') { Out-Log 'GitHub-Token gespeichert'; Invoke-UpdateCheck } }
+    elseif ($a -eq 'No' -and $has) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue; Out-Log 'GitHub-Token geloescht' }
+})
+$sepU = New-Object System.Windows.Controls.Separator
+[void]$cmU.Items.Add($sepU)
+$miSign = & $addU 'Release signieren (Herausgeber) ...' { Start-ReleaseSigning }
+$miPub  = & $addU 'Release freigeben (Herausgeber) ...' { Start-ReleasePublish }
+$script:UpdSignItems = @($sepU, $miSign, $miPub)
+$cmU.Add_Opened({
+    $c = Get-UpdCfg
+    $script:miStable.IsChecked = ($c -and $c.Channel -ne 'Test'); $script:miTest.IsChecked = ($c -and $c.Channel -eq 'Test')
+    $v = $(if (Test-CanSign) { 'Visible' } else { 'Collapsed' }); foreach ($m in $script:UpdSignItems) { $m.Visibility = $v }
+})
+$ui.bUpd.ContextMenu = $cmU
 $win.Add_KeyDown({ if ($_.Key -eq 'F1') { & $ShowHelp } })
 $ui.bReload.Add_Click({ Update-Drives })
 
@@ -482,6 +695,8 @@ function Copy-ToStick([string]$dr) {
         foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { $_.Name -ne 'logs' -and -not $_.Name.StartsWith('_') })) {
             Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force -ErrorAction Stop
         }
+        # persoenliche/zwischenzeitliche Dateien nicht auf den Stick (GitHub-Token, Update-Journal, Update-Reste)
+        foreach ($x in @(Get-ChildItem -Path $dst -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'GitHubToken_*.xml' -or $_.Name -eq 'pull-journal.json' -or $_.Name -match '\.(pullold|pulltmp)$' })) { Remove-Item -LiteralPath $x.FullName -Force -ErrorAction SilentlyContinue }
         Out-Log ('Auf Stick kopiert: ' + $srcStick + ' -> ' + $dr + '\  (ohne logs und _Ordner)')
         $rootPkg = @(Get-ChildItem -Path ($dr + '\') -Filter *.ppkg -File -ErrorAction SilentlyContinue)
         if ($rootPkg.Count) { Out-Log ('ACHTUNG: .ppkg im Hauptverzeichnis entfernen (wird sonst im OOBE angewendet): ' + (($rootPkg | ForEach-Object { $_.Name }) -join ', ')) }
@@ -1041,7 +1256,17 @@ function Show-HashImport {
     [void]$hw.ShowDialog()
 }
 $ui.bHash.Add_Click({ Show-HashImport })
-$win.Add_ContentRendered({ Invoke-UpdateCheck })
+if ($SmokeTest) {
+    # Starttest (automatische Tests): Fenster oeffnen, 2 s laufen lassen, schliessen - kein Netzwerk
+    $script:SmokeOk = $false
+    $tm = New-Object System.Windows.Threading.DispatcherTimer
+    $tm.Interval = [TimeSpan]::FromSeconds(2)
+    $tm.Add_Tick({ $tm.Stop(); $script:SmokeOk = $win.IsLoaded; $win.Close() })
+    $win.Add_ContentRendered({ $tm.Start() })
+} else {
+    $win.Add_ContentRendered({ Invoke-UpdateCheck -Quiet })
+}
 [void]$win.ShowDialog()
+if ($SmokeTest) { try { Set-Content -LiteralPath $SmokeTest -Value $(if ($script:SmokeOk) { 'OK v' + $SetupVer } else { 'FEHLER: Fenster nicht geladen' }) -Encoding UTF8 } catch { } }
 Start-Log 'Fenster geschlossen'
 try { $script:Mutex.ReleaseMutex() } catch { }
