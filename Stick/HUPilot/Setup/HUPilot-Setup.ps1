@@ -82,7 +82,7 @@ $script:Extra = @{}
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="890" Height="840" WindowStartupLocation="CenterScreen" FontSize="13">
+        Title="HUPilot-Setup" Width="890" Height="880" WindowStartupLocation="CenterScreen" FontSize="13">
   <DockPanel Margin="14">
   <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
@@ -129,12 +129,14 @@ $script:Extra = @{}
         <TextBlock Grid.Row="1" Text="Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tKey" ToolTip="Kennwort des Konfigurations-WLANs (mind. 8 Zeichen).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
       </Grid>
     </GroupBox>
-    <GroupBox Grid.Row="3" Header="Lokaler Admin (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
+    <GroupBox Grid.Row="3" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="Admin-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tAdmName" ToolTip="Lokales Administratorkonto fuer die Kustoden (max. 20 Zeichen, z. B. kustode).&#x0a;Kommt mit 4. WLAN-Paket bauen ins Paket und wird nach JEDEM Zuruecksetzen neu angelegt.&#x0a;Kennwort und Konto laufen nie ab. Leer lassen = kein lokaler Admin.&#x0a;Aenderung wirkt erst nach neuem Paket + Zuruecksetzen mit dem Stick." ToolTipService.ShowDuration="30000" Margin="2"/>
         <TextBlock Grid.Row="1" Text="Admin-Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tAdmPw" ToolTip="Kennwort des lokalen Admins (mind. 8 Zeichen, auf allen Geraeten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="2" Text="Admin 2 - Name" VerticalAlignment="Center" Margin="0,6,0,0"/><TextBox Grid.Row="2" Grid.Column="1" x:Name="tAdm2Name" ToolTip="Zweites lokales Administratorkonto, z. B. fuer den Elternverein (max. 20 Zeichen, z. B. elternadmin).&#x0a;Gleiche Regeln wie Admin 1: kommt ins WLAN-Paket, nach JEDEM Zuruecksetzen neu angelegt, Kennwort und Konto laufen nie ab.&#x0a;Leer lassen = kein zweiter Admin." ToolTipService.ShowDuration="30000" Margin="2,8,2,2"/>
+        <TextBlock Grid.Row="3" Text="Admin 2 - Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="3" Grid.Column="1" x:Name="tAdm2Pw" ToolTip="Kennwort des zweiten lokalen Admins (mind. 8 Zeichen, auf allen Geraeten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
       </Grid>
     </GroupBox>
     <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
@@ -164,7 +166,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','cAskUser','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','cAskUser','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -192,7 +194,8 @@ function Get-Cfg {
         Tenant = $ui.tTenant.Text.Trim(); TenantId = $ui.tTenantId.Text.Trim(); ClientId = $ui.tClientId.Text.Trim()
         ClientSecret = (Get-Secret); GroupTag = $ui.tTag.Text.Trim(); TagChoices = $choices
         WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = $ui.tKey.Text; WlanPackage = 'HUPilot-WLAN.ppkg'
-        AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = $ui.tAdmPw.Text; AskUser = [bool]$ui.cAskUser.IsChecked
+        AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = $ui.tAdmPw.Text
+        Admin2Name = $ui.tAdm2Name.Text.Trim(); Admin2Password = $ui.tAdm2Pw.Text; AskUser = [bool]$ui.cAskUser.IsChecked
     }
     foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
     return $o
@@ -204,10 +207,12 @@ function Test-Fields([string[]]$Names) {
     if ($Names -contains 'TenantId' -and $c.TenantId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'Tenant-ID ist keine GUID'; return $false }
     if ($Names -contains 'ClientId' -and $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'App-ID ist keine GUID'; return $false }
     if ($Names -contains 'WlanKey' -and $c.WlanKey.Length -lt 8) { Out-Log 'WLAN-Kennwort kuerzer als 8 Zeichen'; return $false }
-    if ($c.AdminName) {
-        if ($c.AdminName.Length -gt 20 -or $c.AdminName -match '["/\\\[\]:;|=,+*?<>@ ]') { Out-Log 'Admin-Name ungueltig (max. 20 Zeichen, keine Leer- oder Sonderzeichen wie / \ [ ] : ; | = , + * ? < > @)'; return $false }
-        if ($c.AdminPassword.Length -lt 8) { Out-Log 'Admin-Kennwort kuerzer als 8 Zeichen'; return $false }
+    foreach ($a in @(@('Admin', $c.AdminName, $c.AdminPassword), @('Admin 2', $c.Admin2Name, $c.Admin2Password))) {
+        if (-not $a[1]) { if ($a[2]) { Out-Log ($a[0] + ': Kennwort ohne Name - Name eintragen oder Kennwort leeren'); return $false }; continue }
+        if ($a[1].Length -gt 20 -or $a[1] -match '["/\\\[\]:;|=,+*?<>@ ]') { Out-Log ($a[0] + '-Name ungueltig (max. 20 Zeichen, keine Leer- oder Sonderzeichen wie / \ [ ] : ; | = , + * ? < > @)'); return $false }
+        if ([string]$a[2] -eq '' -or $a[2].Length -lt 8) { Out-Log ($a[0] + '-Kennwort kuerzer als 8 Zeichen'); return $false }
     }
+    if ($c.AdminName -and $c.Admin2Name -and $c.AdminName -eq $c.Admin2Name) { Out-Log 'Admin und Admin 2 haben denselben Namen'; return $false }
     return $true
 }
 
@@ -607,8 +612,9 @@ $ui.bLoad.Add_Click({
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
         $ui.tAdmName.Text = [string]$c.AdminName; $ui.tAdmPw.Text = [string]$c.AdminPassword; $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
+        $ui.tAdm2Name.Text = [string]$c.Admin2Name; $ui.tAdm2Pw.Text = [string]$c.Admin2Password
         $script:Extra = @{}
-        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','AskUser') { $script:Extra[$pr.Name] = $pr.Value } }
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log ('Geladen: ' + $p)
     } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
 })
@@ -721,39 +727,42 @@ $ui.bPkg.Add_Click({
         $x = $x.Replace('SSID="WLAN-NAME"', 'SSID="' + [System.Security.SecurityElement]::Escape($c.WlanSsid) + '"')
         $x = $x.Replace('<SecurityKey>WLAN-KENNWORT</SecurityKey>', '<SecurityKey>' + [System.Security.SecurityElement]::Escape($c.WlanKey) + '</SecurityKey>')
         $x = [regex]::Replace($x, '<ID>\{[0-9a-fA-F-]+\}</ID>', '<ID>{' + [guid]::NewGuid().ToString() + '}</ID>')
-        if ($c.AdminName) {
-            # Optional: lokaler Admin per ProvisioningCommands (Geraetekontext, laeuft als SYSTEM - auch nach jedem Zuruecksetzen)
+        $adm = @(@(@($c.AdminName, $c.AdminPassword), @($c.Admin2Name, $c.Admin2Password)) | Where-Object { $_[0] })
+        if ($adm.Count) {
+            # Optional: lokale Admins per ProvisioningCommands (Geraetekontext, laeuft als SYSTEM - auch nach jedem Zuruecksetzen)
             $q = { param($v) "'" + ([string]$v).Replace("'", "''") + "'" }
             $body = @(
-                '# HUPilot: lokaler Admin (aus dem WLAN-Paket, laeuft als SYSTEM)',
-                ('$n = ' + (& $q $c.AdminName)),
-                ('$pw = ' + (& $q $c.AdminPassword)),
+                '# HUPilot: lokale Admins (aus dem WLAN-Paket, laeuft als SYSTEM)',
+                ('$list = @(); ' + (($adm | ForEach-Object { '$list += ,@(' + (& $q $_[0]) + ', ' + (& $q $_[1]) + ')' }) -join '; ')),
                 '$log = Join-Path $env:SystemRoot ''Temp\HUPilot-Admin.log''',
                 'function L([string]$m) { try { Add-Content -Path $log -Value ((Get-Date -Format ''yyyy-MM-dd HH:mm:ss'') + ''  '' + $m) -Encoding UTF8 } catch { } }',
-                'try {',
+                'foreach ($a in $list) {',
+                '  $n = $a[0]; $pw = $a[1]',
+                '  try {',
                 '    $sec = ConvertTo-SecureString -String $pw -AsPlainText -Force',
                 '    $u = Get-LocalUser -Name $n -ErrorAction SilentlyContinue',
                 '    if ($u) { Set-LocalUser -Name $n -Password $sec -PasswordNeverExpires $true -AccountNeverExpires -ErrorAction Stop; Enable-LocalUser -Name $n -ErrorAction Stop; L (''Konto aktualisiert: '' + $n) }',
                 '    else { New-LocalUser -Name $n -Password $sec -PasswordNeverExpires -AccountNeverExpires -Description ''HUPilot lokaler Admin'' -ErrorAction Stop | Out-Null; L (''Konto angelegt: '' + $n) }',
                 '    $sid = (Get-LocalUser -Name $n).SID.Value',
-                '    try { Add-LocalGroupMember -SID ''S-1-5-32-544'' -Member $sid -ErrorAction Stop; L ''zu Administratoren hinzugefuegt'' }',
-                '    catch { if ($_.FullyQualifiedErrorId -like ''*MemberExists*'') { L ''bereits Administrator'' } else { throw } }',
-                '} catch { L (''FEHLER: '' + $_.Exception.Message) }'
+                '    try { Add-LocalGroupMember -SID ''S-1-5-32-544'' -Member $sid -ErrorAction Stop; L (''zu Administratoren hinzugefuegt: '' + $n) }',
+                '    catch { if ($_.FullyQualifiedErrorId -like ''*MemberExists*'') { L (''bereits Administrator: '' + $n) } else { throw } }',
+                '  } catch { L (''FEHLER '' + $n + '': '' + $_.Exception.Message) }',
+                '}'
             ) -join "`r`n"
             # Ohne CommandFiles (ICD-Fehler beim Asset): Script als -EncodedCommand direkt in der CommandLine
             $b64 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($body))
             $cl = 'cmd /c "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $b64
             $pc = '<ProvisioningCommands><DeviceContext><CommandLine>' + $cl + '</CommandLine></DeviceContext></ProvisioningCommands>'
             $x = $x.Replace('</Common>', $pc + '</Common>')
-            $x = [regex]::Replace($x, '<Notes>.*?</Notes>', '<Notes>HUPilot: WLAN + lokaler Admin. KEIN Zuruecksetzen-Befehl im Paket.</Notes>')
-            Out-Log ('Paket enthaelt lokalen Admin: ' + $c.AdminName)
+            $x = [regex]::Replace($x, '<Notes>.*?</Notes>', '<Notes>HUPilot: WLAN + lokale Admins. KEIN Zuruecksetzen-Befehl im Paket.</Notes>')
+            Out-Log ('Paket enthaelt lokale(n) Admin(s): ' + (($adm | ForEach-Object { $_[0] }) -join ', '))
         }
         $xmlPath = Join-Path $work 'customizations.xml'
         [System.IO.File]::WriteAllText($xmlPath, $x.TrimStart([char]0xFEFF), $enc)   # ohne BOM
         $ppkg = $srcPkg
         $cstore = Join-Path (Split-Path $icd -Parent) 'Microsoft-Common-Provisioning.dat'
         $stores = @($cstore)
-        if ($c.AdminName) {
+        if ($adm.Count) {
             # ProvisioningCommands gibt es nur im Desktop-Speicher (Common kennt sie nicht)
             $dstore = Join-Path (Split-Path $icd -Parent) 'Microsoft-Desktop-Provisioning.dat'
             if (-not (Test-Path $dstore)) { Out-Log ('FEHLER: ' + $dstore + ' fehlt - ADK-Feature "Imaging and Configuration Designer" vollstaendig installieren'); return }
@@ -770,7 +779,7 @@ $ui.bPkg.Add_Click({
             $lines = @()
             foreach ($f in @($outF, $errF)) { if (Test-Path $f) { $lines += @(Get-Content -Path $f -ErrorAction SilentlyContinue | Where-Object { $_.Trim() }) } }
             foreach ($ln in @($lines | Select-Object -Last 30)) {
-                foreach ($sec in @($c.WlanKey, $c.AdminPassword)) { if ($sec) { $ln = $ln.Replace($sec, '***') } }
+                foreach ($sec in @($c.WlanKey, $c.AdminPassword, $c.Admin2Password)) { if ($sec) { $ln = $ln.Replace($sec, '***') } }
                 Out-Log ('  ' + $ln)
             }
             if (-not $lines.Count) { Out-Log '  (ICD.exe hat keine Ausgabe geliefert)' }

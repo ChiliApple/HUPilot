@@ -7,6 +7,7 @@ Update-Weg wie bei den anderen HU-Tools: **Release + Prüfsumme + Signatur + Fre
 - Setup, Knopf **Update**: gold bei neuer freigegebener Version, Klick startet Pull. Rechtsklick: andere Version/Vorversion, Kanal **Stabil**/**Test**, jetzt prüfen, GitHub-Token; für den Herausgeber zusätzlich *Release signieren* und *Release freigeben*
 - Versionsnummer nur noch in `HUPilot\Config\version.json` (Setup, `go.ps1`, `diag` lesen sie dort)
 - Setup und `go.ps1` starten nicht, solange ein abgebrochenes Update offen ist (`pull-journal.json`); das Setup bietet dann Pull zum Wiederherstellen an
+- Setup: **zweiter lokaler Admin** (Admin 2, z. B. Elternverein) – kommt wie Admin 1 mit dem WLAN-Paket, Kennwort/Konto laufen nie ab
 - Eine Setup-Instanz je Stick/Ordner (vorher eine je PC)
 - *Auf Stick kopieren* / *Sticks vorbereiten* nehmen keinen GitHub-Token und keine Update-Reste mit
 - Automatische Tests auf GitHub wieder aktiv: Syntax, Steuerelemente, Version, Bibliothek, PSScriptAnalyzer, Pester, Starttest des Setups; bei neuer Version Vorab-Release mit Prüfsummen-Datei und Test des Update-Wegs

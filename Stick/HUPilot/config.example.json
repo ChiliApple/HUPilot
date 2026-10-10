@@ -17,6 +17,8 @@
   "WlanPackage": "HUPilot-WLAN.ppkg",
   "AdminName": "",
   "AdminPassword": "",
+  "Admin2Name": "",
+  "Admin2Password": "",
   "Reset": true,
   "MinBattery": 50
 }

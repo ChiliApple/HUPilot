@@ -19,13 +19,14 @@ Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der
 | `Reset`, `MinBattery` | Standard „zurücksetzen“, Mindest-Akku ohne Netzteil (50) |
 | `AskUser` | am Gerät nach Benutzer (UPN) fragen und vorab zuweisen (true/false) |
 | `AdminName`, `AdminPassword` | optional lokaler Admin (leer = keiner), kommt mit dem WLAN-Paket |
+| `Admin2Name`, `Admin2Password` | optional zweiter lokaler Admin, z. B. Elternverein (leer = keiner) |
 
 **Kein** `.ppkg` ins Hauptverzeichnis des Sticks legen.
 
 ## 3. WLAN-Paket
 *WLAN-Paket bauen* braucht das **Windows ADK** mit *Imaging and Configuration Designer* (`ICD.exe`).
 Ohne ADK: `Tools\New-WcdProjekt.ps1` → in WCD öffnen → als `HUPilot-WLAN.ppkg` exportieren.
-Das Paket enthält nur das WLAN und optional den lokalen Admin – kein CleanPC, kein BPRT, kein HideOobe.
+Das Paket enthält nur das WLAN und optional die lokalen Admins – kein CleanPC, kein BPRT, kein HideOobe.
 Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go.ps1 an bereits eingerichteten Geräten kein neues Paket installieren – das vorhandene bleibt.
 
 ## 4. Intune
