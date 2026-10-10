@@ -18,7 +18,15 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.1'
+$Ver        = '2.2'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
+# Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
+    Write-Host ''
+    Write-Host '  HUPilot: Das letzte Update dieses Sticks wurde abgebrochen.' -ForegroundColor Red
+    Write-Host '  Stick am PC anstecken und HUPilot-Setup.cmd starten - es stellt den Stand wieder her.' -ForegroundColor Red
+    exit 1
+}
 $MinBattery = 50     # % Akku ohne Netzteil, darunter wird vor dem Zuruecksetzen gewartet
 $Start      = Get-Date
 $CfgDir     = $PSScriptRoot

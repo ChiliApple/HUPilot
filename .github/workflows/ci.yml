@@ -1,0 +1,183 @@
+# Automatische Tests fuer HUPilot (Windows PowerShell 5.1) und Releases (Aufbau wie HU-MultiTenant und HUMig).
+# - bei jedem Push/Pull-Request: Pruefungen (Syntax, BOM, XAML, Steuerelemente, Version, Update-Bibliothek, PSScriptAnalyzer, Pester) - blockierend
+#   + Starttest (HUPilot-Setup.ps1 -SmokeTest: Fenster oeffnen, 2 s laufen lassen, schliessen) - blockierend
+# - Push auf main mit neuer Version (Stick/HUPilot/Config/version.json, Tag existiert noch nicht):
+#   Vorab-Release v<Version> (Kanal Test) automatisch anlegen, Text aus CHANGELOG.md, HUPilot-files.sha256 anhaengen
+# - von Hand veroeffentlichtes Release: HUPilot-files.sha256 anhaengen
+# - danach jeweils den Update-Weg testen (Pull.ps1 laedt genau dieses Release und prueft alle Pruefsummen)
+# - Signatur + Freigabe macht der Herausgeber in HUPilot-Setup (Rechtsklick auf Update > Release signieren / Release freigeben),
+#   erst dann wird das Release den Installationen angeboten
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# neuer Push bricht einen noch laufenden Lauf desselben Branches ab
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Pruefungen (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+      - name: Pruefungen
+        shell: powershell
+        timeout-minutes: 15
+        run: .\.github\tests\Invoke-CITests.ps1
+      - name: Starttest (HUPilot-Setup.ps1 -SmokeTest)
+        shell: powershell
+        timeout-minutes: 5
+        run: |
+          $f = Join-Path $env:RUNNER_TEMP 'smoke.txt'
+          $p = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$((Resolve-Path .\Stick\HUPilot\Setup\HUPilot-Setup.ps1).Path)`"",'-SmokeTest',"`"$f`"" -PassThru -Wait
+          if (-not (Test-Path $f)) { throw "Starttest: kein Ergebnis (Exitcode $($p.ExitCode))" }
+          $r = Get-Content $f -Raw
+          "Starttest: $r"
+          if ($r -notmatch '^OK') { throw "Starttest fehlgeschlagen: $r" }
+          "### Starttest: $r" | Add-Content $env:GITHUB_STEP_SUMMARY
+      - name: Protokoll bei Fehler
+        if: failure()
+        shell: powershell
+        run: Get-ChildItem $env:PUBLIC -Filter 'HUPilot-Setup-*' -ErrorAction SilentlyContinue | ForEach-Object { "== $($_.Name)"; Get-Content $_.FullName -Tail 80 }
+
+  release:
+    name: Release + Pruefsummen-Datei
+    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.rel.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+      - name: Release bestimmen bzw. als Vorab-Release anlegen
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          V=$(python3 -c "import json;print(json.load(open('Stick/HUPilot/Config/version.json',encoding='utf-8-sig'))['version'])")
+          if [ -z "$V" ]; then echo "Version in Stick/HUPilot/Config/version.json nicht gefunden"; exit 1; fi
+          T="v$V"
+          if gh release view "$T" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $T gibt es schon - nichts anzulegen"; echo "tag=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Abschnitt "## v<Version>" aus CHANGELOG.md als Release-Text
+          python3 - "$V" > notes.md <<'PY'
+          import re, sys
+          v = sys.argv[1]
+          t = open('CHANGELOG.md', encoding='utf-8').read()
+          m = re.search(r'^## v' + re.escape(v) + r'\b[^\n]*\n(.*?)(?=^## v|\Z)', t, re.S | re.M)
+          print(m.group(1).strip() if m else 'Version ' + v)
+          PY
+          gh release create "$T" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title "$T" --notes-file notes.md
+          echo "Vorab-Release $T angelegt" >> "$GITHUB_STEP_SUMMARY"
+          echo "tag=$T" >> "$GITHUB_OUTPUT"
+      - name: HUPilot-files.sha256 erstellen und anhaengen
+        if: steps.rel.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          python3 .github/scripts/manifest.py HUPilot-files.sha256
+          gh release upload "$TAG" HUPilot-files.sha256 --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Alte Releases entfernen (nur die letzten 10 behalten)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: 10
+        run: |
+          # neueste zuerst; die aktuelle stabile Version (Latest) bleibt immer erhalten
+          LATEST=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" -q .tag_name 2>/dev/null || true)
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate -q '.[] | "\(.created_at) \(.tag_name)"' | sort -r | awk '{print $2}' > all.txt
+          n=0
+          while read -r T; do
+            n=$((n+1))
+            [ "$n" -le "$KEEP" ] && continue
+            [ "$T" = "$LATEST" ] && { echo "behalte $T (Latest)"; continue; }
+            gh release delete "$T" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag && echo "- geloescht: $T" >> "$GITHUB_STEP_SUMMARY"
+          done < all.txt
+
+  pull:
+    name: Update-Weg testen (Pull.ps1)
+    needs: release
+    if: needs.release.outputs.tag != ''
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+      - name: Pull.ps1 laedt das Release und prueft alle Pruefsummen
+        shell: powershell
+        env:
+          HU_GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          $t = Join-Path $env:RUNNER_TEMP 'HUPilot'
+          $v = $env:TAG -replace '^v', ''
+          $pull = (Resolve-Path .\Stick\HUPilot\Setup\Pull.ps1).Path
+          $own = $env:GITHUB_REPOSITORY_OWNER; $rep = ($env:GITHUB_REPOSITORY -split '/')[1]
+          # Die Signatur haengt der Herausgeber erst nach diesem Test an - hier wird der Weg mit Pruefsumme getestet
+          New-Item -ItemType Directory -Path (Join-Path $t 'HUPilot\Config') -Force | Out-Null
+          '{ "AllowUnsigned": true }' | Set-Content -LiteralPath (Join-Path $t 'HUPilot\Config\update.json') -Encoding UTF8
+          powershell -NoProfile -ExecutionPolicy Bypass -File $pull -Target $t -Version $v -NoStart -NonInteractive -Owner $own -Repo $rep
+          if ($LASTEXITCODE -ne 0) { throw "Pull.ps1 Exitcode $LASTEXITCODE" }
+          $i = Get-Content (Join-Path $t 'HUPilot\Config\installed.json') -Raw | ConvertFrom-Json
+          if ("$($i.Version)" -ne $v) { throw "installiert: $($i.Version), erwartet $v" }
+          if ("$($i.Check)" -notlike 'Pruefsumme*') { throw "nicht geprueft: $($i.Check)" }
+          foreach ($x in 'go.cmd', 'diag.cmd', 'HUPilot\go.ps1', 'HUPilot\Setup\HUPilot-Setup.ps1', 'HUPilot\Config\version.json') { if (-not (Test-Path -LiteralPath (Join-Path $t $x))) { throw "fehlt nach Pull: $x" } }
+          if (Test-Path -LiteralPath (Join-Path $t 'README.md')) { throw 'Datei ausserhalb von Stick/ geladen (README.md)' }
+          "Pull OK: $($i.Version) - $($i.Check) - $($i.Files) Dateien"
+          # zweiter Lauf = Update ueber bestehende Ablage (Vorlage HUMig):
+          #   veraltete Programmdatei muss weg, Config/config.json/WLAN-Paket/logs und eigene Dateien bleiben, Pfade ausserhalb werden ignoriert,
+          #   ein abgebrochenes Update (Journal mit ZWEI Dateien) wird zuerst zurueckgestellt, danach keine Reste
+          $old = Join-Path $t 'HUPilot\Alt-Entfernt.ps1'; 'alt' | Set-Content -LiteralPath $old -Encoding UTF8
+          $keep = Join-Path $t 'HUPilot\Config\behalten.txt'; 'bleibt' | Set-Content -LiteralPath $keep -Encoding UTF8
+          $cfgJ = Join-Path $t 'HUPilot\config.json'; '{ "Tenant": "Test" }' | Set-Content -LiteralPath $cfgJ -Encoding UTF8
+          $pkg = Join-Path $t 'HUPilot\HUPilot-WLAN.ppkg'; 'paket' | Set-Content -LiteralPath $pkg -Encoding UTF8
+          New-Item -ItemType Directory -Path (Join-Path $t 'HUPilot\logs') -Force | Out-Null
+          $log = Join-Path $t 'HUPilot\logs\hashes.csv'; 'csv' | Set-Content -LiteralPath $log -Encoding UTF8
+          $mine = Join-Path $t 'Eigene.txt'; 'eigen' | Set-Content -LiteralPath $mine -Encoding UTF8
+          $outside = Join-Path $env:RUNNER_TEMP 'ausserhalb.txt'; 'aussen' | Set-Content -LiteralPath $outside -Encoding UTF8
+          $i.FileList = @($i.FileList) + @('HUPilot/Alt-Entfernt.ps1', 'HUPilot/Config/behalten.txt', 'HUPilot/config.json', 'HUPilot/HUPilot-WLAN.ppkg', 'HUPilot/logs/hashes.csv', '../ausserhalb.txt')
+          $i | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $t 'HUPilot\Config\installed.json') -Encoding UTF8
+          $main = Join-Path $t 'HUPilot\go.ps1'
+          $lib = Join-Path $t 'HUPilot\Setup\Core-Update.ps1'
+          Move-Item -LiteralPath $main -Destination "$main.pullold"; 'kaputt' | Set-Content -LiteralPath $main -Encoding UTF8
+          $libHash = (Get-FileHash -LiteralPath $lib -Algorithm SHA256).Hash
+          Move-Item -LiteralPath $lib -Destination "$lib.pullold"
+          ConvertTo-Json -InputObject @("$main", "$lib") | Set-Content -LiteralPath (Join-Path $t 'HUPilot\Config\pull-journal.json') -Encoding UTF8
+          $out = powershell -NoProfile -ExecutionPolicy Bypass -File $pull -Target $t -Version $v -NoStart -NonInteractive -Owner $own -Repo $rep 2>&1 | Out-String
+          $c = $LASTEXITCODE
+          $out
+          if ($c -ne 0) { throw "Pull.ps1 (Update) Exitcode $c" }
+          if ($out -notmatch 'abgebrochen') { throw 'Journal wurde nicht ausgewertet' }
+          if ($out -notmatch [regex]::Escape("zurueckgestellt: $lib")) { throw 'Journal: Core-Update.ps1 nicht zurueckgestellt (Array-Auswertung PS 5.1?)' }
+          if ((Get-Content -LiteralPath $main -Raw) -match 'kaputt') { throw 'go.ps1 nicht erneuert' }
+          if (-not (Test-Path -LiteralPath $lib) -or (Get-FileHash -LiteralPath $lib -Algorithm SHA256).Hash -ne $libHash) { throw 'Core-Update.ps1 fehlt oder falsch' }
+          if (Test-Path -LiteralPath $old) { throw 'veraltete Datei nicht entfernt' }
+          foreach ($x in $keep, $cfgJ, $pkg, $log, $mine, $outside) { if (-not (Test-Path -LiteralPath $x)) { throw "lokale Datei wurde entfernt: $x" } }
+          $rest = @(Get-ChildItem -LiteralPath $t -Recurse -File -Force | Where-Object { $_.Name -match '\.(pullold|pulltmp)$' -or $_.Name -eq 'pull-journal.json' })
+          if ($rest.Count) { throw "Reste: $(($rest | ForEach-Object Name) -join ', ')" }
+          $i = Get-Content (Join-Path $t 'HUPilot\Config\installed.json') -Raw | ConvertFrom-Json
+          if ("$($i.Version)" -ne $v -or -not @($i.FileList).Count) { throw "installed.json nach Update falsch: $($i.Version)" }
+          "Update OK: Journal zurueckgestellt, veraltete Datei entfernt, config.json/WLAN-Paket/logs/eigene Dateien unberuehrt, keine Reste"

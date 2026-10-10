@@ -19,13 +19,14 @@ Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der
 | `Reset`, `MinBattery` | Standard „zurücksetzen“, Mindest-Akku ohne Netzteil (50) |
 | `AskUser` | am Gerät nach Benutzer (UPN) fragen und vorab zuweisen (true/false) |
 | `AdminName`, `AdminPassword` | optional lokaler Admin (leer = keiner), kommt mit dem WLAN-Paket |
+| `Admin2Name`, `Admin2Password` | optional zweiter lokaler Admin, z. B. Elternverein (leer = keiner) |
 
 **Kein** `.ppkg` ins Hauptverzeichnis des Sticks legen.
 
 ## 3. WLAN-Paket
 *WLAN-Paket bauen* braucht das **Windows ADK** mit *Imaging and Configuration Designer* (`ICD.exe`).
 Ohne ADK: `Tools\New-WcdProjekt.ps1` → in WCD öffnen → als `HUPilot-WLAN.ppkg` exportieren.
-Das Paket enthält nur das WLAN und optional den lokalen Admin – kein CleanPC, kein BPRT, kein HideOobe.
+Das Paket enthält nur das WLAN und optional die lokalen Admins – kein CleanPC, kein BPRT, kein HideOobe.
 Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go.ps1 an bereits eingerichteten Geräten kein neues Paket installieren – das vorhandene bleibt.
 
 ## 4. Intune
@@ -35,7 +36,8 @@ Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go
 - Später per Wartung: Config-WLAN + WLAN-Paket und `C:\Recovery\HUPilot-OEM-Backup` entfernen
 
 ## Fehlersuche
-- Updates: Knopf *Update* im Setup (prüft beim Start online)
+- Updates: Knopf *Update* im Setup (prüft beim Start online). Klick startet `HUPilot\Setup\Pull.ps1`: lädt das Release, prüft Prüfsumme + Signatur, ersetzt erst dann. Rechtsklick: Vorversion, Kanal Stabil/Test.
+- Erstinstallation ohne Stick: `Pull.ps1` aus dem Repo laden und ausführen (`powershell -ExecutionPolicy Bypass -File Pull.ps1`) → legt `Desktop\HUPilot` an
 - Logs: Gerät `C:\Windows\Temp\HUPilot.log` und `HUPilot-Wipe.log`, Stick `HUPilot\logs\`
 - Am Gerät: `D:\diag` – Diagnose-Menü zum Abfotografieren (ändert nichts), *7* speichert alles am Stick
 - Setup startet nicht: `C:\Users\Public\HUPilot-Setup-Start.log`

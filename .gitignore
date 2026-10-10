@@ -6,3 +6,10 @@ logs/
 *.cat
 WCD-Projekt/
 *.log
+# Update (lokal, schreibt Pull.ps1 bzw. das Setup)
+Stick/HUPilot/Config/update.json
+Stick/HUPilot/Config/installed.json
+Stick/HUPilot/Config/pull-journal.json
+GitHubToken_*.xml
+*.pullold
+*.pulltmp
