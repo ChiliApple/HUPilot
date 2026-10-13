@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.2'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.3'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
