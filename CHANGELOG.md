@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.3 - 2026-10-13
+- go.ps1: Die geplante Aufgabe fürs Zurücksetzen wird jetzt mit `Get-ScheduledTask` geprüft und mit `Start-ScheduledTask` gestartet. Vorher lieferte `schtasks /Query` auf manchen Geräten keine Ausgabe, und go brach mit „Geplante Aufgabe nicht angelegt“ ab, obwohl die Aufgabe da war. `schtasks` bleibt als Ausweichweg.
+
 ## v2.2 - 2026-10-10
 Update-Weg wie bei den anderen HU-Tools: **Release + Prüfsumme + Signatur + Freigabe**.
 - Neu: `HUPilot\Setup\Pull.ps1` – lädt eine Version als GitHub-Release, prüft **jede Datei** gegen `HUPilot-files.sha256` und die Signatur (`HUPilot-files.sha256.p7s`, Zertifikat des Herausgebers), ersetzt erst dann alles auf einmal (Journal, bei Abbruch wird der alte Stand zurückgestellt) und entfernt Dateien, die es nicht mehr gibt
