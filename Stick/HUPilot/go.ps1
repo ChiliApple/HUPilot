@@ -788,11 +788,21 @@ if (-not $regOk) {
     $o = cmd.exe /c ('schtasks /Create /TN "' + $tn + '" /XML "' + $taskFile + '" /F 2>&1')
     Log ('schtasks create: ' + (($o | Out-String).Trim()))
 }
-# Pruefen, ob die Aufgabe wirklich existiert (Exitcodes sind hier unzuverlaessig)
-$q = cmd.exe /c ('schtasks /Query /TN "' + $tn + '" 2>&1')
-if (-not ((($q | Out-String)) -match [regex]::Escape($tn))) { Fail-Reset ('Geplante Aufgabe nicht angelegt: ' + (($q | Out-String).Trim())) }
-$o = cmd.exe /c ('schtasks /Run /TN "' + $tn + '" 2>&1')
-Log ('schtasks run: ' + (($o | Out-String).Trim()))
+# Pruefen, ob die Aufgabe wirklich existiert (Exitcodes sind hier unzuverlaessig).
+# Zuerst ueber das ScheduledTasks-Modul - schtasks /Query lieferte auf manchen Geraeten gar keine Ausgabe (13.10.2026)
+$taskOk = $false
+try { if (Get-ScheduledTask -TaskName $tn -ErrorAction Stop) { $taskOk = $true; Log 'Aufgabe vorhanden (Get-ScheduledTask)' } } catch { Log ('Get-ScheduledTask: ' + $_.Exception.Message) }
+if (-not $taskOk) {
+    $q = (cmd.exe /c ('schtasks /Query /TN "' + $tn + '" 2>&1') | Out-String).Trim()
+    if ($q -match [regex]::Escape($tn)) { $taskOk = $true; Log 'Aufgabe vorhanden (schtasks)' }
+    else { Fail-Reset ('Geplante Aufgabe nicht angelegt: ' + $(if ($q) { $q } else { '(schtasks ohne Ausgabe)' })) }
+}
+$started = $false
+try { Start-ScheduledTask -TaskName $tn -ErrorAction Stop; $started = $true; Log 'Aufgabe gestartet (Start-ScheduledTask)' } catch { Log ('Start-ScheduledTask: ' + $_.Exception.Message) }
+if (-not $started) {
+    $o = cmd.exe /c ('schtasks /Run /TN "' + $tn + '" 2>&1')
+    Log ('schtasks run: ' + (($o | Out-String).Trim()))
+}
 $res = ''
 for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Seconds 3
