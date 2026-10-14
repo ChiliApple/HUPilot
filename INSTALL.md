@@ -18,7 +18,7 @@ Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der
 | `WlanSsid`, `WlanKey`, `WlanPackage` | Konfigurations-WLAN; Paketname (leer = ohne, z. B. nur LAN) |
 | `Reset`, `MinBattery` | Standard „zurücksetzen“, Mindest-Akku ohne Netzteil (50) |
 | `AskUser` | am Gerät nach Benutzer (UPN) fragen und vorab zuweisen (true/false) |
-| `RemoveOtherPackages` | fremde Bereitstellungspakete beim Zurücksetzen entfernen (Standard true); sie landen in `C:\Recovery\HUPilot-PPKG-Backup` |
+| `RemoveOtherPackages` | fremde Bereitstellungspakete beim Zurücksetzen entfernen (Standard false, noch im Test); sie werden vorher nach `C:\Recovery\HUPilot-PPKG-Backup\<Datum>` gesichert |
 | `AdminName`, `AdminPassword` | optional lokaler Admin (leer = keiner), kommt mit dem WLAN-Paket |
 | `Admin2Name`, `Admin2Password` | optional zweiter lokaler Admin, z. B. Elternverein (leer = keiner) |
 

@@ -716,17 +716,23 @@ if ($pkg) {
     L 'WLAN-Paket als SYSTEM installiert'
 }
 # 1. Persistierte Pakete aufraeumen - das Zuruecksetzen stellt alles aus ProgramData\Microsoft\Provisioning wieder her (MS Doku RemoteWipe CSP)
-#    __RMOTHER__ = $true: alle Pakete ausser dem HUPilot-WLAN-Paket entfernen (alte Schul-/MDM-Pakete stoeren Autopilot)
+#    __RMOTHER__ = $true: alle Pakete ausser dem HUPilot-WLAN-Paket entfernen (alte Schul-/MDM-Pakete koennen Autopilot stoeren)
 #    sonst: nur Pakete mit CleanPC (wuerden nach dem Zuruecksetzen erneut zuruecksetzen)
-#    Gesperrt (Intune AllowRemoveProvisioningPackage=0) -> Datei nach C:\Recovery\HUPilot-PPKG-Backup verschieben
+#    Zwei Schritte: erst ALLE Kandidaten nach C:\Recovery\HUPilot-PPKG-Backup\<Zeit> kopieren und pruefen, dann entfernen.
+#    Gesperrt (Intune AllowRemoveProvisioningPackage=0) -> Datei verschieben (die Kopie liegt schon in der Sicherung)
 $rmOther = __RMOTHER__
 $keepPkg = '__KEEPPKG__'
+$keepHash = '__KEEPHASH__'
 $dir = Join-Path $env:ProgramData 'Microsoft\Provisioning'
-$pbak = 'C:\Recovery\HUPilot-PPKG-Backup'
+$pbak = Join-Path 'C:\Recovery\HUPilot-PPKG-Backup' (Get-Date -Format 'yyyyMMdd-HHmmss')
 $prov = $true
 try { Import-Module Provisioning -ErrorAction Stop } catch { $prov = $false; L ('Provisioning-Modul: ' + $_.Exception.Message) }
-foreach ($p in @(Get-ChildItem -Path $dir -Filter *.ppkg -ErrorAction SilentlyContinue)) {
-    if ($p.Name -ieq $keepPkg) { L ('Paket bleibt (HUPilot): ' + $p.Name); continue }
+$all = @()
+try { $all = @(Get-ChildItem -Path $dir -Filter *.ppkg -File -ErrorAction Stop) } catch { L ('Pakete auflisten ' + $dir + ': ' + $_.Exception.Message) }
+$cand = @()
+foreach ($p in $all) {
+    $h = ''; try { $h = (Get-FileHash -LiteralPath $p.FullName -Algorithm SHA256).Hash } catch { }
+    if (($keepPkg -and $p.Name -ieq $keepPkg) -or ($keepHash -and $h -eq $keepHash) -or $p.Name -like 'HUPilot*') { L ('Paket bleibt (HUPilot): ' + $p.Name); continue }
     $why = ''
     if ($rmOther) { $why = 'fremdes Paket' }
     elseif ($prov) {
@@ -737,15 +743,27 @@ foreach ($p in @(Get-ChildItem -Path $dir -Filter *.ppkg -ErrorAction SilentlyCo
         } catch { L ('Paket pruefen ' + $p.Name + ': ' + $_.Exception.Message) }
         finally { Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    if (-not $why) { L ('Paket bleibt: ' + $p.Name); continue }
-    if ($prov) { try { Remove-ProvisioningPackage -Path $p.FullName -ErrorAction Stop | Out-Null } catch { L ('Remove-ProvisioningPackage ' + $p.Name + ': ' + $_.Exception.Message) } }
-    if (Test-Path -LiteralPath $p.FullName) {
-        try {
-            New-Item -ItemType Directory -Path $pbak -Force | Out-Null
-            Move-Item -LiteralPath $p.FullName -Destination (Join-Path $pbak $p.Name) -Force -ErrorAction Stop
-            L ('Paket verschoben (' + $why + '): ' + $p.Name + ' -> ' + $pbak)
-        } catch { L ('FEHLER Paket verschieben ' + $p.Name + ': ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR Paket ' + $p.Name + ' nicht entfernbar: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
-    } else { L ('Paket entfernt (' + $why + '): ' + $p.Name) }
+    if ($why) { $cand += [pscustomobject]@{ File = $p; Why = $why; Hash = $h } } else { L ('Paket bleibt: ' + $p.Name) }
+}
+if ($cand.Count) {
+    # Schritt 1: sichern + pruefen - schlaegt etwas fehl, wird NICHTS entfernt und nicht zurueckgesetzt
+    try {
+        New-Item -ItemType Directory -Path $pbak -Force -ErrorAction Stop | Out-Null
+        foreach ($c in $cand) {
+            $dst = Join-Path $pbak $c.File.Name
+            Copy-Item -LiteralPath $c.File.FullName -Destination $dst -Force -ErrorAction Stop
+            if ((Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash -ne $c.Hash) { throw ('Kopie von ' + $c.File.Name + ' fehlerhaft') }
+        }
+        L ('Pakete gesichert nach ' + $pbak + ': ' + (($cand | ForEach-Object { $_.File.Name }) -join ', '))
+    } catch { L ('FEHLER Pakete sichern: ' + $_.Exception.Message + ' - nichts entfernt'); Set-Content -Path $res -Value ('ERR Pakete sichern: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+    # Schritt 2: entfernen (offiziell), sonst Datei loeschen - die Sicherung ist geprueft
+    foreach ($c in $cand) {
+        if ($prov) { try { Remove-ProvisioningPackage -Path $c.File.FullName -ErrorAction Stop | Out-Null } catch { L ('Remove-ProvisioningPackage ' + $c.File.Name + ': ' + $_.Exception.Message) } }
+        if (Test-Path -LiteralPath $c.File.FullName) {
+            try { Remove-Item -LiteralPath $c.File.FullName -Force -ErrorAction Stop; L ('Paket entfernt (' + $c.Why + ', Datei, Sicherung vorhanden): ' + $c.File.Name) }
+            catch { L ('FEHLER Paket entfernen ' + $c.File.Name + ': ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR Paket ' + $c.File.Name + ' nicht entfernbar: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+        } else { L ('Paket entfernt (' + $c.Why + '): ' + $c.File.Name) }
+    }
 }
 # 2. Hersteller-Anpassungen wegschieben (Zuruecksetzen spielt C:\Recovery\Customizations sonst wieder ein)
 try {
@@ -772,14 +790,17 @@ try {
     Set-Content -Path $res -Value ('OK ' + $rv) -Encoding ASCII
 } catch { L ('FEHLER Wipe: ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR Wipe: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
 '@
+# Optionen fuer das SYSTEM-Script - VOR dem Ersetzen der Platzhalter bestimmen
+$RmOther = ($cfg.RemoveOtherPackages -eq $true)
+$KeepHash = ''
+if (Test-Path -LiteralPath $TmpPkg) { try { $KeepHash = (Get-FileHash -LiteralPath $TmpPkg -Algorithm SHA256).Hash } catch { } }
 try {
     Remove-Item -Path $WipeResult -Force -ErrorAction SilentlyContinue
-    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg).Replace('__RMOTHER__', $(if ($RmOther) { '$true' } else { '$false' })).Replace('__KEEPPKG__', $WlanPkgName.Replace("'", "''"))) -Encoding ASCII -ErrorAction Stop
+    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg).Replace('__RMOTHER__', $(if ($RmOther) { '$true' } else { '$false' })).Replace('__KEEPPKG__', ([string]$WlanPkgName).Replace("'", "''")).Replace('__KEEPHASH__', $KeepHash)) -Encoding ASCII -ErrorAction Stop
 } catch { Fail-Reset ('Hilfsscript schreiben: ' + $_.Exception.Message) }
 
-# Fremde Bereitstellungspakete anzeigen (werden im SYSTEM-Script entfernt bzw. verschoben)
-$RmOther = ($cfg.RemoveOtherPackages -ne $false)
-$other = @(Get-ChildItem -Path (Join-Path $env:ProgramData 'Microsoft\Provisioning') -Filter *.ppkg -ErrorAction SilentlyContinue | Where-Object { $_.Name -ine $WlanPkgName } | ForEach-Object { $_.Name })
+# Fremde Bereitstellungspakete anzeigen (werden im SYSTEM-Script entfernt)
+$other = @(Get-ChildItem -Path (Join-Path $env:ProgramData 'Microsoft\Provisioning') -Filter *.ppkg -ErrorAction SilentlyContinue | Where-Object { $_.Name -ine $WlanPkgName -and $_.Name -notlike 'HUPilot*' } | ForEach-Object { $_.Name })
 if ($other.Count) {
     if ($RmOther) { Say ('Fremde Bereitstellungspakete werden entfernt: ' + ($other -join ', ')) 'Yellow' }
     else { Log ('Fremde Bereitstellungspakete bleiben (RemoveOtherPackages=false): ' + ($other -join ', ')) }

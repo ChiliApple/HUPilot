@@ -127,7 +127,7 @@ $script:Extra = @{}
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="WLAN-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tSsid" ToolTip="Name des Konfigurations-WLANs (WPA2-Personal).&#x0a;go.ps1 verbindet sich damit zum Hochladen; das WLAN-Paket bringt es nach dem Zuruecksetzen wieder mit." ToolTipService.ShowDuration="30000" Margin="2"/>
         <TextBlock Grid.Row="1" Text="Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tKey" ToolTip="Kennwort des Konfigurations-WLANs (mind. 8 Zeichen).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cRmPkg" IsChecked="True" Margin="2,4,0,0" Content="Fremde Bereitstellungspakete beim Zuruecksetzen entfernen (empfohlen)" ToolTip="Alte Pakete am Geraet (z. B. ein frueheres Schul-MDM-Paket) wuerden das Zuruecksetzen ueberleben und im Einrichtungsbildschirm erneut angewendet - das kann Autopilot stoeren.&#x0a;Bleibt nur HUPilot-WLAN.ppkg. Die entfernten Pakete werden nach C:\Recovery\HUPilot-PPKG-Backup verschoben." ToolTipService.ShowDuration="30000"/>
+        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cRmPkg" IsChecked="False" Margin="2,4,0,0" Content="Fremde Bereitstellungspakete beim Zuruecksetzen entfernen (Test)" ToolTip="Alte Pakete am Geraet (z. B. ein frueheres Schul-MDM-Paket) wuerden das Zuruecksetzen ueberleben und im Einrichtungsbildschirm erneut angewendet - das kann Autopilot stoeren.&#x0a;Bleibt nur HUPilot-WLAN.ppkg. Die entfernten Pakete werden vorher nach C:\Recovery\HUPilot-PPKG-Backup\&lt;Datum&gt; gesichert.&#x0a;Noch nicht an einem Geraet bestaetigt - erst an einem Testgeraet ausprobieren." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="3" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
@@ -613,7 +613,7 @@ $ui.bLoad.Add_Click({
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
         $ui.tAdmName.Text = [string]$c.AdminName; $ui.tAdmPw.Text = [string]$c.AdminPassword; $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
-        $ui.tAdm2Name.Text = [string]$c.Admin2Name; $ui.tAdm2Pw.Text = [string]$c.Admin2Password; $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -ne $false)
+        $ui.tAdm2Name.Text = [string]$c.Admin2Name; $ui.tAdm2Pw.Text = [string]$c.Admin2Password; $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -eq $true)
         $script:Extra = @{}
         foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log ('Geladen: ' + $p)
