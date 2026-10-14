@@ -492,6 +492,58 @@ $TagChangedAt = $null
 $OldProfId = ''
 
 $ap = Get-ApDevice
+# Hardware geaendert (z. B. Mainboardtausch beim Support): Autopilot zeigt "Fix ausstehend" / "Achtung erforderlich",
+# der gespeicherte Hash passt nicht mehr. MS Doku (Autopilot motherboard replacement / Deregister a device):
+# zuerst Intune-Eintrag loeschen, dann Autopilot-Eintrag loeschen, dann mit neuem Hash neu registrieren.
+if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', 'manualRemediationRequired')) {
+    Log ('Hardware-Aenderung erkannt: remediationState=' + $ap.remediationState + ', Tag ' + $ap.groupTag)
+    Write-Host ''
+    Write-Host '  ACHTUNG: Autopilot meldet eine HARDWARE-AENDERUNG (z. B. Mainboardtausch).' -ForegroundColor Yellow
+    Write-Host '  Der gespeicherte Hash passt nicht mehr - das Autopilot-Profil greift so nicht.' -ForegroundColor Yellow
+    Write-Host '  Neu registrieren = Intune-Eintrag und Autopilot-Eintrag loeschen, neuen Hash hochladen.' -ForegroundColor Yellow
+    Write-Host '  [N] neu registrieren (empfohlen)   -   [Enter] abbrechen' -ForegroundColor Yellow
+    $k = ''
+    try { $k = ([string](Read-Host '  Auswahl')).Trim().ToUpper() } catch { }
+    if ($k -ne 'N') { Fail 'Hardware geaendert - nicht neu registriert (Abbruch)' }
+    # 1. Intune-Eintraege mit dieser Seriennummer loeschen
+    $md = @()
+    try {
+        $f = [uri]::EscapeDataString("serialNumber eq '" + $Serial + "'")
+        $md = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/managedDevices?$filter=' + $f + '&$select=id,deviceName,serialNumber') -Headers $h).value | Where-Object { $_.serialNumber -eq $Serial })
+    } catch { Fail ('Intune-Eintraege lesen: ' + (Get-ErrText $_) + ' (App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All noetig)') }
+    foreach ($d in $md) {
+        try {
+            Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/managedDevices/' + $d.id) -Headers $h | Out-Null
+            Say ('Intune-Eintrag geloescht: ' + $d.deviceName) 'Yellow'
+        } catch { Fail ('Intune-Eintrag ' + $d.deviceName + ' nicht loeschbar: ' + (Get-ErrText $_) + ' - im Intune-Portal loeschen oder App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All ergaenzen, dann nochmal go') }
+    }
+    if (-not $md.Count) { Log 'Kein Intune-Eintrag mit dieser Seriennummer' }
+    # 2. Benutzer-Zuweisung aufheben (sonst laesst sich der Eintrag nicht loeschen)
+    if ([string]$ap.userPrincipalName) {
+        try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id + '/unassignUserFromDevice') -Headers $h | Out-Null; Log ('Benutzer-Zuweisung aufgehoben: ' + $ap.userPrincipalName) }
+        catch { Log ('Benutzer-Zuweisung aufheben: ' + (Get-ErrText $_)) }
+    }
+    # 3. Autopilot-Eintrag loeschen und warten, bis er weg ist
+    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id) -Headers $h | Out-Null }
+    catch { Fail ('Autopilot-Eintrag loeschen: ' + (Get-ErrText $_)) }
+    Say 'Autopilot-Eintrag geloescht - warte, bis er verschwunden ist (bis 30 Min) ...'
+    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotSettings/sync') -Headers $h | Out-Null } catch { }
+    $gone = $false
+    $lim = (Get-Date).AddMinutes(30)
+    while ((Get-Date) -lt $lim) {
+        Start-Sleep -Seconds 30
+        Write-Host '.' -NoNewline
+        try {
+            $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial + "')")
+            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h
+            if (-not @($r.value | Where-Object { $_.serialNumber -eq $Serial }).Count) { $gone = $true; break }
+        } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)) }
+    }
+    Write-Host ''
+    if (-not $gone) { Fail 'Autopilot-Eintrag nach 30 Min noch vorhanden - spaeter nochmal go (das Geraet wird dann normal neu importiert)' }
+    Say 'Alter Autopilot-Eintrag entfernt - importiere neu mit aktuellem Hash' 'Green'
+    $ap = $null
+}
 if ($ap) {
     Say ('Bereits in Autopilot (Tag "' + $ap.groupTag + '")') 'Yellow'
     if ([string]$ap.groupTag -ne [string]$cfg.GroupTag) {

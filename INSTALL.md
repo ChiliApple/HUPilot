@@ -4,6 +4,7 @@
 Entra › App-Registrierungen › **Neue Registrierung** › Name `HUPilot-Upload`, nur dieses Verzeichnis, keine Umleitungs-URI
 - API-Berechtigungen › Microsoft Graph › **Anwendung** › `DeviceManagementServiceConfig.ReadWrite.All` › **Administratorzustimmung**
 - optional (nur Lesen): `Application.Read.All` → Secret-Ablauf; `DeviceManagementManagedDevices.Read.All` → primärer Benutzer, Gerätename, letzter Sync bei *Status*; `Group.Read.All` → Tag-Prüfung (Gerät + *Tags prüfen*); `User.Read.All` → Benutzer prüfen bei Vorab-Zuweisung
+- optional (Schreiben): `DeviceManagementManagedDevices.ReadWrite.All` → go kann Geräte nach einem **Mainboardtausch** neu registrieren (löscht den alten Intune-Eintrag; ersetzt `DeviceManagementManagedDevices.Read.All`)
 - Zertifikate & Geheimnisse › neues Secret, kurz gültig › den **Wert** kopieren
 
 ## 2. Stick / Quelle

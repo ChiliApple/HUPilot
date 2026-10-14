@@ -117,7 +117,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <h2><span class="n">1</span>Vorbereitung</h2>
 <h3 id="app">App-Registrierung (einmal je Tenant)</h3>
 <div class="step"><b class="k">1</b><div>Entra › App-Registrierungen › <span class="ui">Neue Registrierung</span> › Name <code>HUPilot-Upload</code>, nur dieses Verzeichnis, keine Umleitungs-URI.</div></div>
-<div class="step"><b class="k">2</b><div>API-Berechtigungen › Microsoft Graph › <b>Anwendung</b> › <code>DeviceManagementServiceConfig.ReadWrite.All</code> › <span class="ui">Administratorzustimmung erteilen</span>.<br>Optional (nur Lesen): <code>Application.Read.All</code> → Secret-Ablauf, <code>DeviceManagementManagedDevices.Read.All</code> → Benutzer in der Status-Liste.</div></div>
+<div class="step"><b class="k">2</b><div>API-Berechtigungen › Microsoft Graph › <b>Anwendung</b> › <code>DeviceManagementServiceConfig.ReadWrite.All</code> › <span class="ui">Administratorzustimmung erteilen</span>.<br>Optional (nur Lesen): <code>Application.Read.All</code> → Secret-Ablauf, <code>DeviceManagementManagedDevices.Read.All</code> → Benutzer in der Status-Liste. Statt dessen <code>DeviceManagementManagedDevices.ReadWrite.All</code>: go kann Geräte nach einem Mainboardtausch neu registrieren.</div></div>
 <div class="step"><b class="k">3</b><div>Zertifikate &amp; Geheimnisse › neues Secret, <b>kurz gültig</b> (wenige Tage) › den <b>Wert</b> kopieren, nicht die ID.</div></div>
 
 <h3 id="setup">Setup-Oberfläche</h3>
@@ -183,6 +183,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td>WLAN-Paket von Intune gesperrt (gelb)</td><td>Richtlinie <code>AllowAddProvisioningPackage = 0</code> am bereits eingerichteten Gerät: vorhandenes WLAN-Paket bleibt, neues (z. B. mit lokalem Admin) kommt nicht mit. Frische Geräte im Einrichtungsbildschirm betrifft das nicht.</td></tr>
 <tr><td>Fehler am Gerät</td><td><code>D:\diag</code> (Shift+F10 bzw. Admin-CMD) – Menü: Log, Fehler, Zurücksetzen, Gerät, Netzwerk, WLAN-Paket/Intune-Sperre; jede Seite abfotografieren. <b>7</b> speichert alles in <code>HUPilot\logs\diag-….txt</code> am Stick.</td></tr>
 <tr><td>Setup startet nicht</td><td><code>C:\Users\Public\HUPilot-Setup-Start.log</code></td></tr>
+<tr><td>Gelb „HARDWARE-AENDERUNG“ (Autopilot: „Fix ausstehend“ / „Achtung erforderlich“)</td><td>Gerät kam z. B. mit neuem Mainboard vom Support, der gespeicherte Hash passt nicht mehr. <b>N</b> drücken: go löscht Intune- und Autopilot-Eintrag, wartet bis zu 30 Min und lädt den neuen Hash hoch (braucht <code>DeviceManagementManagedDevices.ReadWrite.All</code>, sonst den Intune-Eintrag vorher im Portal löschen).</td></tr>
 <tr><td>„Das letzte Update wurde abgebrochen“</td><td>Setup bietet Pull an: <b>Ja</b> stellt den alten Stand wieder her und lädt die Version neu. Am Gerät startet <code>go</code> in diesem Zustand nicht – Stick am PC mit <code>HUPilot-Setup.cmd</code> reparieren.</td></tr>
 <tr><td>Update: „kein signiertes Release“</td><td>neue Version ist noch nicht freigegeben – später erneut prüfen (Rechtsklick › Jetzt nach Updates suchen)</td></tr>
 </table>

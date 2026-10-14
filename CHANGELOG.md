@@ -2,6 +2,7 @@
 
 ## v2.4 - 2026-10-14
 - go.ps1 und diag: Ohne Administratorrechte (z. B. `go.cmd` per Doppelklick im Explorer) starten sie sich selbst mit Adminrechten in einem neuen Fenster neu (Windows fragt nach einem Admin-Konto). Vorher brach go mit „Hardware-Hash nicht lesbar“ ab – erst nachdem die LOESCHEN-Rückfrage schon bestätigt war.
+- go.ps1: **Mainboardtausch erkennen** – meldet Autopilot eine Hardware-Änderung („Fix ausstehend“ / „Achtung erforderlich“, `remediationState`), bietet go an, das Gerät neu zu registrieren: Intune-Eintrag löschen, Autopilot-Eintrag löschen (Reihenfolge laut MS Doku), warten bis er weg ist, neuen Hash mit Tag hochladen. Vorher wurde bei bekannter Seriennummer nur der Tag geändert und der alte Hash blieb. Braucht optional `DeviceManagementManagedDevices.ReadWrite.All`.
 - **Fremde Bereitstellungspakete entfernen** (neuer Setup-Schalter, `RemoveOtherPackages`, **Standard aus**, noch im Test): Das Zurücksetzen stellt alle Pakete aus `ProgramData\Microsoft\Provisioning` wieder her (MS Doku RemoteWipe CSP), also auch alte Schul-/MDM-Pakete. Verdacht: Diese können Autopilot stören (nicht bestätigt). Eingeschaltet bleibt nur das HUPilot-WLAN-Paket (erkannt an Name und Prüfsumme); alle anderen werden zuerst nach `C:\Recovery\HUPilot-PPKG-Backup\<Datum>` kopiert und geprüft, erst dann entfernt. Schlägt die Sicherung fehl, wird nichts entfernt und nicht zurückgesetzt. go zeigt vorher an, welche Pakete betroffen sind.
 
 ## v2.3 - 2026-10-13
