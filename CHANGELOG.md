@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.4 - 2026-10-14
+- go.ps1 und diag: Ohne Administratorrechte (z. B. `go.cmd` per Doppelklick im Explorer) starten sie sich selbst mit Adminrechten in einem neuen Fenster neu (Windows fragt nach einem Admin-Konto). Vorher brach go mit „Hardware-Hash nicht lesbar“ ab – erst nachdem die LOESCHEN-Rückfrage schon bestätigt war.
+
 ## v2.3 - 2026-10-13
 - go.ps1: Die geplante Aufgabe fürs Zurücksetzen wird jetzt mit `Get-ScheduledTask` geprüft und mit `Start-ScheduledTask` gestartet. Vorher lieferte `schtasks /Query` auf manchen Geräten keine Ausgabe, und go brach mit „Geplante Aufgabe nicht angelegt“ ab, obwohl die Aufgabe da war. `schtasks` bleibt als Ausweichweg.
 

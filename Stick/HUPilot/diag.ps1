@@ -7,6 +7,24 @@ $ErrorActionPreference = 'Continue'
 $CfgDir   = $PSScriptRoot
 $LocalLog = 'C:\Windows\Temp\HUPilot.log'
 $WipeLog  = 'C:\Windows\Temp\HUPilot-Wipe.log'
+# Ohne Administratorrechte (z. B. go.cmd per Doppelklick im Explorer) sind viele Werte nicht lesbar (Hash, TPM, WLAN)
+#   -> mit Adminrechten in neuem Fenster neu starten (UAC); im Einrichtungsbildschirm (Shift+F10) sind die Rechte immer da
+$isAdmin = $false
+try { $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { }
+if (-not $isAdmin) {
+    Write-Host ''
+    Write-Host '  HUPilot-Diagnose braucht Administratorrechte.' -ForegroundColor Yellow
+    Write-Host '  Starte neu mit Adminrechten (Windows fragt nach einem Admin-Konto) ...' -ForegroundColor Yellow
+    try {
+        Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"') -ErrorAction Stop
+        Write-Host '  Weiter im neuen Fenster.' -ForegroundColor Green
+        Start-Sleep -Seconds 3
+    } catch {
+        Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausfuehren" oeffnen, dann:  D:  und  diag' -ForegroundColor Red
+        try { Read-Host '  Enter = Fenster schliessen' | Out-Null } catch { }
+    }
+    exit 1
+}
 try { $Host.UI.RawUI.BackgroundColor = 'Black'; $Host.UI.RawUI.ForegroundColor = 'Gray'; $Host.UI.RawUI.WindowTitle = 'HUPilot Diagnose' } catch { }
 
 function Get-Serial { try { return ([string](Get-CimInstance Win32_BIOS).SerialNumber).Trim() } catch { return '?' } }

@@ -18,13 +18,31 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.3'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.4'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
     Write-Host ''
     Write-Host '  HUPilot: Das letzte Update dieses Sticks wurde abgebrochen.' -ForegroundColor Red
     Write-Host '  Stick am PC anstecken und HUPilot-Setup.cmd starten - es stellt den Stand wieder her.' -ForegroundColor Red
+    exit 1
+}
+# Ohne Administratorrechte (z. B. go.cmd per Doppelklick im Explorer) ist der Hardware-Hash nicht lesbar
+#   -> mit Adminrechten in neuem Fenster neu starten (UAC); im Einrichtungsbildschirm (Shift+F10) sind die Rechte immer da
+$isAdmin = $false
+try { $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { }
+if (-not $isAdmin) {
+    Write-Host ''
+    Write-Host '  HUPilot braucht Administratorrechte.' -ForegroundColor Yellow
+    Write-Host '  Starte neu mit Adminrechten (Windows fragt nach einem Admin-Konto) ...' -ForegroundColor Yellow
+    try {
+        Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"') -ErrorAction Stop
+        Write-Host '  Weiter im neuen Fenster.' -ForegroundColor Green
+        Start-Sleep -Seconds 3
+    } catch {
+        Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausfuehren" oeffnen, dann:  D:  und  go' -ForegroundColor Red
+        try { Read-Host '  Enter = Fenster schliessen' | Out-Null } catch { }
+    }
     exit 1
 }
 $MinBattery = 50     # % Akku ohne Netzteil, darunter wird vor dem Zuruecksetzen gewartet
