@@ -124,9 +124,10 @@ $script:Extra = @{}
     <GroupBox Grid.Row="2" Header="Konfigurations-WLAN (WPA2-Personal)" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="WLAN-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tSsid" ToolTip="Name des Konfigurations-WLANs (WPA2-Personal).&#x0a;go.ps1 verbindet sich damit zum Hochladen; das WLAN-Paket bringt es nach dem Zuruecksetzen wieder mit." ToolTipService.ShowDuration="30000" Margin="2"/>
         <TextBlock Grid.Row="1" Text="Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tKey" ToolTip="Kennwort des Konfigurations-WLANs (mind. 8 Zeichen).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cRmPkg" IsChecked="True" Margin="2,4,0,0" Content="Fremde Bereitstellungspakete beim Zuruecksetzen entfernen (empfohlen)" ToolTip="Alte Pakete am Geraet (z. B. ein frueheres Schul-MDM-Paket) wuerden das Zuruecksetzen ueberleben und im Einrichtungsbildschirm erneut angewendet - das kann Autopilot stoeren.&#x0a;Bleibt nur HUPilot-WLAN.ppkg. Die entfernten Pakete werden nach C:\Recovery\HUPilot-PPKG-Backup verschoben." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="3" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
@@ -166,7 +167,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','cAskUser','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -195,7 +196,7 @@ function Get-Cfg {
         ClientSecret = (Get-Secret); GroupTag = $ui.tTag.Text.Trim(); TagChoices = $choices
         WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = $ui.tKey.Text; WlanPackage = 'HUPilot-WLAN.ppkg'
         AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = $ui.tAdmPw.Text
-        Admin2Name = $ui.tAdm2Name.Text.Trim(); Admin2Password = $ui.tAdm2Pw.Text; AskUser = [bool]$ui.cAskUser.IsChecked
+        Admin2Name = $ui.tAdm2Name.Text.Trim(); Admin2Password = $ui.tAdm2Pw.Text; AskUser = [bool]$ui.cAskUser.IsChecked; RemoveOtherPackages = [bool]$ui.cRmPkg.IsChecked
     }
     foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
     return $o
@@ -612,9 +613,9 @@ $ui.bLoad.Add_Click({
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
         $ui.tAdmName.Text = [string]$c.AdminName; $ui.tAdmPw.Text = [string]$c.AdminPassword; $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
-        $ui.tAdm2Name.Text = [string]$c.Admin2Name; $ui.tAdm2Pw.Text = [string]$c.Admin2Password
+        $ui.tAdm2Name.Text = [string]$c.Admin2Name; $ui.tAdm2Pw.Text = [string]$c.Admin2Password; $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -ne $false)
         $script:Extra = @{}
-        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser') { $script:Extra[$pr.Name] = $pr.Value } }
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log ('Geladen: ' + $p)
     } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
 })

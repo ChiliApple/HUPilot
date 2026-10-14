@@ -715,21 +715,38 @@ if ($pkg) {
     if (-not $ok) { L 'FEHLER: WLAN-Paket nicht installiert - kein Zuruecksetzen'; Set-Content -Path $res -Value ('ERR WLAN-Paket auch als SYSTEM nicht installiert (provtool ' + $pr.ExitCode + ')') -Encoding ASCII; exit 1 }
     L 'WLAN-Paket als SYSTEM installiert'
 }
-# 1. Persistierte Pakete mit CleanPC entfernen (wuerden nach dem Zuruecksetzen erneut zuruecksetzen)
-try {
-    Import-Module Provisioning -ErrorAction Stop
-    $dir = Join-Path $env:ProgramData 'Microsoft\Provisioning'
-    foreach ($p in @(Get-ChildItem -Path $dir -Filter *.ppkg -ErrorAction SilentlyContinue)) {
+# 1. Persistierte Pakete aufraeumen - das Zuruecksetzen stellt alles aus ProgramData\Microsoft\Provisioning wieder her (MS Doku RemoteWipe CSP)
+#    __RMOTHER__ = $true: alle Pakete ausser dem HUPilot-WLAN-Paket entfernen (alte Schul-/MDM-Pakete stoeren Autopilot)
+#    sonst: nur Pakete mit CleanPC (wuerden nach dem Zuruecksetzen erneut zuruecksetzen)
+#    Gesperrt (Intune AllowRemoveProvisioningPackage=0) -> Datei nach C:\Recovery\HUPilot-PPKG-Backup verschieben
+$rmOther = __RMOTHER__
+$keepPkg = '__KEEPPKG__'
+$dir = Join-Path $env:ProgramData 'Microsoft\Provisioning'
+$pbak = 'C:\Recovery\HUPilot-PPKG-Backup'
+$prov = $true
+try { Import-Module Provisioning -ErrorAction Stop } catch { $prov = $false; L ('Provisioning-Modul: ' + $_.Exception.Message) }
+foreach ($p in @(Get-ChildItem -Path $dir -Filter *.ppkg -ErrorAction SilentlyContinue)) {
+    if ($p.Name -ieq $keepPkg) { L ('Paket bleibt (HUPilot): ' + $p.Name); continue }
+    $why = ''
+    if ($rmOther) { $why = 'fremdes Paket' }
+    elseif ($prov) {
         $tmp = Join-Path $env:TEMP ('hupx_' + [guid]::NewGuid().ToString('N'))
         try {
             Export-ProvisioningPackage -Path $p.FullName -OutputFolder $tmp -AnswerFileOnly -Overwrite -ErrorAction Stop | Out-Null
-            $hit = @(Get-ChildItem -Path $tmp -Recurse -File | Select-String -Pattern 'CleanPCWithoutRetainingUserData|CleanPCRetainingUserData' -List)
-            if ($hit.Count) { Remove-ProvisioningPackage -Path $p.FullName -ErrorAction Stop | Out-Null; L ('Paket mit CleanPC entfernt: ' + $p.Name) }
-            else { L ('Paket bleibt: ' + $p.Name) }
+            if (@(Get-ChildItem -Path $tmp -Recurse -File | Select-String -Pattern 'CleanPCWithoutRetainingUserData|CleanPCRetainingUserData' -List).Count) { $why = 'CleanPC' }
         } catch { L ('Paket pruefen ' + $p.Name + ': ' + $_.Exception.Message) }
         finally { Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue }
     }
-} catch { L ('Provisioning-Modul: ' + $_.Exception.Message) }
+    if (-not $why) { L ('Paket bleibt: ' + $p.Name); continue }
+    if ($prov) { try { Remove-ProvisioningPackage -Path $p.FullName -ErrorAction Stop | Out-Null } catch { L ('Remove-ProvisioningPackage ' + $p.Name + ': ' + $_.Exception.Message) } }
+    if (Test-Path -LiteralPath $p.FullName) {
+        try {
+            New-Item -ItemType Directory -Path $pbak -Force | Out-Null
+            Move-Item -LiteralPath $p.FullName -Destination (Join-Path $pbak $p.Name) -Force -ErrorAction Stop
+            L ('Paket verschoben (' + $why + '): ' + $p.Name + ' -> ' + $pbak)
+        } catch { L ('FEHLER Paket verschieben ' + $p.Name + ': ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR Paket ' + $p.Name + ' nicht entfernbar: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+    } else { L ('Paket entfernt (' + $why + '): ' + $p.Name) }
+}
 # 2. Hersteller-Anpassungen wegschieben (Zuruecksetzen spielt C:\Recovery\Customizations sonst wieder ein)
 try {
     $bak = 'C:\Recovery\HUPilot-OEM-Backup'
@@ -757,9 +774,16 @@ try {
 '@
 try {
     Remove-Item -Path $WipeResult -Force -ErrorAction SilentlyContinue
-    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg)) -Encoding ASCII -ErrorAction Stop
+    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg).Replace('__RMOTHER__', $(if ($RmOther) { '$true' } else { '$false' })).Replace('__KEEPPKG__', $WlanPkgName.Replace("'", "''"))) -Encoding ASCII -ErrorAction Stop
 } catch { Fail-Reset ('Hilfsscript schreiben: ' + $_.Exception.Message) }
 
+# Fremde Bereitstellungspakete anzeigen (werden im SYSTEM-Script entfernt bzw. verschoben)
+$RmOther = ($cfg.RemoveOtherPackages -ne $false)
+$other = @(Get-ChildItem -Path (Join-Path $env:ProgramData 'Microsoft\Provisioning') -Filter *.ppkg -ErrorAction SilentlyContinue | Where-Object { $_.Name -ine $WlanPkgName } | ForEach-Object { $_.Name })
+if ($other.Count) {
+    if ($RmOther) { Say ('Fremde Bereitstellungspakete werden entfernt: ' + ($other -join ', ')) 'Yellow' }
+    else { Log ('Fremde Bereitstellungspakete bleiben (RemoveOtherPackages=false): ' + ($other -join ', ')) }
+}
 Banner 'ZURUECKSETZEN STARTET' 'DarkBlue' @(
     '',
     'Hersteller-Anpassungen werden entfernt, dann setzt sich das Geraet zurueck.',

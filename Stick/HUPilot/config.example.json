@@ -20,5 +20,6 @@
   "Admin2Name": "",
   "Admin2Password": "",
   "Reset": true,
+  "RemoveOtherPackages": true,
   "MinBattery": 50
 }
