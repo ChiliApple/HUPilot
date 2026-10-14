@@ -18,13 +18,31 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.3'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.4'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
     Write-Host ''
     Write-Host '  HUPilot: Das letzte Update dieses Sticks wurde abgebrochen.' -ForegroundColor Red
     Write-Host '  Stick am PC anstecken und HUPilot-Setup.cmd starten - es stellt den Stand wieder her.' -ForegroundColor Red
+    exit 1
+}
+# Ohne Administratorrechte (z. B. go.cmd per Doppelklick im Explorer) ist der Hardware-Hash nicht lesbar
+#   -> mit Adminrechten in neuem Fenster neu starten (UAC); im Einrichtungsbildschirm (Shift+F10) sind die Rechte immer da
+$isAdmin = $false
+try { $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { }
+if (-not $isAdmin) {
+    Write-Host ''
+    Write-Host '  HUPilot braucht Administratorrechte.' -ForegroundColor Yellow
+    Write-Host '  Starte neu mit Adminrechten (Windows fragt nach einem Admin-Konto) ...' -ForegroundColor Yellow
+    try {
+        Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"') -ErrorAction Stop
+        Write-Host '  Weiter im neuen Fenster.' -ForegroundColor Green
+        Start-Sleep -Seconds 3
+    } catch {
+        Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausfuehren" oeffnen, dann:  D:  und  go' -ForegroundColor Red
+        try { Read-Host '  Enter = Fenster schliessen' | Out-Null } catch { }
+    }
     exit 1
 }
 $MinBattery = 50     # % Akku ohne Netzteil, darunter wird vor dem Zuruecksetzen gewartet
@@ -474,6 +492,58 @@ $TagChangedAt = $null
 $OldProfId = ''
 
 $ap = Get-ApDevice
+# Hardware geaendert (z. B. Mainboardtausch beim Support): Autopilot zeigt "Fix ausstehend" / "Achtung erforderlich",
+# der gespeicherte Hash passt nicht mehr. MS Doku (Autopilot motherboard replacement / Deregister a device):
+# zuerst Intune-Eintrag loeschen, dann Autopilot-Eintrag loeschen, dann mit neuem Hash neu registrieren.
+if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', 'manualRemediationRequired')) {
+    Log ('Hardware-Aenderung erkannt: remediationState=' + $ap.remediationState + ', Tag ' + $ap.groupTag)
+    Write-Host ''
+    Write-Host '  ACHTUNG: Autopilot meldet eine HARDWARE-AENDERUNG (z. B. Mainboardtausch).' -ForegroundColor Yellow
+    Write-Host '  Der gespeicherte Hash passt nicht mehr - das Autopilot-Profil greift so nicht.' -ForegroundColor Yellow
+    Write-Host '  Neu registrieren = Intune-Eintrag und Autopilot-Eintrag loeschen, neuen Hash hochladen.' -ForegroundColor Yellow
+    Write-Host '  [N] neu registrieren (empfohlen)   -   [Enter] abbrechen' -ForegroundColor Yellow
+    $k = ''
+    try { $k = ([string](Read-Host '  Auswahl')).Trim().ToUpper() } catch { }
+    if ($k -ne 'N') { Fail 'Hardware geaendert - nicht neu registriert (Abbruch)' }
+    # 1. Intune-Eintraege mit dieser Seriennummer loeschen
+    $md = @()
+    try {
+        $f = [uri]::EscapeDataString("serialNumber eq '" + $Serial + "'")
+        $md = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/managedDevices?$filter=' + $f + '&$select=id,deviceName,serialNumber') -Headers $h).value | Where-Object { $_.serialNumber -eq $Serial })
+    } catch { Fail ('Intune-Eintraege lesen: ' + (Get-ErrText $_) + ' (App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All noetig)') }
+    foreach ($d in $md) {
+        try {
+            Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/managedDevices/' + $d.id) -Headers $h | Out-Null
+            Say ('Intune-Eintrag geloescht: ' + $d.deviceName) 'Yellow'
+        } catch { Fail ('Intune-Eintrag ' + $d.deviceName + ' nicht loeschbar: ' + (Get-ErrText $_) + ' - im Intune-Portal loeschen oder App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All ergaenzen, dann nochmal go') }
+    }
+    if (-not $md.Count) { Log 'Kein Intune-Eintrag mit dieser Seriennummer' }
+    # 2. Benutzer-Zuweisung aufheben (sonst laesst sich der Eintrag nicht loeschen)
+    if ([string]$ap.userPrincipalName) {
+        try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id + '/unassignUserFromDevice') -Headers $h | Out-Null; Log ('Benutzer-Zuweisung aufgehoben: ' + $ap.userPrincipalName) }
+        catch { Log ('Benutzer-Zuweisung aufheben: ' + (Get-ErrText $_)) }
+    }
+    # 3. Autopilot-Eintrag loeschen und warten, bis er weg ist
+    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id) -Headers $h | Out-Null }
+    catch { Fail ('Autopilot-Eintrag loeschen: ' + (Get-ErrText $_)) }
+    Say 'Autopilot-Eintrag geloescht - warte, bis er verschwunden ist (bis 30 Min) ...'
+    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotSettings/sync') -Headers $h | Out-Null } catch { }
+    $gone = $false
+    $lim = (Get-Date).AddMinutes(30)
+    while ((Get-Date) -lt $lim) {
+        Start-Sleep -Seconds 30
+        Write-Host '.' -NoNewline
+        try {
+            $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial + "')")
+            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h
+            if (-not @($r.value | Where-Object { $_.serialNumber -eq $Serial }).Count) { $gone = $true; break }
+        } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)) }
+    }
+    Write-Host ''
+    if (-not $gone) { Fail 'Autopilot-Eintrag nach 30 Min noch vorhanden - spaeter nochmal go (das Geraet wird dann normal neu importiert)' }
+    Say 'Alter Autopilot-Eintrag entfernt - importiere neu mit aktuellem Hash' 'Green'
+    $ap = $null
+}
 if ($ap) {
     Say ('Bereits in Autopilot (Tag "' + $ap.groupTag + '")') 'Yellow'
     if ([string]$ap.groupTag -ne [string]$cfg.GroupTag) {
@@ -697,21 +767,56 @@ if ($pkg) {
     if (-not $ok) { L 'FEHLER: WLAN-Paket nicht installiert - kein Zuruecksetzen'; Set-Content -Path $res -Value ('ERR WLAN-Paket auch als SYSTEM nicht installiert (provtool ' + $pr.ExitCode + ')') -Encoding ASCII; exit 1 }
     L 'WLAN-Paket als SYSTEM installiert'
 }
-# 1. Persistierte Pakete mit CleanPC entfernen (wuerden nach dem Zuruecksetzen erneut zuruecksetzen)
-try {
-    Import-Module Provisioning -ErrorAction Stop
-    $dir = Join-Path $env:ProgramData 'Microsoft\Provisioning'
-    foreach ($p in @(Get-ChildItem -Path $dir -Filter *.ppkg -ErrorAction SilentlyContinue)) {
+# 1. Persistierte Pakete aufraeumen - das Zuruecksetzen stellt alles aus ProgramData\Microsoft\Provisioning wieder her (MS Doku RemoteWipe CSP)
+#    __RMOTHER__ = $true: alle Pakete ausser dem HUPilot-WLAN-Paket entfernen (alte Schul-/MDM-Pakete koennen Autopilot stoeren)
+#    sonst: nur Pakete mit CleanPC (wuerden nach dem Zuruecksetzen erneut zuruecksetzen)
+#    Zwei Schritte: erst ALLE Kandidaten nach C:\Recovery\HUPilot-PPKG-Backup\<Zeit> kopieren und pruefen, dann entfernen.
+#    Gesperrt (Intune AllowRemoveProvisioningPackage=0) -> Datei verschieben (die Kopie liegt schon in der Sicherung)
+$rmOther = __RMOTHER__
+$keepPkg = '__KEEPPKG__'
+$keepHash = '__KEEPHASH__'
+$dir = Join-Path $env:ProgramData 'Microsoft\Provisioning'
+$pbak = Join-Path 'C:\Recovery\HUPilot-PPKG-Backup' (Get-Date -Format 'yyyyMMdd-HHmmss')
+$prov = $true
+try { Import-Module Provisioning -ErrorAction Stop } catch { $prov = $false; L ('Provisioning-Modul: ' + $_.Exception.Message) }
+$all = @()
+try { $all = @(Get-ChildItem -Path $dir -Filter *.ppkg -File -ErrorAction Stop) } catch { L ('Pakete auflisten ' + $dir + ': ' + $_.Exception.Message) }
+$cand = @()
+foreach ($p in $all) {
+    $h = ''; try { $h = (Get-FileHash -LiteralPath $p.FullName -Algorithm SHA256).Hash } catch { }
+    if (($keepPkg -and $p.Name -ieq $keepPkg) -or ($keepHash -and $h -eq $keepHash) -or $p.Name -like 'HUPilot*') { L ('Paket bleibt (HUPilot): ' + $p.Name); continue }
+    $why = ''
+    if ($rmOther) { $why = 'fremdes Paket' }
+    elseif ($prov) {
         $tmp = Join-Path $env:TEMP ('hupx_' + [guid]::NewGuid().ToString('N'))
         try {
             Export-ProvisioningPackage -Path $p.FullName -OutputFolder $tmp -AnswerFileOnly -Overwrite -ErrorAction Stop | Out-Null
-            $hit = @(Get-ChildItem -Path $tmp -Recurse -File | Select-String -Pattern 'CleanPCWithoutRetainingUserData|CleanPCRetainingUserData' -List)
-            if ($hit.Count) { Remove-ProvisioningPackage -Path $p.FullName -ErrorAction Stop | Out-Null; L ('Paket mit CleanPC entfernt: ' + $p.Name) }
-            else { L ('Paket bleibt: ' + $p.Name) }
+            if (@(Get-ChildItem -Path $tmp -Recurse -File | Select-String -Pattern 'CleanPCWithoutRetainingUserData|CleanPCRetainingUserData' -List).Count) { $why = 'CleanPC' }
         } catch { L ('Paket pruefen ' + $p.Name + ': ' + $_.Exception.Message) }
         finally { Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue }
     }
-} catch { L ('Provisioning-Modul: ' + $_.Exception.Message) }
+    if ($why) { $cand += [pscustomobject]@{ File = $p; Why = $why; Hash = $h } } else { L ('Paket bleibt: ' + $p.Name) }
+}
+if ($cand.Count) {
+    # Schritt 1: sichern + pruefen - schlaegt etwas fehl, wird NICHTS entfernt und nicht zurueckgesetzt
+    try {
+        New-Item -ItemType Directory -Path $pbak -Force -ErrorAction Stop | Out-Null
+        foreach ($c in $cand) {
+            $dst = Join-Path $pbak $c.File.Name
+            Copy-Item -LiteralPath $c.File.FullName -Destination $dst -Force -ErrorAction Stop
+            if ((Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash -ne $c.Hash) { throw ('Kopie von ' + $c.File.Name + ' fehlerhaft') }
+        }
+        L ('Pakete gesichert nach ' + $pbak + ': ' + (($cand | ForEach-Object { $_.File.Name }) -join ', '))
+    } catch { L ('FEHLER Pakete sichern: ' + $_.Exception.Message + ' - nichts entfernt'); Set-Content -Path $res -Value ('ERR Pakete sichern: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+    # Schritt 2: entfernen (offiziell), sonst Datei loeschen - die Sicherung ist geprueft
+    foreach ($c in $cand) {
+        if ($prov) { try { Remove-ProvisioningPackage -Path $c.File.FullName -ErrorAction Stop | Out-Null } catch { L ('Remove-ProvisioningPackage ' + $c.File.Name + ': ' + $_.Exception.Message) } }
+        if (Test-Path -LiteralPath $c.File.FullName) {
+            try { Remove-Item -LiteralPath $c.File.FullName -Force -ErrorAction Stop; L ('Paket entfernt (' + $c.Why + ', Datei, Sicherung vorhanden): ' + $c.File.Name) }
+            catch { L ('FEHLER Paket entfernen ' + $c.File.Name + ': ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR Paket ' + $c.File.Name + ' nicht entfernbar: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+        } else { L ('Paket entfernt (' + $c.Why + '): ' + $c.File.Name) }
+    }
+}
 # 2. Hersteller-Anpassungen wegschieben (Zuruecksetzen spielt C:\Recovery\Customizations sonst wieder ein)
 try {
     $bak = 'C:\Recovery\HUPilot-OEM-Backup'
@@ -737,11 +842,21 @@ try {
     Set-Content -Path $res -Value ('OK ' + $rv) -Encoding ASCII
 } catch { L ('FEHLER Wipe: ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR Wipe: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
 '@
+# Optionen fuer das SYSTEM-Script - VOR dem Ersetzen der Platzhalter bestimmen
+$RmOther = ($cfg.RemoveOtherPackages -eq $true)
+$KeepHash = ''
+if (Test-Path -LiteralPath $TmpPkg) { try { $KeepHash = (Get-FileHash -LiteralPath $TmpPkg -Algorithm SHA256).Hash } catch { } }
 try {
     Remove-Item -Path $WipeResult -Force -ErrorAction SilentlyContinue
-    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg)) -Encoding ASCII -ErrorAction Stop
+    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg).Replace('__RMOTHER__', $(if ($RmOther) { '$true' } else { '$false' })).Replace('__KEEPPKG__', ([string]$WlanPkgName).Replace("'", "''")).Replace('__KEEPHASH__', $KeepHash)) -Encoding ASCII -ErrorAction Stop
 } catch { Fail-Reset ('Hilfsscript schreiben: ' + $_.Exception.Message) }
 
+# Fremde Bereitstellungspakete anzeigen (werden im SYSTEM-Script entfernt)
+$other = @(Get-ChildItem -Path (Join-Path $env:ProgramData 'Microsoft\Provisioning') -Filter *.ppkg -ErrorAction SilentlyContinue | Where-Object { $_.Name -ine $WlanPkgName -and $_.Name -notlike 'HUPilot*' } | ForEach-Object { $_.Name })
+if ($other.Count) {
+    if ($RmOther) { Say ('Fremde Bereitstellungspakete werden entfernt: ' + ($other -join ', ')) 'Yellow' }
+    else { Log ('Fremde Bereitstellungspakete bleiben (RemoveOtherPackages=false): ' + ($other -join ', ')) }
+}
 Banner 'ZURUECKSETZEN STARTET' 'DarkBlue' @(
     '',
     'Hersteller-Anpassungen werden entfernt, dann setzt sich das Geraet zurueck.',

@@ -4,6 +4,7 @@
 Entra › App-Registrierungen › **Neue Registrierung** › Name `HUPilot-Upload`, nur dieses Verzeichnis, keine Umleitungs-URI
 - API-Berechtigungen › Microsoft Graph › **Anwendung** › `DeviceManagementServiceConfig.ReadWrite.All` › **Administratorzustimmung**
 - optional (nur Lesen): `Application.Read.All` → Secret-Ablauf; `DeviceManagementManagedDevices.Read.All` → primärer Benutzer, Gerätename, letzter Sync bei *Status*; `Group.Read.All` → Tag-Prüfung (Gerät + *Tags prüfen*); `User.Read.All` → Benutzer prüfen bei Vorab-Zuweisung
+- optional (Schreiben): `DeviceManagementManagedDevices.ReadWrite.All` → go kann Geräte nach einem **Mainboardtausch** neu registrieren (löscht den alten Intune-Eintrag; ersetzt `DeviceManagementManagedDevices.Read.All`)
 - Zertifikate & Geheimnisse › neues Secret, kurz gültig › den **Wert** kopieren
 
 ## 2. Stick / Quelle
@@ -18,6 +19,7 @@ Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der
 | `WlanSsid`, `WlanKey`, `WlanPackage` | Konfigurations-WLAN; Paketname (leer = ohne, z. B. nur LAN) |
 | `Reset`, `MinBattery` | Standard „zurücksetzen“, Mindest-Akku ohne Netzteil (50) |
 | `AskUser` | am Gerät nach Benutzer (UPN) fragen und vorab zuweisen (true/false) |
+| `RemoveOtherPackages` | fremde Bereitstellungspakete beim Zurücksetzen entfernen (Standard false, noch im Test); sie werden vorher nach `C:\Recovery\HUPilot-PPKG-Backup\<Datum>` gesichert |
 | `AdminName`, `AdminPassword` | optional lokaler Admin (leer = keiner), kommt mit dem WLAN-Paket |
 | `Admin2Name`, `Admin2Password` | optional zweiter lokaler Admin, z. B. Elternverein (leer = keiner) |
 
