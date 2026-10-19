@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.4'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.5'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -45,6 +45,10 @@ if (-not $isAdmin) {
     }
     exit 1
 }
+# Arbeitsverzeichnis weg vom Stick: go wird meist aus D:\ gestartet. Wird der Stick nach "STICK ABZIEHEN" gezogen,
+# ist das Arbeitsverzeichnis ungueltig - jeder spaetere Programmaufruf (schtasks, cmd, provtool) scheitert dann mit
+# "Der Verzeichnisname ist ungueltig" (PF3T9PAN 19.10.2026; vermutlich auch MP24CF66 13.10.2026: schtasks ohne Ausgabe)
+try { Set-Location -LiteralPath (Join-Path $env:SystemRoot 'System32'); [Environment]::CurrentDirectory = (Join-Path $env:SystemRoot 'System32') } catch { }
 $MinBattery = 50     # % Akku ohne Netzteil, darunter wird vor dem Zuruecksetzen gewartet
 $Start      = Get-Date
 $CfgDir     = $PSScriptRoot
@@ -891,7 +895,7 @@ $taskXml = @'
 '@
 $taskFile = Join-Path $env:SystemRoot 'Temp\HUPilot-Wipe.xml'
 try { [System.IO.File]::WriteAllText($taskFile, $taskXml.Replace('__PS1__', $WipePs1), [System.Text.Encoding]::Unicode) } catch { Fail-Reset ('Aufgaben-XML schreiben: ' + $_.Exception.Message) }
-& schtasks.exe /Delete /TN $tn /F 2>&1 | Out-Null
+try { Unregister-ScheduledTask -TaskName $tn -Confirm:$false -ErrorAction Stop } catch { try { & schtasks.exe /Delete /TN $tn /F 2>&1 | Out-Null } catch { } }
 $regOk = $false
 # 1. Weg: ScheduledTasks-Modul (XML inkl. Akkubetrieb erlaubt)
 try {

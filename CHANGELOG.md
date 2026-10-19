@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.5 - 2026-10-19
+- go.ps1: **Abbruch nach „STICK ABZIEHEN“ behoben.** go lief mit dem Stick als Arbeitsverzeichnis. Wurde der Stick wie angezeigt abgezogen, scheiterte danach jeder Programmaufruf (`schtasks`, `cmd`) mit „Der Verzeichnisname ist ungültig“, und das Zurücksetzen startete nicht. go wechselt jetzt gleich zu Beginn nach `C:\Windows\System32`. Das erklärt vermutlich auch den Fehler aus v2.3 („schtasks ohne Ausgabe“).
+- go.ps1: alte Aufgabe wird mit `Unregister-ScheduledTask` entfernt; ein Fehler dabei bricht nicht mehr ab.
+
 ## v2.4 - 2026-10-14
 - go.ps1 und diag: Ohne Administratorrechte (z. B. `go.cmd` per Doppelklick im Explorer) starten sie sich selbst mit Adminrechten in einem neuen Fenster neu (Windows fragt nach einem Admin-Konto). Vorher brach go mit „Hardware-Hash nicht lesbar“ ab – erst nachdem die LOESCHEN-Rückfrage schon bestätigt war.
 - go.ps1: **Mainboardtausch erkennen** – meldet Autopilot eine Hardware-Änderung („Fix ausstehend“ / „Achtung erforderlich“, `remediationState`), bietet go an, das Gerät neu zu registrieren: Intune-Eintrag löschen, Autopilot-Eintrag löschen (Reihenfolge laut MS Doku), warten bis er weg ist, neuen Hash mit Tag hochladen. Vorher wurde bei bekannter Seriennummer nur der Tag geändert und der alte Hash blieb. Braucht optional `DeviceManagementManagedDevices.ReadWrite.All`.
