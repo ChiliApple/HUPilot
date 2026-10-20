@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.6 - 2026-10-20
+- Zurücksetzen: **McAfee und andere Hersteller-Apps kamen zurück.** Laut Microsoft-Doku (Push-button reset) stellt das Zurücksetzen zusätzlich wieder her: vorinstallierte Store-Apps aus einer eigenen Sicherung und Herstellerskripte aus `C:\Recovery\OEM` (`ResetConfig.xml`). Neu vor dem Zurücksetzen (als SYSTEM):
+  - vorinstallierte und installierte Store-Apps, deren Name auf `RemoveApps` passt, werden entfernt (Standard `McAfee`; `"RemoveApps": ""` schaltet es aus)
+  - `C:\Recovery\OEM` wird wie `Customizations` und `AutoApply` nach `C:\Recovery\HUPilot-OEM-Backup` verschoben
+  - **Noch nicht an einem Gerät bestätigt**, ob damit alle Wege abgedeckt sind. Falls McAfee trotzdem zurückkommt: `D:\diag` › 6 zeigt jetzt, in welcher Form McAfee vorhanden ist (vorinstallierte App, App, Programm) und was in `C:\Recovery\OEM` liegt.
+- diag › 6: Abschnitt „McAfee / Hersteller-Apps“, dazu `C:\Recovery\OEM` und `HUPilot-PPKG-Backup` in der Recovery-Übersicht.
+
 ## v2.5 - 2026-10-19
 - go.ps1: **Abbruch nach „STICK ABZIEHEN“ behoben.** go lief mit dem Stick als Arbeitsverzeichnis. Wurde der Stick wie angezeigt abgezogen, scheiterte danach jeder Programmaufruf (`schtasks`, `cmd`) mit „Der Verzeichnisname ist ungültig“, und das Zurücksetzen startete nicht. go wechselt jetzt gleich zu Beginn nach `C:\Windows\System32`. Das erklärt vermutlich auch den Fehler aus v2.3 („schtasks ohne Ausgabe“).
 - go.ps1: alte Aufgabe wird mit `Unregister-ScheduledTask` entfernt; ein Fehler dabei bricht nicht mehr ab.

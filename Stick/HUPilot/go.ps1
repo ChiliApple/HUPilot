@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.5'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.6'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -821,10 +821,28 @@ if ($cand.Count) {
         } else { L ('Paket entfernt (' + $c.Why + '): ' + $c.File.Name) }
     }
 }
-# 2. Hersteller-Anpassungen wegschieben (Zuruecksetzen spielt C:\Recovery\Customizations sonst wieder ein)
+# 1b. Hersteller-Apps (z. B. McAfee) als vorinstallierte Store-App entfernen - das Zuruecksetzen stellt vorinstallierte
+#     Store-Apps sonst aus seiner Sicherung wieder her (MS Doku Push-button reset). Fehler hier brechen nicht ab.
+$rmApps = '__RMAPPS__'
+if ($rmApps) {
+    try {
+        foreach ($pp in @(Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object { $_.DisplayName -match $rmApps -or $_.PackageName -match $rmApps })) {
+            try { Remove-AppxProvisionedPackage -Online -PackageName $pp.PackageName -AllUsers -ErrorAction Stop | Out-Null; L ('Vorinstallierte App entfernt: ' + $pp.PackageName) }
+            catch { L ('Vorinstallierte App ' + $pp.PackageName + ': ' + $_.Exception.Message) }
+        }
+    } catch { L ('Vorinstallierte Apps lesen: ' + $_.Exception.Message) }
+    try {
+        foreach ($ap in @(Get-AppxPackage -AllUsers -ErrorAction Stop | Where-Object { $_.Name -match $rmApps })) {
+            try { Remove-AppxPackage -Package $ap.PackageFullName -AllUsers -ErrorAction Stop; L ('App entfernt: ' + $ap.PackageFullName) }
+            catch { L ('App ' + $ap.PackageFullName + ': ' + $_.Exception.Message) }
+        }
+    } catch { L ('Apps lesen: ' + $_.Exception.Message) }
+}
+# 2. Hersteller-Anpassungen wegschieben - das Zuruecksetzen spielt sonst wieder ein:
+#    C:\Recovery\Customizations (Pakete mit Hersteller-Programmen), AutoApply, OEM (ResetConfig.xml = Herstellerskripte)
 try {
     $bak = 'C:\Recovery\HUPilot-OEM-Backup'
-    foreach ($src in 'C:\Recovery\Customizations', 'C:\Recovery\AutoApply') {
+    foreach ($src in 'C:\Recovery\Customizations', 'C:\Recovery\AutoApply', 'C:\Recovery\OEM') {
         if (Test-Path $src) {
             $dst = Join-Path $bak (Split-Path $src -Leaf)
             New-Item -ItemType Directory -Path $dst -Force | Out-Null
@@ -848,11 +866,15 @@ try {
 '@
 # Optionen fuer das SYSTEM-Script - VOR dem Ersetzen der Platzhalter bestimmen
 $RmOther = ($cfg.RemoveOtherPackages -eq $true)
+# Hersteller-Apps (Regex auf den App-Namen), Standard McAfee; "RemoveApps": "" schaltet es aus
+$RmApps = 'McAfee'
+if ($null -ne $cfg.RemoveApps) { $RmApps = [string]$cfg.RemoveApps }
+try { [void][regex]::new($RmApps) } catch { Log ('RemoveApps ist kein gueltiger Ausdruck - aus: ' + $RmApps); $RmApps = '' }
 $KeepHash = ''
 if (Test-Path -LiteralPath $TmpPkg) { try { $KeepHash = (Get-FileHash -LiteralPath $TmpPkg -Algorithm SHA256).Hash } catch { } }
 try {
     Remove-Item -Path $WipeResult -Force -ErrorAction SilentlyContinue
-    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg).Replace('__RMOTHER__', $(if ($RmOther) { '$true' } else { '$false' })).Replace('__KEEPPKG__', ([string]$WlanPkgName).Replace("'", "''")).Replace('__KEEPHASH__', $KeepHash)) -Encoding ASCII -ErrorAction Stop
+    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg).Replace('__RMOTHER__', $(if ($RmOther) { '$true' } else { '$false' })).Replace('__KEEPPKG__', ([string]$WlanPkgName).Replace("'", "''")).Replace('__KEEPHASH__', $KeepHash).Replace('__RMAPPS__', $RmApps.Replace("'", "''"))) -Encoding ASCII -ErrorAction Stop
 } catch { Fail-Reset ('Hilfsscript schreiben: ' + $_.Exception.Message) }
 
 # Fremde Bereitstellungspakete anzeigen (werden im SYSTEM-Script entfernt)

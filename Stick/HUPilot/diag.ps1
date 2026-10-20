@@ -112,7 +112,7 @@ function Show-Prov {
     } catch { Write-Host '  Intune-Sperre: keine Richtlinie (erlaubt)' }
     Write-Host ''
     Write-Host '  C:\Recovery:' -ForegroundColor White
-    foreach ($x in 'C:\Recovery\Customizations', 'C:\Recovery\AutoApply', 'C:\Recovery\HUPilot-OEM-Backup') {
+    foreach ($x in 'C:\Recovery\Customizations', 'C:\Recovery\AutoApply', 'C:\Recovery\OEM', 'C:\Recovery\HUPilot-OEM-Backup', 'C:\Recovery\HUPilot-PPKG-Backup') {
         try {
             $null = Get-Item -LiteralPath $x -Force -ErrorAction Stop
             $sz = (Get-ChildItem $x -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
@@ -123,6 +123,13 @@ function Show-Prov {
             else { Write-Host ('  ' + $x + '  nicht vorhanden') }
         }
     }
+    Write-Host ''
+    Write-Host '  McAfee / Hersteller-Apps:' -ForegroundColor White
+    $hit = $false
+    try { foreach ($x in @(Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object { $_.DisplayName -match 'McAfee' })) { Write-Host ('  vorinstallierte App: ' + $x.PackageName) -ForegroundColor Yellow; $hit = $true } } catch { Write-Host '  vorinstallierte Apps: nicht lesbar' }
+    try { foreach ($x in @(Get-AppxPackage -AllUsers -ErrorAction Stop | Where-Object { $_.Name -match 'McAfee' })) { Write-Host ('  installierte App   : ' + $x.PackageFullName) -ForegroundColor Yellow; $hit = $true } } catch { }
+    foreach ($x in @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'McAfee' })) { Write-Host ('  Programm           : ' + $x.DisplayName + ' ' + $x.DisplayVersion) -ForegroundColor Yellow; $hit = $true }
+    if (-not $hit) { Write-Host '  keine gefunden' -ForegroundColor Green }
     Write-Host ''
     Write-Host '  Geplante Aufgabe HUPilot-Wipe:' -ForegroundColor White
     $all = @(cmd.exe /c 'schtasks /query /tn HUPilot-Wipe /v /fo list 2>&1')
