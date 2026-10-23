@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.6'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -651,7 +651,13 @@ Banner 'OK  -  STICK ABZIEHEN  -  naechstes Geraet' 'DarkGreen' @(
 $GreenAt = Get-Date
 
 # ---------- 5. Auf Profil warten ----------
+# Zurueckgesetzt wird erst bei "assignedInSync" - laut MS Graph (windowsAutopilotProfileAssignmentStatus) das einzige
+# Ergebnis, bei dem das Profil sicher beim Autopilot-Dienst angekommen ist. "assignedUnkownSyncState" heisst nur
+# "in Intune zugewiesen, mit Autopilot synchron ODER nicht" (v2.6 hat damit zurueckgesetzt, obwohl das Geraet
+# im Portal noch "Ausstehend" bzw. gar nicht sichtbar war). Ausserdem muss der Status 2 Abfragen hintereinander passen.
 $assigned = $false
+$okCount = 0
+$lastTxt = ''
 $limit = (Get-Date).AddMinutes($ProfileWaitMin)
 while ((Get-Date) -lt $limit) {
     $ap = Get-ApDevice
@@ -667,23 +673,31 @@ while ((Get-Date) -lt $limit) {
     }
     $txt = $(if ($ps) { $ps } else { 'noch nicht sichtbar' })
     if ($pn) { $txt = $txt + '  (' + $pn + ')' }
+    $lastTxt = $txt
     Write-Host ('  {0}  Profil: {1}' -f (Get-Date -Format 'HH:mm:ss'), $txt)
     Log ('Profilstatus: ' + $txt)
-    if ($ps -like 'assigned*') {
-        if (-not $TagChanged) { $assigned = $true; break }
-        if ($OldProfId -and $pi -and $pi -ne $OldProfId) { Log 'Neues Profil nach Tag-Aenderung zugewiesen'; $assigned = $true; break }
-        if (-not $OldProfId -and $pi) { $assigned = $true; break }
-        if (((Get-Date) - $TagChangedAt).TotalMinutes -ge 10) { Log 'Profil nach 10 Min unveraendert - wird akzeptiert (evtl. gleiches Profil fuer beide Tags)'; $assigned = $true; break }
-        Write-Host '            (Tag geaendert - warte auf Profil der neuen Gruppe)'
+    $ready = $false
+    if ($ps -eq 'assignedInSync') {
+        if (-not $TagChanged) { $ready = $true }
+        elseif ($OldProfId -and $pi -and $pi -ne $OldProfId) { Log 'Neues Profil nach Tag-Aenderung zugewiesen'; $ready = $true }
+        elseif (-not $OldProfId -and $pi) { $ready = $true }
+        elseif (((Get-Date) - $TagChangedAt).TotalMinutes -ge 10) { Log 'Profil nach 10 Min unveraendert - wird akzeptiert (evtl. gleiches Profil fuer beide Tags)'; $ready = $true }
+        else { Write-Host '            (Tag geaendert - warte auf Profil der neuen Gruppe)' }
     }
+    elseif ($ps -like 'assigned*') { Write-Host '            (in Intune zugewiesen, beim Autopilot-Dienst noch nicht bestaetigt - warte)' }
+    if ($ready) { $okCount++ } else { $okCount = 0 }
+    if ($okCount -ge 2) { $assigned = $true; break }
+    if ($okCount -eq 1) { Write-Host '            (zugewiesen - Kontrolle in 30 s)' }
     Start-Sleep -Seconds 30
 }
 
 if (-not $assigned) {
-    Log 'Profil nach Wartezeit NICHT zugewiesen'
+    Log ('Profil nach Wartezeit NICHT sicher zugewiesen, letzter Status: ' + $lastTxt)
     Banner 'ACHTUNG  -  Autopilot-Profil noch nicht zugewiesen' 'DarkYellow' @(
         '',
+        ('Letzter Status: ' + $lastTxt),
         'Ohne Profil kommt nach dem Reset das normale Windows-Setup.',
+        'Empfohlen: N, im Intune-Portal warten bis "Zugewiesen", dann nochmal go.',
         '',
         'J = trotzdem zuruecksetzen     N = abbrechen (kein Reset)')
     $a = Read-Host '  J / N'

@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.7 - 2026-10-23
+- go.ps1: **Zurücksetzen ohne fertiges Autopilot-Profil behoben.** v2.6 hat jeden Status `assigned…` als „zugewiesen“ gewertet, auch `assignedUnkownSyncState`. Laut Microsoft Graph heißt das nur „in Intune zugewiesen, mit dem Autopilot-Dienst synchron oder nicht“. Folge: Ein Gerät wurde zurückgesetzt, obwohl es im Portal noch „Ausstehend“ bzw. gar nicht sichtbar war, und landete im normalen Windows-Setup. Jetzt wird nur bei `assignedInSync` zurückgesetzt, und der Status muss zwei Abfragen hintereinander (30 s Abstand) passen.
+- go.ps1: Läuft die Wartezeit ab, zeigt die gelbe Meldung den letzten Status und empfiehlt N (kein Reset).
+- Setup › Status: Spalte Profil unterscheidet „zugewiesen“ (`assignedInSync`) und „zugew., Sync offen“ (übrige `assigned…`).
+- **Noch nicht an einem Gerät bestätigt**, wie schnell Geräte von `assignedUnkownSyncState` auf `assignedInSync` wechseln. Bleibt ein Gerät dauerhaft „Sync offen“, läuft go in die Wartezeit (20 Min) und fragt J/N.
+
 ## v2.6 - 2026-10-20
 - Zurücksetzen: **McAfee und andere Hersteller-Apps kamen zurück.** Laut Microsoft-Doku (Push-button reset) stellt das Zurücksetzen zusätzlich wieder her: vorinstallierte Store-Apps aus einer eigenen Sicherung und Herstellerskripte aus `C:\Recovery\OEM` (`ResetConfig.xml`). Neu vor dem Zurücksetzen (als SYSTEM):
   - vorinstallierte und installierte Store-Apps, deren Name auf `RemoveApps` passt, werden entfernt (Standard `McAfee`; `"RemoveApps": ""` schaltet es aus)
