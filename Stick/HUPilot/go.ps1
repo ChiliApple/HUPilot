@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.6'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -390,6 +390,7 @@ Sync-Clock
 
 # ---------- 3a. Token ----------
 $tok = $null
+$TokAt = Get-Date
 for ($i = 1; $i -le 3 -and -not $tok; $i++) {
     try {
         $body = @{ grant_type = 'client_credentials'; client_id = $cfg.ClientId; client_secret = $cfg.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
@@ -405,6 +406,34 @@ for ($i = 1; $i -le 3 -and -not $tok; $i++) {
 if (-not $tok) { Save-Offline 'Anmeldung am Tenant fehlgeschlagen (siehe Log)' }
 $h  = @{ Authorization = 'Bearer ' + $tok }
 $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
+# Access-Token gilt laut MS Doku zufaellig 60-90 Min (learn.microsoft.com/entra/identity-platform/access-tokens#token-lifetime).
+# Lange Laeufe (Hardwaretausch bis 30 Min + Import 10 + Profil 20) koennen das ueberschreiten -> ab 45 Min neu holen.
+function Update-Token {
+    if (((Get-Date) - $script:TokAt).TotalMinutes -lt 45) { return }
+    try {
+        $b = @{ grant_type = 'client_credentials'; client_id = $cfg.ClientId; client_secret = $cfg.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
+        $t = (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $cfg.TenantId + '/oauth2/v2.0/token') -Body $b -ContentType 'application/x-www-form-urlencoded').access_token
+        if ($t) {
+            $script:tok = $t
+            $script:TokAt = Get-Date
+            $script:h  = @{ Authorization = 'Bearer ' + $t }
+            $script:hj = @{ Authorization = 'Bearer ' + $t; 'Content-Type' = 'application/json' }
+            Log 'Token erneuert'
+        }
+    } catch { Log ('Token erneuern: ' + (Get-ErrText $_)) }
+}
+# Autopilot-Sync: laut MS Doku 409 = Sync laeuft schon, 429 = letzter Sync vor weniger als 10 Min - beides kein Fehler
+function Invoke-ApSync {
+    param([string]$Grund)
+    Update-Token
+    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotSettings/sync') -Headers $h | Out-Null; Log ('Autopilot-Sync angestossen (' + $Grund + ')') }
+    catch {
+        $m = Get-ErrText $_
+        $sc = 0; try { $sc = [int]$_.Exception.Response.StatusCode } catch { }
+        if ($sc -eq 409 -or $sc -eq 429 -or $m -match 'Conflict|TooManyRequests|Too Many Requests') { Log ('Autopilot-Sync (' + $Grund + '): laeuft bereits oder vor weniger als 10 Min - ok') }
+        else { Log ('Autopilot-Sync (' + $Grund + '): ' + $m) }
+    }
+}
 Say 'Anmeldung Tenant OK' 'Green'
 
 # ---------- Tag-Pruefung: gibt es fuer den Tag ein Autopilot-Profil? (optional Group.Read.All) ----------
@@ -423,14 +452,16 @@ function Test-RuleTag {
 }
 function Get-TagProfiles {
     # Rueckgabe: Liste der Profilnamen fuer den Tag; $null = nicht pruefbar
+    # Nebenbei: $script:TagProfIds = IDs dieser Profile (erwartetes Profil beim Warten, MS Doku "Assigned profile = expected profile")
     param([string]$Tag)
+    $script:TagProfIds = $null
     try { $pr = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments') -Headers $h).value) }
     catch { Log ('Tag-Pruefung Profile: ' + (Get-ErrText $_)); return $null }
-    $names = @(); $gcache = @{}
+    $names = @(); $ids = @(); $gcache = @{}
     foreach ($p in $pr) {
         foreach ($a in @($p.assignments)) {
             $t = $a.target; $ty = [string]$t.'@odata.type'
-            if ($ty -like '*allDevicesAssignmentTarget') { $names += [string]$p.displayName; continue }
+            if ($ty -like '*allDevicesAssignmentTarget') { $names += [string]$p.displayName; $ids += [string]$p.id; continue }
             if ($ty -notlike '*.groupAssignmentTarget') { continue }
             $gid = [string]$t.groupId
             if (-not $gcache.ContainsKey($gid)) {
@@ -441,9 +472,10 @@ function Get-TagProfiles {
                     Log ('Tag-Pruefung: Gruppe ' + $gid + ' nicht lesbar/geloescht - uebersprungen'); $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' }
                 }
             }
-            if (Test-RuleTag ([string]$gcache[$gid].membershipRule) $Tag) { $names += ([string]$p.displayName + ' (' + [string]$gcache[$gid].displayName + ')') }
+            if (Test-RuleTag ([string]$gcache[$gid].membershipRule) $Tag) { $names += ([string]$p.displayName + ' (' + [string]$gcache[$gid].displayName + ')'); $ids += [string]$p.id }
         }
     }
+    $script:TagProfIds = @($ids | Where-Object { $_ } | Select-Object -Unique)
     # Komma: leere Liste NICHT zu $null aufloesen lassen ($null = nicht pruefbar)
     return ,@($names | Select-Object -Unique)
 }
@@ -477,14 +509,19 @@ if ($AssignUpn) {
 
 # ---------- 3c. Autopilot ----------
 function Get-ApDevice {
+    Update-Token
     try {
-        $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial + "')")
+        # OData: einfaches Hochkomma im Wert verdoppeln
+        $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial.Replace("'", "''") + "')")
         $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h
-        return @($r.value | Where-Object { $_.serialNumber -eq $Serial })[0]
+        $m = @($r.value | Where-Object { $_.serialNumber -eq $Serial })
+        if ($m.Count -gt 1) { Log ('ACHTUNG: ' + $m.Count + ' Autopilot-Eintraege mit Seriennummer ' + $Serial + ' - verwende den mit der juengsten Profilzuweisung') }
+        return @($m | Sort-Object { [string]$_.deploymentProfileAssignedDateTime } -Descending)[0]
     } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)); return $null }
 }
 function Get-ApProfile {
     param([string]$Id)
+    Update-Token
     try {
         $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $Id + '?$expand=deploymentProfile') -Headers $h
         return $r.deploymentProfile
@@ -492,8 +529,6 @@ function Get-ApProfile {
 }
 
 $TagChanged = $false
-$TagChangedAt = $null
-$OldProfId = ''
 
 $ap = Get-ApDevice
 # Hardware geaendert (z. B. Mainboardtausch beim Support): Autopilot zeigt "Fix ausstehend" / "Achtung erforderlich",
@@ -531,14 +566,15 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id) -Headers $h | Out-Null }
     catch { Fail ('Autopilot-Eintrag loeschen: ' + (Get-ErrText $_)) }
     Say 'Autopilot-Eintrag geloescht - warte, bis er verschwunden ist (bis 30 Min) ...'
-    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotSettings/sync') -Headers $h | Out-Null } catch { }
+    Invoke-ApSync 'nach Loeschen'
     $gone = $false
     $lim = (Get-Date).AddMinutes(30)
     while ((Get-Date) -lt $lim) {
         Start-Sleep -Seconds 30
         Write-Host '.' -NoNewline
+        Update-Token
         try {
-            $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial + "')")
+            $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial.Replace("'", "''") + "')")
             $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h
             if (-not @($r.value | Where-Object { $_.serialNumber -eq $Serial }).Count) { $gone = $true; break }
         } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)) }
@@ -552,12 +588,11 @@ if ($ap) {
     Say ('Bereits in Autopilot (Tag "' + $ap.groupTag + '")') 'Yellow'
     if ([string]$ap.groupTag -ne [string]$cfg.GroupTag) {
         $op = Get-ApProfile $ap.id
-        if ($op) { $OldProfId = [string]$op.id; Log ('Bisheriges Profil: ' + $op.displayName) }
+        if ($op) { Log ('Bisheriges Profil: ' + $op.displayName) }
         try {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = $cfg.GroupTag } | ConvertTo-Json) | Out-Null
             Say ('Tag geaendert -> ' + $cfg.GroupTag) 'Green'
             $TagChanged = $true
-            $TagChangedAt = Get-Date
         } catch { Fail ('Tag setzen fehlgeschlagen: ' + (Get-ErrText $_)) }
     }
 }
@@ -588,9 +623,12 @@ else {
     while ((Get-Date) -lt $limit) {
         Start-Sleep -Seconds 10
         Write-Host '.' -NoNewline
+        Update-Token
+        $prev = $state
         try {
             $st = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h
             $state = [string]$st.state.deviceImportStatus
+            if ($state -ne $prev) { Log ('Import-Status: ' + $state) }
             if ($state -eq 'complete') { break }
             if ($state -eq 'error') { break }
         } catch { Log ('Import-Status: ' + (Get-ErrText $_)) }
@@ -599,13 +637,13 @@ else {
     if ($state -eq 'error') {
         $en = [string]$st.state.deviceErrorName; $ec = [string]$st.state.deviceErrorCode
         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h | Out-Null } catch { }
-        if ($ec -eq '808' -or $en -match 'OtherTenant') { Fail ('Geraet ist in einem ANDEREN Tenant registriert (' + $en + ' ' + $ec + ')') }
+        # MS Doku (Error 806 or 808 when you import ...): auch ein Rest-Datensatz im EIGENEN Tenant/Intune kann 806/808 ausloesen
+        if ($ec -eq '808' -or $en -match 'OtherTenant') { Fail ('Geraet ist in einem ANDEREN Tenant registriert oder es gibt noch einen alten Datensatz im eigenen Tenant/Intune (' + $en + ' ' + $ec + ')') }
         Fail ('Import-Fehler: ' + $en + ' (' + $ec + ')')
     }
     if ($state -ne 'complete') { Fail ('Import nach 10 Min nicht fertig (Status: ' + $state + ')') }
     try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h | Out-Null } catch { }
     Say 'Import abgeschlossen' 'Green'
-    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotSettings/sync') -Headers $h | Out-Null; Log 'Autopilot-Sync angestossen' } catch { Log ('Sync: ' + (Get-ErrText $_)) }
 }
 
 if ($AssignUpn) {
@@ -618,6 +656,7 @@ if ($AssignUpn) {
         } catch { Say ('Benutzer zuweisen fehlgeschlagen: ' + (Get-ErrText $_)) 'Yellow' }
     } else { Say 'Benutzer zuweisen: Geraet in Autopilot noch nicht sichtbar - spaeter im Portal' 'Yellow' }
 }
+if (-not $ap -or $TagChanged -or $AssignUpn) { Invoke-ApSync 'nach Import/Tag/Benutzer' }
 
 # ---------- 4. WLAN-Paket lokal kopieren ----------
 if ($StickPkg) {
@@ -651,15 +690,35 @@ Banner 'OK  -  STICK ABZIEHEN  -  naechstes Geraet' 'DarkGreen' @(
 $GreenAt = Get-Date
 
 # ---------- 5. Auf Profil warten ----------
+# Zurueckgesetzt wird erst, wenn die drei Bedingungen aus der MS Doku erfuellt sind
+# (learn.microsoft.com/autopilot/profiles "Assignment of Windows Autopilot deployment profiles to devices"):
+#   1. Profilstatus "Assigned"   -> Graph assignedInSync oder assignedUnkownSyncState
+#      (im Tenant stehen ALLE registrierten Geraete dauerhaft auf assignedUnkownSyncState - ein reines assignedInSync wuerde nie erreicht)
+#   2. "Date assigned" gesetzt   -> deploymentProfileAssignedDateTime
+#   3. "Assigned profile" = erwartetes Profil -> Profil-ID gehoert zu den Profilen des Tags (Tag-Pruefung, Group.Read.All)
+# v2.6 hat nur 1. geprueft und ein Geraet ohne fertige Zuweisung zurueckgesetzt. Ausserdem muessen 2 Abfragen hintereinander passen.
+# Nach Tag-Aenderung ohne moegliche Tag-Pruefung: keine automatische Freigabe (altes Profil waere nicht vom neuen unterscheidbar).
+function Test-ApDate {
+    param($v)
+    if ($null -eq $v -or "$v" -eq '') { return $false }
+    try { return (([datetime]$v).Year -gt 2000) } catch { return $false }
+}
 $assigned = $false
+$okCount = 0
+$lastTxt = ''
+$extra = $false
+if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geaendert, Tag-Pruefung nicht moeglich - keine automatische Freigabe' }
 $limit = (Get-Date).AddMinutes($ProfileWaitMin)
-while ((Get-Date) -lt $limit) {
+while ((Get-Date) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
+    if ((Get-Date) -ge $limit) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
     $ap = Get-ApDevice
     $ps = ''
     $pn = ''
     $pi = ''
+    $pd = $false
     if ($ap) {
         $ps = [string]$ap.deploymentProfileAssignmentStatus
+        $pd = Test-ApDate $ap.deploymentProfileAssignedDateTime
         if ($ps -like 'assigned*') {
             $pr = Get-ApProfile $ap.id
             if ($pr) { $pn = [string]$pr.displayName; $pi = [string]$pr.id }
@@ -667,23 +726,33 @@ while ((Get-Date) -lt $limit) {
     }
     $txt = $(if ($ps) { $ps } else { 'noch nicht sichtbar' })
     if ($pn) { $txt = $txt + '  (' + $pn + ')' }
+    if ($ps -like 'assigned*' -and -not $pd) { $txt = $txt + '  [Datum fehlt]' }
+    $lastTxt = $txt
     Write-Host ('  {0}  Profil: {1}' -f (Get-Date -Format 'HH:mm:ss'), $txt)
-    Log ('Profilstatus: ' + $txt)
-    if ($ps -like 'assigned*') {
-        if (-not $TagChanged) { $assigned = $true; break }
-        if ($OldProfId -and $pi -and $pi -ne $OldProfId) { Log 'Neues Profil nach Tag-Aenderung zugewiesen'; $assigned = $true; break }
-        if (-not $OldProfId -and $pi) { $assigned = $true; break }
-        if (((Get-Date) - $TagChangedAt).TotalMinutes -ge 10) { Log 'Profil nach 10 Min unveraendert - wird akzeptiert (evtl. gleiches Profil fuer beide Tags)'; $assigned = $true; break }
-        Write-Host '            (Tag geaendert - warte auf Profil der neuen Gruppe)'
+    Log ('Profilstatus: ' + $txt + ' | ProfilId ' + $pi + ' | Datum ' + [string]$ap.deploymentProfileAssignedDateTime)
+    $ready = $false
+    if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
+        if (-not $pi) { Write-Host '            (Profil nicht lesbar - warte)' }
+        elseif (-not $pd) { Write-Host '            (Zuweisungsdatum noch leer - warte)' }
+        elseif ($null -ne $TagProfIds -and $TagProfIds.Count -and ($TagProfIds -notcontains $pi)) { Write-Host '            (anderes Profil als fuer den Tag erwartet - warte)' }
+        elseif ($TagChanged -and ($null -eq $TagProfIds -or -not $TagProfIds.Count)) { Write-Host '            (Tag geaendert, erwartetes Profil unbekannt - Entscheidung am Ende)' }
+        else { $ready = $true }
     }
+    elseif ($ps -eq 'assignedOutOfSync') { Write-Host '            (zugewiesen, aber nicht mit dem Autopilot-Dienst synchron - warte)' }
+    if ($ready) { $okCount++ } else { $okCount = 0 }
+    if ($okCount -ge 2) { $assigned = $true; break }
+    if ($extra) { break }
+    if ($okCount -eq 1) { Write-Host '            (zugewiesen - Kontrolle in 30 s)' }
     Start-Sleep -Seconds 30
 }
 
 if (-not $assigned) {
-    Log 'Profil nach Wartezeit NICHT zugewiesen'
+    Log ('Profil nach Wartezeit NICHT sicher zugewiesen, letzter Status: ' + $lastTxt)
     Banner 'ACHTUNG  -  Autopilot-Profil noch nicht zugewiesen' 'DarkYellow' @(
         '',
+        ('Letzter Status: ' + $lastTxt),
         'Ohne Profil kommt nach dem Reset das normale Windows-Setup.',
+        'Empfohlen: N, im Intune-Portal warten bis "Zugewiesen", dann nochmal go.',
         '',
         'J = trotzdem zuruecksetzen     N = abbrechen (kein Reset)')
     $a = Read-Host '  J / N'

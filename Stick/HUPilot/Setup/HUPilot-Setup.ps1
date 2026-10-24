@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.6'
+$SetupVer = '2.7'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -965,7 +965,7 @@ function Get-StatusData {
     foreach ($d in $all) { if ($d.serialNumber) { $script:ApIds[[string]$d.serialNumber] = [string]$d.id } }
     $rows = foreach ($d in $all) {
         $ps = [string]$d.deploymentProfileAssignmentStatus
-        $prof = $(if ($ps -like 'assigned*') { 'zugewiesen' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
+        $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($d.deploymentProfileAssignedDateTime -and ([string]$d.deploymentProfileAssignedDateTime) -notlike '0001*') { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
         $es = [string]$d.enrollmentState
         $lc = ''
         try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }
