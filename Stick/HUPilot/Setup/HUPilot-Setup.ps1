@@ -965,7 +965,7 @@ function Get-StatusData {
     foreach ($d in $all) { if ($d.serialNumber) { $script:ApIds[[string]$d.serialNumber] = [string]$d.id } }
     $rows = foreach ($d in $all) {
         $ps = [string]$d.deploymentProfileAssignmentStatus
-        $prof = $(if ($ps -eq 'assignedInSync') { 'zugewiesen' } elseif ($ps -like 'assigned*') { 'zugew., Sync offen' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
+        $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($d.deploymentProfileAssignedDateTime -and ([string]$d.deploymentProfileAssignedDateTime) -notlike '0001*') { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
         $es = [string]$d.enrollmentState
         $lc = ''
         try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }

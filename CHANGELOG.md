@@ -1,10 +1,21 @@
 # Changelog
 
-## v2.7 - 2026-10-23
-- go.ps1: **Zurücksetzen ohne fertiges Autopilot-Profil behoben.** v2.6 hat jeden Status `assigned…` als „zugewiesen“ gewertet, auch `assignedUnkownSyncState`. Laut Microsoft Graph heißt das nur „in Intune zugewiesen, mit dem Autopilot-Dienst synchron oder nicht“. Folge: Ein Gerät wurde zurückgesetzt, obwohl es im Portal noch „Ausstehend“ bzw. gar nicht sichtbar war, und landete im normalen Windows-Setup. Jetzt wird nur bei `assignedInSync` zurückgesetzt, und der Status muss zwei Abfragen hintereinander (30 s Abstand) passen.
-- go.ps1: Läuft die Wartezeit ab, zeigt die gelbe Meldung den letzten Status und empfiehlt N (kein Reset).
-- Setup › Status: Spalte Profil unterscheidet „zugewiesen“ (`assignedInSync`) und „zugew., Sync offen“ (übrige `assigned…`).
-- **Noch nicht an einem Gerät bestätigt**, wie schnell Geräte von `assignedUnkownSyncState` auf `assignedInSync` wechseln. Bleibt ein Gerät dauerhaft „Sync offen“, läuft go in die Wartezeit (20 Min) und fragt J/N.
+## v2.7 - 2026-10-24
+- go.ps1: **Zurücksetzen ohne fertiges Autopilot-Profil behoben.** v2.6 hat schon beim ersten Profilstatus `assigned…` zurückgesetzt. Ein Gerät wurde so zurückgesetzt, bevor die Zuweisung fertig war, und landete im normalen Windows-Setup. Jetzt gelten die drei Bedingungen aus der Microsoft-Doku (Autopilot › Profile › „Assignment of Windows Autopilot deployment profiles to devices“):
+  1. Profilstatus „Zugewiesen“ (`assignedInSync` oder `assignedUnkownSyncState`; in den Schul-Tenants stehen **alle** registrierten Geräte dauerhaft auf `assignedUnkownSyncState`)
+  2. Zuweisungsdatum gesetzt (`deploymentProfileAssignedDateTime`)
+  3. Zugewiesenes Profil = erwartetes Profil (Profil-ID gehört zu den Profilen des Tags aus der Tag-Prüfung, braucht `Group.Read.All`)
+  
+  Alle drei müssen zwei Abfragen hintereinander (30 s) erfüllt sein. Kommt der erste Treffer kurz vor Ablauf der Wartezeit, gibt es genau eine Kontrollrunde zusätzlich.
+- go.ps1: **Tag-Änderung:** Freigabe nur noch mit dem Profil des neuen Tags. Die alte 10-Minuten-Regel und der Vergleich mit dem bisherigen Profil entfallen; beide konnten mit dem **alten** Profil zurücksetzen (z. B. wenn das bisherige Profil nicht lesbar war). Ohne Tag-Prüfung (kein `Group.Read.All`) gibt es nach einer Tag-Änderung keine automatische Freigabe, sondern die J/N-Abfrage am Ende.
+- go.ps1: **Token wird nach 45 Minuten erneuert.** Microsoft gibt 60–90 Minuten Gültigkeit an; Hardwaretausch, Import und Profil-Warten zusammen können länger dauern.
+- go.ps1: Autopilot-Sync einmal **nach** Import, Tag-Änderung und Benutzerzuweisung (vorher vor der Benutzerzuweisung, nach Tag-Änderung gar nicht). 409/429 (Sync läuft bzw. letzter Sync vor < 10 Min, laut Doku) gelten nicht mehr als Fehler.
+- go.ps1: Import-Statuswechsel werden geloggt (auch `partial`). Meldung bei Fehler 806/808 nennt jetzt auch einen alten Datensatz im eigenen Tenant als Ursache (laut Doku möglich).
+- go.ps1: Seriennummer im Filter abgesichert (Hochkomma), bei mehreren Autopilot-Einträgen mit derselben Seriennummer Hinweis im Log und Verwendung des jüngsten.
+- go.ps1: Läuft die Wartezeit ab, zeigt die gelbe Meldung den letzten Status und empfiehlt N.
+- Setup › Status: Spalte Profil zeigt „zugew., Datum fehlt“ bzw. „zugew., nicht synchron“ (`assignedOutOfSync`).
+- Geprüft im KI-Briefkasten (Thema 051, Gemini).
+- **Noch nicht an einem Gerät getestet.**
 
 ## v2.6 - 2026-10-20
 - Zurücksetzen: **McAfee und andere Hersteller-Apps kamen zurück.** Laut Microsoft-Doku (Push-button reset) stellt das Zurücksetzen zusätzlich wieder her: vorinstallierte Store-Apps aus einer eigenen Sicherung und Herstellerskripte aus `C:\Recovery\OEM` (`ResetConfig.xml`). Neu vor dem Zurücksetzen (als SYSTEM):
