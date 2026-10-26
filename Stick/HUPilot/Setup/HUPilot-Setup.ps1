@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7'
+$SetupVer = '2.7.1'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -180,6 +180,15 @@ try {
 
 function Out-Log([string]$m) { $ui.tLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $ui.tLog.ScrollToEnd() }
 function Get-Drive { if ($ui.cDrive.SelectedItem) { return ([string]$ui.cDrive.SelectedItem).Substring(0, 2) } return $null }
+# Gewaehlter Stick nur, wenn er noch da ist. Prueft ueber .NET (nicht ueber PowerShell-Laufwerke): ein abgezogener oder
+# neu eingehaengter Stick fehlt sonst als PS-Laufwerk, und Join-Path/Import-Csv brechen mit "Laufwerk D nicht vorhanden" ab.
+function Get-ReadyDrive {
+    $d = Get-Drive
+    if (-not $d) { return $null }
+    try { if ([System.IO.Directory]::Exists($d + '\')) { return $d } } catch { }
+    Out-Log ('Stick ' + $d + ' nicht mehr vorhanden - Stick einstecken und "Aktualisieren" druecken')
+    return $null
+}
 function Update-Drives {
     $ui.cDrive.Items.Clear()
     foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
@@ -793,11 +802,11 @@ $ui.bPkg.Add_Click({
 function Read-Protokoll {
     $map = @{}
     $files = @(Join-Path $srcHU 'logs\protokoll.csv')
-    $dr = Get-Drive; if ($dr) { $files += (Join-Path $dr 'HUPilot\logs\protokoll.csv') }
+    $dr = Get-ReadyDrive; if ($dr) { $files += ($dr + '\HUPilot\logs\protokoll.csv') }
     foreach ($f in $files) {
-        if (-not (Test-Path $f)) { continue }
         try {
-            foreach ($row in @(Import-Csv -Path $f -Delimiter ';')) {
+            if (-not [System.IO.File]::Exists($f)) { continue }
+            foreach ($row in @([System.IO.File]::ReadAllLines($f) | ConvertFrom-Csv -Delimiter ';')) {
                 if (-not $row.Seriennr) { continue }
                 if (-not $map.ContainsKey($row.Seriennr) -or [string]$row.Zeit -gt [string]$map[$row.Seriennr].Zeit) { $map[$row.Seriennr] = $row }
             }
@@ -996,8 +1005,10 @@ function Get-StatusData {
     return @{ Rows = $rows; Proto = $proto }
 }
 $ui.bStatus.Add_Click({
-    $d = Get-StatusData; if (-not $d) { return }
-    Show-Status -Rows @($d.Rows) -Proto $d.Proto -Tenant ((Get-Cfg).Tenant)
+    try {
+        $d = Get-StatusData; if (-not $d) { return }
+        Show-Status -Rows @($d.Rows) -Proto $d.Proto -Tenant ((Get-Cfg).Tenant)
+    } catch { Out-Log ('Status: ' + $_.Exception.Message) }
 })
 
 # Desktop-Verknuepfung (nur wenn das Setup vom PC laeuft)
@@ -1136,7 +1147,8 @@ $ui.bTags.Add_Click({
 # ---------- 7. Offline-Hashes importieren ----------
 function Read-HashCsv([string]$File) {
     $out = @()
-    foreach ($l in @(Get-Content -Path $File -ErrorAction SilentlyContinue)) {
+    $lines = @(); try { $lines = @([System.IO.File]::ReadAllLines($File)) } catch { }
+    foreach ($l in $lines) {
         if (-not $l -or $l -like 'Device Serial Number*') { continue }
         $p = $l.Split(',')
         if ($p.Count -lt 3 -or -not $p[0] -or -not $p[2]) { continue }
@@ -1178,13 +1190,13 @@ function Show-HashImport {
     $refresh = { $g.dGrid.ItemsSource = $null; $g.dGrid.ItemsSource = @($script:HRows); $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
     $addFile = {
         param($f)
-        if (-not (Test-Path $f)) { return }
+        if (-not [System.IO.File]::Exists($f)) { return }
         $new = @(Read-HashCsv $f)
         foreach ($r in $new) { $script:HRows = @($script:HRows | Where-Object { $_.Seriennr -ne $r.Seriennr }) + $r }
         & $hlog ('' + $new.Count + ' Hash(es) aus ' + $f)
     }
     & $addFile (Join-Path $srcHU 'logs\hashes.csv')
-    $dr = Get-Drive; if ($dr) { & $addFile (Join-Path $dr 'HUPilot\logs\hashes.csv') }
+    $dr = Get-ReadyDrive; if ($dr) { & $addFile ($dr + '\HUPilot\logs\hashes.csv') }
     & $refresh
     $g.bClose.Add_Click({ $hw.Close() })
     $g.bAdd.Add_Click({

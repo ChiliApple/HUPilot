@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.1 - 2026-10-26
+- go.ps1: **„Nur hochladen“ (ohne Zurücksetzen) prüft jetzt die Profilzuweisung.** Vorher endete go direkt nach dem Upload. Jetzt wartet go wie beim Zurücksetzen bis 20 Minuten auf die Zuweisung (gleiche Bedingungen: Status zugewiesen, Datum gesetzt, erwartetes Profil für den Tag) und zeigt am Ende grün „Autopilot-Profil zugewiesen“ mit Profilname oder gelb den letzten Status. Das Fenster darf jederzeit geschlossen werden, der Upload ist da schon fertig.
+- go.ps1: Solange das Profil noch nicht zugewiesen ist, stößt go den Autopilot-Sync alle 5 Minuten erneut an. Der Sync direkt nach dem Import wird abgewiesen (429), wenn in den 10 Minuten davor schon einer lief, z. B. vom vorigen Gerät; dann musste man ihn bisher im Portal von Hand anstoßen.
+- Setup: **Absturz „Laufwerk D nicht vorhanden“ behoben** (z. B. bei „6. Status“, nachdem der Stick neu eingehängt wurde). Stick-Zugriffe beim Lesen von `protokoll.csv` und `hashes.csv` prüfen den Stick jetzt direkt über Windows statt über PowerShell-Laufwerke; fehlt er, steht ein Hinweis im Log. Der Status-Knopf fängt Fehler ab, statt das Setup zu beenden.
+
 ## v2.7 - 2026-10-24
 - go.ps1: **Zurücksetzen ohne fertiges Autopilot-Profil behoben.** v2.6 hat schon beim ersten Profilstatus `assigned…` zurückgesetzt. Ein Gerät wurde so zurückgesetzt, bevor die Zuweisung fertig war, und landete im normalen Windows-Setup. Jetzt gelten die drei Bedingungen aus der Microsoft-Doku (Autopilot › Profile › „Assignment of Windows Autopilot deployment profiles to devices“):
   1. Profilstatus „Zugewiesen“ (`assignedInSync` oder `assignedUnkownSyncState`; in den Schul-Tenants stehen **alle** registrierten Geräte dauerhaft auf `assignedUnkownSyncState`)

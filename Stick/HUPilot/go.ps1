@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.1'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -687,26 +687,7 @@ Protokoll $(if ($DoReset) { 'UPLOAD OK' } else { 'UPLOAD OK (ohne Zuruecksetzen)
 Log '--- Stick wird ab jetzt nicht mehr gebraucht ---'
 $StickLog = $null
 
-if (-not $DoReset) {
-    Log 'Nur Upload gewaehlt - kein Zuruecksetzen'
-    Banner 'OK  -  HOCHGELADEN  -  STICK ABZIEHEN' 'DarkGreen' @(
-        '',
-        ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
-        'Geraet wurde NICHT zurueckgesetzt.',
-        'Fuer Autopilot: Geraet spaeter zuruecksetzen (Einstellungen > System >',
-        'Wiederherstellung) oder per Intune "Zuruecksetzen".')
-    Read-Host '  Enter = Fenster schliessen' | Out-Null
-    exit 0
-}
-
-Banner 'OK  -  STICK ABZIEHEN  -  naechstes Geraet' 'DarkGreen' @(
-    '',
-    ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
-    'Geraet NICHT ausschalten. Es wartet jetzt auf das',
-    'Autopilot-Profil und setzt sich dann selbst zurueck.')
-$GreenAt = Get-Date
-
-# ---------- 5. Auf Profil warten ----------
+# ---------- 5. Auf Profil warten (Funktion, auch fuer "nur hochladen") ----------
 # Zurueckgesetzt wird erst, wenn die drei Bedingungen aus der MS Doku erfuellt sind
 # (learn.microsoft.com/autopilot/profiles "Assignment of Windows Autopilot deployment profiles to devices"):
 #   1. Profilstatus "Assigned"   -> Graph assignedInSync oder assignedUnkownSyncState
@@ -721,49 +702,100 @@ function Test-ApDate {
     if ($null -eq $v -or "$v" -eq '') { return $false }
     try { return (([datetime]$v).Year -gt 2000) } catch { return $false }
 }
-$assigned = $false
-$okCount = 0
-$lastTxt = ''
-$extra = $false
-if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geaendert, Tag-Pruefung nicht moeglich - keine automatische Freigabe' }
-$limit = (Get-Date).AddMinutes($ProfileWaitMin)
-while ((Get-Date) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
-    if ((Get-Date) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
-    $ap = Get-ApDevice
-    $ps = ''
+function Wait-ApProfile {
+    # Rueckgabe: Assigned ($true = Bedingungen erfuellt), LastTxt (letzter Status), Profil (Name)
+    $assigned = $false
     $pn = ''
-    $pi = ''
-    $pd = $false
-    if ($ap) {
-        $ps = [string]$ap.deploymentProfileAssignmentStatus
-        $pd = Test-ApDate $ap.deploymentProfileAssignedDateTime
-        if ($ps -like 'assigned*') {
-            $pr = Get-ApProfile $ap.id
-            if ($pr) { $pn = [string]$pr.displayName; $pi = [string]$pr.id }
+    $okCount = 0
+    $lastTxt = ''
+    $extra = $false
+    if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geaendert, Tag-Pruefung nicht moeglich - keine automatische Freigabe' }
+    $limit = (Get-Date).AddMinutes($ProfileWaitMin)
+    $syncAt = Get-Date
+    while ((Get-Date) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
+        # Noch nicht zugewiesen: Autopilot-Sync alle 5 Min wiederholen. Der Sync nach dem Import kann mit 429 abgewiesen werden,
+        # wenn kurz vorher (< 10 Min, MS Doku) schon einer lief - z. B. vom vorigen Geraet. Dann kommt die Zuweisung sonst erst spaet.
+        if ($okCount -eq 0 -and ((Get-Date) - $syncAt).TotalMinutes -ge 5) { Invoke-ApSync 'Warten auf Profil'; $syncAt = Get-Date }
+        if ((Get-Date) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
+        $ap = Get-ApDevice
+        $ps = ''
+        $pn = ''
+        $pi = ''
+        $pd = $false
+        if ($ap) {
+            $ps = [string]$ap.deploymentProfileAssignmentStatus
+            $pd = Test-ApDate $ap.deploymentProfileAssignedDateTime
+            if ($ps -like 'assigned*') {
+                $pr = Get-ApProfile $ap.id
+                if ($pr) { $pn = [string]$pr.displayName; $pi = [string]$pr.id }
+            }
         }
+        $txt = $(if ($ps) { $ps } else { 'noch nicht sichtbar' })
+        if ($pn) { $txt = $txt + '  (' + $pn + ')' }
+        if ($ps -like 'assigned*' -and -not $pd) { $txt = $txt + '  [Datum fehlt]' }
+        $lastTxt = $txt
+        Write-Host ('  {0}  Profil: {1}' -f (Get-Date -Format 'HH:mm:ss'), $txt)
+        Log ('Profilstatus: ' + $txt + ' | ProfilId ' + $pi + ' | Datum ' + [string]$ap.deploymentProfileAssignedDateTime)
+        $ready = $false
+        if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
+            if (-not $pi) { Write-Host '            (Profil nicht lesbar - warte)' }
+            elseif (-not $pd) { Write-Host '            (Zuweisungsdatum noch leer - warte)' }
+            elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { Write-Host ('            (Detailstatus ' + $ap.deploymentProfileAssignmentDetailedStatus + ' - warte)') }
+            elseif ($null -ne $TagProfIds -and $TagProfIds.Count -and ($TagProfIds -notcontains $pi)) { Write-Host '            (anderes Profil als fuer den Tag erwartet - warte)' }
+            elseif ($TagChanged -and ($null -eq $TagProfIds -or -not $TagProfIds.Count)) { Write-Host '            (Tag geaendert, erwartetes Profil unbekannt - Entscheidung am Ende)' }
+            else { $ready = $true }
+        }
+        elseif ($ps -eq 'assignedOutOfSync') { Write-Host '            (zugewiesen, aber nicht mit dem Autopilot-Dienst synchron - warte)' }
+        if ($ready) { $okCount++ } else { $okCount = 0 }
+        if ($okCount -ge 2) { $assigned = $true; break }
+        if ($extra) { break }
+        if ($okCount -eq 1) { Write-Host '            (zugewiesen - Kontrolle in 30 s)' }
+        Start-Sleep -Seconds 30
     }
-    $txt = $(if ($ps) { $ps } else { 'noch nicht sichtbar' })
-    if ($pn) { $txt = $txt + '  (' + $pn + ')' }
-    if ($ps -like 'assigned*' -and -not $pd) { $txt = $txt + '  [Datum fehlt]' }
-    $lastTxt = $txt
-    Write-Host ('  {0}  Profil: {1}' -f (Get-Date -Format 'HH:mm:ss'), $txt)
-    Log ('Profilstatus: ' + $txt + ' | ProfilId ' + $pi + ' | Datum ' + [string]$ap.deploymentProfileAssignedDateTime)
-    $ready = $false
-    if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
-        if (-not $pi) { Write-Host '            (Profil nicht lesbar - warte)' }
-        elseif (-not $pd) { Write-Host '            (Zuweisungsdatum noch leer - warte)' }
-        elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { Write-Host ('            (Detailstatus ' + $ap.deploymentProfileAssignmentDetailedStatus + ' - warte)') }
-        elseif ($null -ne $TagProfIds -and $TagProfIds.Count -and ($TagProfIds -notcontains $pi)) { Write-Host '            (anderes Profil als fuer den Tag erwartet - warte)' }
-        elseif ($TagChanged -and ($null -eq $TagProfIds -or -not $TagProfIds.Count)) { Write-Host '            (Tag geaendert, erwartetes Profil unbekannt - Entscheidung am Ende)' }
-        else { $ready = $true }
-    }
-    elseif ($ps -eq 'assignedOutOfSync') { Write-Host '            (zugewiesen, aber nicht mit dem Autopilot-Dienst synchron - warte)' }
-    if ($ready) { $okCount++ } else { $okCount = 0 }
-    if ($okCount -ge 2) { $assigned = $true; break }
-    if ($extra) { break }
-    if ($okCount -eq 1) { Write-Host '            (zugewiesen - Kontrolle in 30 s)' }
-    Start-Sleep -Seconds 30
+    return [pscustomobject]@{ Assigned = $assigned; LastTxt = $lastTxt; Profil = $pn }
 }
+
+if (-not $DoReset) {
+    Log 'Nur Upload gewaehlt - kein Zuruecksetzen, pruefe Profilzuweisung'
+    Banner 'OK  -  HOCHGELADEN  -  STICK ABZIEHEN' 'DarkGreen' @(
+        '',
+        ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
+        'Geraet wird NICHT zurueckgesetzt.',
+        ('Pruefe jetzt die Autopilot-Profilzuweisung (bis ' + $ProfileWaitMin + ' Min).'),
+        'Das Fenster darf jederzeit geschlossen werden - der Upload ist fertig.')
+    $wr = Wait-ApProfile
+    if ($wr.Assigned) {
+        Log ('Nur Upload: Profil zugewiesen: ' + $wr.Profil)
+        Banner 'OK  -  AUTOPILOT-PROFIL ZUGEWIESEN' 'DarkGreen' @(
+            '',
+            ('Profil: ' + $wr.Profil + '   Group Tag: ' + $cfg.GroupTag),
+            'Geraet wurde NICHT zurueckgesetzt.',
+            'Fuer Autopilot: Geraet jetzt zuruecksetzen (Einstellungen > System >',
+            'Wiederherstellung) oder per Intune "Zuruecksetzen".')
+    } else {
+        Log ('Nur Upload: Profil nach Wartezeit NICHT sicher zugewiesen, letzter Status: ' + $wr.LastTxt)
+        Banner 'ACHTUNG  -  Autopilot-Profil noch nicht zugewiesen' 'DarkYellow' @(
+            '',
+            ('Letzter Status: ' + $wr.LastTxt),
+            'Der Upload ist fertig, die Zuweisung dauert noch.',
+            'Vor dem Zuruecksetzen im Intune-Portal pruefen: Profilstatus "Zugewiesen",',
+            'Zuweisungsdatum gesetzt, richtiges Profil.')
+    }
+    Read-Host '  Enter = Fenster schliessen' | Out-Null
+    exit 0
+}
+
+Banner 'OK  -  STICK ABZIEHEN  -  naechstes Geraet' 'DarkGreen' @(
+    '',
+    ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
+    'Geraet NICHT ausschalten. Es wartet jetzt auf das',
+    'Autopilot-Profil und setzt sich dann selbst zurueck.')
+$GreenAt = Get-Date
+
+# ---------- 5. Auf Profil warten ----------
+$wr = Wait-ApProfile
+$assigned = $wr.Assigned
+$lastTxt = $wr.LastTxt
 
 if (-not $assigned) {
     Log ('Profil nach Wartezeit NICHT sicher zugewiesen, letzter Status: ' + $lastTxt)
