@@ -844,6 +844,26 @@ function Show-Status {
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
     $g = @{}; foreach ($n in 'cTag','cProto','tFind','tCount','bCsv','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
+    # Spalte Profil dezent einfaerben: zugewiesen = hellgruen, in Arbeit (ausstehend, Datum fehlt, nicht synchron) = hellgelb.
+    # Auswahl bleibt erkennbar (eigener Trigger fuer IsSelected mit den Systemfarben).
+    $profStyle = $null
+    try {
+        $profStyle = [Windows.Markup.XamlReader]::Parse(@'
+<Style TargetType="DataGridCell" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style.Triggers>
+    <DataTrigger Binding="{Binding Profil}" Value="zugewiesen"><Setter Property="Background" Value="#DFF2E1"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="ausstehend"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="zugew., Datum fehlt"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="zugew., nicht synchron"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
+    <Trigger Property="IsSelected" Value="True">
+      <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+      <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+    </Trigger>
+  </Style.Triggers>
+</Style>
+'@)
+    } catch { Out-Log ('Status-Farben: ' + $_.Exception.Message) }
+    if ($profStyle) { $g.dGrid.Add_AutoGeneratingColumn({ param($s, $e) if ([string]$e.PropertyName -eq 'Profil') { $e.Column.CellStyle = $profStyle } }) }
     $script:SRows = @($Rows)
     $fillTags = {
         $keep = [string]$g.cTag.SelectedItem

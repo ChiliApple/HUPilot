@@ -2,6 +2,7 @@
 
 ## v2.7.2 - 2026-10-26
 - go.ps1: **Vorab importierte Geräte (Händler-CSV) behalten ihren Tag.** Ist das Gerät schon in Autopilot und weicht der am Stick gewählte Tag ab, fragt go jetzt: [Enter] vorhandenen Tag behalten (Standard, auch nach 10 s ohne Eingabe) oder [J] ändern. Vorher wurde der Tag ohne Rückfrage überschrieben, auch wenn nach 10 s nur der Standard-Tag gegriffen hatte. Beim Behalten wird das erwartete Profil für den vorhandenen Tag neu bestimmt.
+- Setup › Status: Spalte Profil dezent eingefärbt – „zugewiesen“ hellgrün, „ausstehend“, „zugew., Datum fehlt“ und „zugew., nicht synchron“ hellgelb.
 - go.ps1: Protokoll schreibt bei bereits registrierten Geräten „BEREITS REGISTRIERT“ statt „UPLOAD OK“ (Setup › Status, Spalte HUPilot).
 
 ## v2.7.1 - 2026-10-26
