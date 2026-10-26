@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.1'
+$SetupVer = '2.7.2'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -844,6 +844,26 @@ function Show-Status {
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
     $g = @{}; foreach ($n in 'cTag','cProto','tFind','tCount','bCsv','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
+    # Spalte Profil dezent einfaerben: zugewiesen = hellgruen, in Arbeit (ausstehend, Datum fehlt, nicht synchron) = hellgelb.
+    # Auswahl bleibt erkennbar (eigener Trigger fuer IsSelected mit den Systemfarben).
+    $profStyle = $null
+    try {
+        $profStyle = [Windows.Markup.XamlReader]::Parse(@'
+<Style TargetType="DataGridCell" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style.Triggers>
+    <DataTrigger Binding="{Binding Profil}" Value="zugewiesen"><Setter Property="Background" Value="#DFF2E1"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="ausstehend"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="zugew., Datum fehlt"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="zugew., nicht synchron"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
+    <Trigger Property="IsSelected" Value="True">
+      <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+      <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+    </Trigger>
+  </Style.Triggers>
+</Style>
+'@)
+    } catch { Out-Log ('Status-Farben: ' + $_.Exception.Message) }
+    if ($profStyle) { $g.dGrid.Add_AutoGeneratingColumn({ param($s, $e) if ([string]$e.PropertyName -eq 'Profil') { $e.Column.CellStyle = $profStyle } }) }
     $script:SRows = @($Rows)
     $fillTags = {
         $keep = [string]$g.cTag.SelectedItem
