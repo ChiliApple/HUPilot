@@ -711,7 +711,11 @@ function Wait-ApProfile {
     $extra = $false
     if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geaendert, Tag-Pruefung nicht moeglich - keine automatische Freigabe' }
     $limit = (Get-Date).AddMinutes($ProfileWaitMin)
+    $syncAt = Get-Date
     while ((Get-Date) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
+        # Noch nicht zugewiesen: Autopilot-Sync alle 5 Min wiederholen. Der Sync nach dem Import kann mit 429 abgewiesen werden,
+        # wenn kurz vorher (< 10 Min, MS Doku) schon einer lief - z. B. vom vorigen Geraet. Dann kommt die Zuweisung sonst erst spaet.
+        if ($okCount -eq 0 -and ((Get-Date) - $syncAt).TotalMinutes -ge 5) { Invoke-ApSync 'Warten auf Profil'; $syncAt = Get-Date }
         if ((Get-Date) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
         $ap = Get-ApDevice
         $ps = ''
