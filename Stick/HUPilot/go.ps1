@@ -452,17 +452,24 @@ function Test-RuleTag {
 }
 function Get-TagProfiles {
     # Rueckgabe: Liste der Profilnamen fuer den Tag; $null = nicht pruefbar
-    # Nebenbei: $script:TagProfIds = IDs dieser Profile (erwartetes Profil beim Warten, MS Doku "Assigned profile = expected profile")
+    # Nebenbei: $script:TagProfIds = ID des Profils, das das Geraet laut MS-Prioritaetsregel bekommt (erwartetes Profil beim Warten)
+    # MS Doku (learn.microsoft.com/autopilot/profiles "Windows Autopilot profile priority"):
+    #   mehrere passende Gruppen-Profile -> das AELTESTE (createdDateTime) gewinnt;
+    #   ein Profil fuer "Alle Geraete" gilt nur, wenn kein anderes Profil passt.
+    # Ausschluesse (exclusionGroupAssignmentTarget), deren Gruppenregel auf den Tag passt, schliessen das Profil aus.
     param([string]$Tag)
     $script:TagProfIds = $null
     try { $pr = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments') -Headers $h).value) }
     catch { Log ('Tag-Pruefung Profile: ' + (Get-ErrText $_)); return $null }
-    $names = @(); $ids = @(); $gcache = @{}
+    $gcache = @{}
+    $grp = @(); $all = @()
     foreach ($p in $pr) {
+        $inc = $false; $incAll = $false; $exc = $false; $gname = ''
         foreach ($a in @($p.assignments)) {
             $t = $a.target; $ty = [string]$t.'@odata.type'
-            if ($ty -like '*allDevicesAssignmentTarget') { $names += [string]$p.displayName; $ids += [string]$p.id; continue }
-            if ($ty -notlike '*.groupAssignmentTarget') { continue }
+            if ($ty -like '*allDevicesAssignmentTarget') { $incAll = $true; continue }
+            $isExc = ($ty -like '*exclusionGroupAssignmentTarget')
+            if (-not $isExc -and $ty -notlike '*.groupAssignmentTarget') { continue }
             $gid = [string]$t.groupId
             if (-not $gcache.ContainsKey($gid)) {
                 try { $gcache[$gid] = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/groups/' + $gid + '?$select=displayName,membershipRule') -Headers $h }
@@ -472,12 +479,22 @@ function Get-TagProfiles {
                     Log ('Tag-Pruefung: Gruppe ' + $gid + ' nicht lesbar/geloescht - uebersprungen'); $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' }
                 }
             }
-            if (Test-RuleTag ([string]$gcache[$gid].membershipRule) $Tag) { $names += ([string]$p.displayName + ' (' + [string]$gcache[$gid].displayName + ')'); $ids += [string]$p.id }
+            if (Test-RuleTag ([string]$gcache[$gid].membershipRule) $Tag) {
+                if ($isExc) { $exc = $true } else { $inc = $true; $gname = [string]$gcache[$gid].displayName }
+            }
         }
+        if ($exc) { Log ('Tag-Pruefung: Profil ' + $p.displayName + ' schliesst die Tag-Gruppe aus'); continue }
+        $cd = [datetime]::MaxValue; try { if ($p.createdDateTime) { $cd = [datetime]$p.createdDateTime } } catch { }
+        if ($inc) { $grp += [pscustomobject]@{ Id = [string]$p.id; Name = ([string]$p.displayName + ' (' + $gname + ')'); Created = $cd } }
+        elseif ($incAll) { $all += [pscustomobject]@{ Id = [string]$p.id; Name = ([string]$p.displayName + ' (Alle Geraete)'); Created = $cd } }
     }
-    $script:TagProfIds = @($ids | Where-Object { $_ } | Select-Object -Unique)
+    $cand = @(if ($grp.Count) { $grp } else { $all })
+    if (-not $cand.Count) { $script:TagProfIds = @(); return ,@() }
+    $win = @($cand | Sort-Object Created)[0]
+    if ($cand.Count -gt 1) { Log ('Tag-Pruefung: ' + $cand.Count + ' Profile passen, aeltestes gewinnt: ' + $win.Name) }
+    $script:TagProfIds = @($win.Id)
     # Komma: leere Liste NICHT zu $null aufloesen lassen ($null = nicht pruefbar)
-    return ,@($names | Select-Object -Unique)
+    return ,@($win.Name)
 }
 $tp = Get-TagProfiles $cfg.GroupTag
 if ($null -eq $tp) { Log 'Tag-Pruefung nicht moeglich (optional: Group.Read.All fuer die App)' }
@@ -695,7 +712,8 @@ $GreenAt = Get-Date
 #   1. Profilstatus "Assigned"   -> Graph assignedInSync oder assignedUnkownSyncState
 #      (im Tenant stehen ALLE registrierten Geraete dauerhaft auf assignedUnkownSyncState - ein reines assignedInSync wuerde nie erreicht)
 #   2. "Date assigned" gesetzt   -> deploymentProfileAssignedDateTime
-#   3. "Assigned profile" = erwartetes Profil -> Profil-ID gehoert zu den Profilen des Tags (Tag-Pruefung, Group.Read.All)
+#   3. "Assigned profile" = erwartetes Profil -> Profil-ID = Profil, das laut MS-Prioritaetsregel fuer den Tag gewinnt (Tag-Pruefung, Group.Read.All)
+#   zusaetzlich: deploymentProfileAssignmentDetailedStatus leer oder 'none' (sonst meldet Intune ein Problem mit dem Profil)
 # v2.6 hat nur 1. geprueft und ein Geraet ohne fertige Zuweisung zurueckgesetzt. Ausserdem muessen 2 Abfragen hintereinander passen.
 # Nach Tag-Aenderung ohne moegliche Tag-Pruefung: keine automatische Freigabe (altes Profil waere nicht vom neuen unterscheidbar).
 function Test-ApDate {
@@ -710,7 +728,7 @@ $extra = $false
 if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geaendert, Tag-Pruefung nicht moeglich - keine automatische Freigabe' }
 $limit = (Get-Date).AddMinutes($ProfileWaitMin)
 while ((Get-Date) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
-    if ((Get-Date) -ge $limit) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
+    if ((Get-Date) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
     $ap = Get-ApDevice
     $ps = ''
     $pn = ''
@@ -734,6 +752,7 @@ while ((Get-Date) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
     if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
         if (-not $pi) { Write-Host '            (Profil nicht lesbar - warte)' }
         elseif (-not $pd) { Write-Host '            (Zuweisungsdatum noch leer - warte)' }
+        elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { Write-Host ('            (Detailstatus ' + $ap.deploymentProfileAssignmentDetailedStatus + ' - warte)') }
         elseif ($null -ne $TagProfIds -and $TagProfIds.Count -and ($TagProfIds -notcontains $pi)) { Write-Host '            (anderes Profil als fuer den Tag erwartet - warte)' }
         elseif ($TagChanged -and ($null -eq $TagProfIds -or -not $TagProfIds.Count)) { Write-Host '            (Tag geaendert, erwartetes Profil unbekannt - Entscheidung am Ende)' }
         else { $ready = $true }

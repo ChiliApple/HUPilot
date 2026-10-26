@@ -4,9 +4,10 @@
 - go.ps1: **Zurücksetzen ohne fertiges Autopilot-Profil behoben.** v2.6 hat schon beim ersten Profilstatus `assigned…` zurückgesetzt. Ein Gerät wurde so zurückgesetzt, bevor die Zuweisung fertig war, und landete im normalen Windows-Setup. Jetzt gelten die drei Bedingungen aus der Microsoft-Doku (Autopilot › Profile › „Assignment of Windows Autopilot deployment profiles to devices“):
   1. Profilstatus „Zugewiesen“ (`assignedInSync` oder `assignedUnkownSyncState`; in den Schul-Tenants stehen **alle** registrierten Geräte dauerhaft auf `assignedUnkownSyncState`)
   2. Zuweisungsdatum gesetzt (`deploymentProfileAssignedDateTime`)
-  3. Zugewiesenes Profil = erwartetes Profil (Profil-ID gehört zu den Profilen des Tags aus der Tag-Prüfung, braucht `Group.Read.All`)
+  3. Zugewiesenes Profil = erwartetes Profil. Erwartet ist das Profil, das laut Microsoft-Prioritätsregel gewinnt: unter mehreren passenden Gruppen-Profilen das älteste, ein Profil für „Alle Geräte“ nur, wenn kein Gruppen-Profil passt; Profile, die die Tag-Gruppe ausschließen, zählen nicht (braucht `Group.Read.All`)
+  4. Detailstatus der Zuweisung leer oder `none`
   
-  Alle drei müssen zwei Abfragen hintereinander (30 s) erfüllt sein. Kommt der erste Treffer kurz vor Ablauf der Wartezeit, gibt es genau eine Kontrollrunde zusätzlich.
+  Alles muss zwei Abfragen hintereinander (30 s) erfüllt sein. Kommt der erste Treffer kurz vor Ablauf der Wartezeit, gibt es genau eine Kontrollrunde zusätzlich.
 - go.ps1: **Tag-Änderung:** Freigabe nur noch mit dem Profil des neuen Tags. Die alte 10-Minuten-Regel und der Vergleich mit dem bisherigen Profil entfallen; beide konnten mit dem **alten** Profil zurücksetzen (z. B. wenn das bisherige Profil nicht lesbar war). Ohne Tag-Prüfung (kein `Group.Read.All`) gibt es nach einer Tag-Änderung keine automatische Freigabe, sondern die J/N-Abfrage am Ende.
 - go.ps1: **Token wird nach 45 Minuten erneuert.** Microsoft gibt 60–90 Minuten Gültigkeit an; Hardwaretausch, Import und Profil-Warten zusammen können länger dauern.
 - go.ps1: Autopilot-Sync einmal **nach** Import, Tag-Änderung und Benutzerzuweisung (vorher vor der Benutzerzuweisung, nach Tag-Änderung gar nicht). 409/429 (Sync läuft bzw. letzter Sync vor < 10 Min, laut Doku) gelten nicht mehr als Fehler.
@@ -14,7 +15,8 @@
 - go.ps1: Seriennummer im Filter abgesichert (Hochkomma), bei mehreren Autopilot-Einträgen mit derselben Seriennummer Hinweis im Log und Verwendung des jüngsten.
 - go.ps1: Läuft die Wartezeit ab, zeigt die gelbe Meldung den letzten Status und empfiehlt N.
 - Setup › Status: Spalte Profil zeigt „zugew., Datum fehlt“ bzw. „zugew., nicht synchron“ (`assignedOutOfSync`).
-- Geprüft im KI-Briefkasten (Thema 051, Gemini).
+- Setup › Status: Datum wird über das Jahr geprüft (robust, egal ob Text oder Datumswert).
+- Geprüft im KI-Briefkasten (Thema 051, Gemini, 2 Runden).
 - **Noch nicht an einem Gerät getestet.**
 
 ## v2.6 - 2026-10-20
