@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.1'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.2'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -601,8 +601,30 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     Say 'Alter Autopilot-Eintrag entfernt - importiere neu mit aktuellem Hash' 'Green'
     $ap = $null
 }
+$AlreadyReg = [bool]$ap
 if ($ap) {
     Say ('Bereits in Autopilot (Tag "' + $ap.groupTag + '")') 'Yellow'
+    # Vorab importierte Geraete (z. B. Haendler-CSV): vorhandenen Tag NICHT stillschweigend ueberschreiben.
+    # Weicht der gewaehlte Tag ab, wird gefragt; ohne Eingabe (10 s) bleibt der vorhandene Tag.
+    if ([string]$ap.groupTag -and [string]$ap.groupTag -ne [string]$cfg.GroupTag) {
+        Write-Host ''
+        Write-Host ('  Geraet hat schon den Tag "' + $ap.groupTag + '", gewaehlt ist "' + $cfg.GroupTag + '".') -ForegroundColor Yellow
+        Write-Host ('    [Enter]  Tag "' + $ap.groupTag + '" behalten   (Standard)') -ForegroundColor White
+        Write-Host ('    [J]      auf "' + $cfg.GroupTag + '" aendern')
+        Write-Host '  Ohne Eingabe nach 10 s automatisch behalten ...'
+        $k = Read-KeyTimeout 10
+        if ($k -eq 'J' -or $k -eq 'Y') { Log ('Tag-Aenderung bestaetigt: ' + $ap.groupTag + ' -> ' + $cfg.GroupTag) }
+        else {
+            Log ('Vorhandener Tag bleibt: ' + $ap.groupTag + ' (gewaehlt war ' + $cfg.GroupTag + ')')
+            $cfg.GroupTag = [string]$ap.groupTag
+            # erwartetes Profil fuer den behaltenen Tag neu bestimmen (Tag-Pruefung lief mit dem gewaehlten Tag)
+            $tp = Get-TagProfiles $cfg.GroupTag
+            if ($null -eq $tp) { Log 'Tag-Pruefung nicht moeglich (optional: Group.Read.All fuer die App)' }
+            elseif ($tp.Count) { Say ('Profil fuer Tag: ' + ($tp -join ', ')) 'Green' }
+            else { Say ('ACHTUNG: Fuer Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen') 'Yellow' }
+        }
+        Write-Host ''
+    }
     if ([string]$ap.groupTag -ne [string]$cfg.GroupTag) {
         $op = Get-ApProfile $ap.id
         if ($op) { Log ('Bisheriges Profil: ' + $op.displayName) }
@@ -683,7 +705,7 @@ if ($StickPkg) {
     } catch { Fail ('WLAN-Paket kopieren: ' + $_.Exception.Message) }
     Log 'WLAN-Paket lokal kopiert'
 }
-Protokoll $(if ($DoReset) { 'UPLOAD OK' } else { 'UPLOAD OK (ohne Zuruecksetzen)' })
+Protokoll ($(if ($AlreadyReg) { 'BEREITS REGISTRIERT' } else { 'UPLOAD OK' }) + $(if ($DoReset) { '' } else { ' (ohne Zuruecksetzen)' }))
 Log '--- Stick wird ab jetzt nicht mehr gebraucht ---'
 $StickLog = $null
 

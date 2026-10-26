@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.7.2 - 2026-10-26
+- go.ps1: **Vorab importierte Geräte (Händler-CSV) behalten ihren Tag.** Ist das Gerät schon in Autopilot und weicht der am Stick gewählte Tag ab, fragt go jetzt: [Enter] vorhandenen Tag behalten (Standard, auch nach 10 s ohne Eingabe) oder [J] ändern. Vorher wurde der Tag ohne Rückfrage überschrieben, auch wenn nach 10 s nur der Standard-Tag gegriffen hatte. Beim Behalten wird das erwartete Profil für den vorhandenen Tag neu bestimmt.
+- go.ps1: Protokoll schreibt bei bereits registrierten Geräten „BEREITS REGISTRIERT“ statt „UPLOAD OK“ (Setup › Status, Spalte HUPilot).
+
 ## v2.7.1 - 2026-10-26
 - go.ps1: **„Nur hochladen“ (ohne Zurücksetzen) prüft jetzt die Profilzuweisung.** Vorher endete go direkt nach dem Upload. Jetzt wartet go wie beim Zurücksetzen bis 20 Minuten auf die Zuweisung (gleiche Bedingungen: Status zugewiesen, Datum gesetzt, erwartetes Profil für den Tag) und zeigt am Ende grün „Autopilot-Profil zugewiesen“ mit Profilname oder gelb den letzten Status. Das Fenster darf jederzeit geschlossen werden, der Upload ist da schon fertig.
 - go.ps1: Solange das Profil noch nicht zugewiesen ist, stößt go den Autopilot-Sync alle 5 Minuten erneut an. Der Sync direkt nach dem Import wird abgewiesen (429), wenn in den 10 Minuten davor schon einer lief, z. B. vom vorigen Gerät; dann musste man ihn bisher im Portal von Hand anstoßen.
