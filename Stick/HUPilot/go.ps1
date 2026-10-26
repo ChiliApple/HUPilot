@@ -95,7 +95,7 @@ function Protokoll {
     try {
         $p = Join-Path $CfgDir 'logs\protokoll.csv'
         if (-not (Test-Path $p)) { Add-Content -Path $p -Value 'Zeit;Seriennr;Tenant;Tag;Ergebnis' -Encoding ASCII }
-        Add-Content -Path $p -Value ('{0};{1};{2};{3};{4}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Serial, $cfg.Tenant, $cfg.GroupTag, $Result) -Encoding ASCII
+        Add-Content -Path $p -Value ('{0};{1};{2};{3};{4}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Serial, $cfg.Tenant, ([string]$cfg.GroupTag -replace ';', ','), $Result) -Encoding ASCII
     } catch { }
 }
 function Fail {
@@ -527,6 +527,7 @@ if ($AssignUpn) {
 # ---------- 3c. Autopilot ----------
 function Get-ApDevice {
     Update-Token
+    $script:ApLookupFailed = $false
     try {
         # OData: einfaches Hochkomma im Wert verdoppeln
         $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial.Replace("'", "''") + "')")
@@ -534,7 +535,7 @@ function Get-ApDevice {
         $m = @($r.value | Where-Object { $_.serialNumber -eq $Serial })
         if ($m.Count -gt 1) { Log ('ACHTUNG: ' + $m.Count + ' Autopilot-Eintraege mit Seriennummer ' + $Serial + ' - verwende den mit der juengsten Profilzuweisung') }
         return @($m | Sort-Object { [string]$_.deploymentProfileAssignedDateTime } -Descending)[0]
-    } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)); return $null }
+    } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)); $script:ApLookupFailed = $true; return $null }
 }
 function Get-ApProfile {
     param([string]$Id)
@@ -547,7 +548,15 @@ function Get-ApProfile {
 
 $TagChanged = $false
 
-$ap = Get-ApDevice
+# Erste Abfrage: ein Fehler (Netz, 429, 5xx) darf NICHT als "nicht registriert" gelten - sonst wuerde ein vorab
+# importiertes Geraet neu importiert und der Import scheitert irrefuehrend mit 806/808. 3 Versuche, dann Abbruch.
+$ap = $null
+for ($i = 1; $i -le 3; $i++) {
+    $ap = Get-ApDevice
+    if (-not $script:ApLookupFailed) { break }
+    if ($i -lt 3) { Say ('Autopilot-Abfrage fehlgeschlagen - neuer Versuch ' + ($i + 1) + '/3 in 15 s') 'Yellow'; Start-Sleep -Seconds 15 }
+}
+if ($script:ApLookupFailed) { Fail 'Autopilot-Abfrage 3x fehlgeschlagen (Netz/Graph, siehe Log) - nochmal go' }
 # Hardware geaendert (z. B. Mainboardtausch beim Support): Autopilot zeigt "Fix ausstehend" / "Achtung erforderlich",
 # der gespeicherte Hash passt nicht mehr. MS Doku (Autopilot motherboard replacement / Deregister a device):
 # zuerst Intune-Eintrag loeschen, dann Autopilot-Eintrag loeschen, dann mit neuem Hash neu registrieren.
@@ -612,16 +621,26 @@ if ($ap) {
         Write-Host ('    [Enter]  Tag "' + $ap.groupTag + '" behalten   (Standard)') -ForegroundColor White
         Write-Host ('    [J]      auf "' + $cfg.GroupTag + '" aendern')
         Write-Host '  Ohne Eingabe nach 10 s automatisch behalten ...'
+        try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }   # alte Tastendruecke verwerfen
         $k = Read-KeyTimeout 10
         if ($k -eq 'J' -or $k -eq 'Y') { Log ('Tag-Aenderung bestaetigt: ' + $ap.groupTag + ' -> ' + $cfg.GroupTag) }
         else {
             Log ('Vorhandener Tag bleibt: ' + $ap.groupTag + ' (gewaehlt war ' + $cfg.GroupTag + ')')
             $cfg.GroupTag = [string]$ap.groupTag
+            if ($cfg.GroupTag -notmatch $TagPattern) { Log ('Hinweis: vorhandener Tag passt nicht zum Muster ' + $TagPattern + ': ' + $cfg.GroupTag) }
             # erwartetes Profil fuer den behaltenen Tag neu bestimmen (Tag-Pruefung lief mit dem gewaehlten Tag)
             $tp = Get-TagProfiles $cfg.GroupTag
             if ($null -eq $tp) { Log 'Tag-Pruefung nicht moeglich (optional: Group.Read.All fuer die App)' }
             elseif ($tp.Count) { Say ('Profil fuer Tag: ' + ($tp -join ', ')) 'Green' }
-            else { Say ('ACHTUNG: Fuer Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen') 'Yellow' }
+            else {
+                Log ('Tag-Pruefung: KEIN Profil fuer behaltenen Tag ' + $cfg.GroupTag)
+                Write-Host ('  ACHTUNG: Fuer den vorhandenen Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
+                Write-Host '  Das Geraet wuerde vergeblich auf ein Profil warten (Tippfehler in der CSV?).' -ForegroundColor Yellow
+                Write-Host '  [A] Abbrechen   -   [Enter] oder 20 s: trotzdem weiter' -ForegroundColor Yellow
+                try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }
+                $k2 = Read-KeyTimeout 20
+                if ($k2 -eq 'A') { Log 'Abbruch: kein Profil fuer behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil fuer Tag'; exit 1 }
+            }
         }
         Write-Host ''
     }
@@ -695,7 +714,7 @@ if ($AssignUpn) {
         } catch { Say ('Benutzer zuweisen fehlgeschlagen: ' + (Get-ErrText $_)) 'Yellow' }
     } else { Say 'Benutzer zuweisen: Geraet in Autopilot noch nicht sichtbar - spaeter im Portal' 'Yellow' }
 }
-if (-not $ap -or $TagChanged -or $AssignUpn) { Invoke-ApSync 'nach Import/Tag/Benutzer' }
+if (-not $ap -or $TagChanged -or $AssignUpn -or ([string]$ap.deploymentProfileAssignmentStatus -notin 'assignedInSync', 'assignedUnkownSyncState')) { Invoke-ApSync 'nach Import/Tag/Benutzer bzw. noch ohne Profil' }
 
 # ---------- 4. WLAN-Paket lokal kopieren ----------
 if ($StickPkg) {
@@ -763,8 +782,9 @@ function Wait-ApProfile {
             if (-not $pi) { Write-Host '            (Profil nicht lesbar - warte)' }
             elseif (-not $pd) { Write-Host '            (Zuweisungsdatum noch leer - warte)' }
             elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { Write-Host ('            (Detailstatus ' + $ap.deploymentProfileAssignmentDetailedStatus + ' - warte)') }
-            elseif ($null -ne $TagProfIds -and $TagProfIds.Count -and ($TagProfIds -notcontains $pi)) { Write-Host '            (anderes Profil als fuer den Tag erwartet - warte)' }
-            elseif ($TagChanged -and ($null -eq $TagProfIds -or -not $TagProfIds.Count)) { Write-Host '            (Tag geaendert, erwartetes Profil unbekannt - Entscheidung am Ende)' }
+            elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { Write-Host '            (fuer den Tag ist kein Profil zugewiesen - warte)' }
+            elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { Write-Host '            (anderes Profil als fuer den Tag erwartet - warte)' }
+            elseif ($TagChanged -and $null -eq $TagProfIds) { Write-Host '            (Tag geaendert, erwartetes Profil unbekannt - Entscheidung am Ende)' }
             else { $ready = $true }
         }
         elseif ($ps -eq 'assignedOutOfSync') { Write-Host '            (zugewiesen, aber nicht mit dem Autopilot-Dienst synchron - warte)' }

@@ -2,6 +2,11 @@
 
 ## v2.7.2 - 2026-10-26
 - go.ps1: **Vorab importierte Geräte (Händler-CSV) behalten ihren Tag.** Ist das Gerät schon in Autopilot und weicht der am Stick gewählte Tag ab, fragt go jetzt: [Enter] vorhandenen Tag behalten (Standard, auch nach 10 s ohne Eingabe) oder [J] ändern. Vorher wurde der Tag ohne Rückfrage überschrieben, auch wenn nach 10 s nur der Standard-Tag gegriffen hatte. Beim Behalten wird das erwartete Profil für den vorhandenen Tag neu bestimmt.
+- go.ps1: **Fehler behoben: Tag ohne Profil.** Gibt es für den Tag nachweislich kein Autopilot-Profil, hat `Wait-ApProfile` bisher jedes noch zugewiesene Altprofil akzeptiert und zurückgesetzt. Jetzt wartet go und fragt am Ende J/N. Behält go den vorhandenen Tag und hat dieser kein Profil (z. B. Tippfehler in der CSV), gibt es dieselbe Abbruchfrage [A] wie bei der ersten Tag-Prüfung.
+- go.ps1: Registrierte Geräte ohne fertige Zuweisung (z. B. CSV-Import gerade erst verarbeitet) bekommen sofort einen Autopilot-Sync statt erst nach 5 Minuten.
+- go.ps1: Scheitert die erste Autopilot-Abfrage (Netz, 429, 5xx), gilt das Gerät nicht mehr als „nicht registriert“: 3 Versuche, danach Abbruch. Vorher wurde dann ein vorab importiertes Gerät neu importiert und der Import scheiterte irreführend mit 806/808.
+- go.ps1: Vor der Tag-Rückfrage werden alte Tastendrücke verworfen; `;` im Tag wird in `protokoll.csv` durch `,` ersetzt.
+- Geprüft im KI-Briefkasten (Thema 052, Grok und Gemini).
 - Setup › Status: Spalte Profil dezent eingefärbt – „zugewiesen“ hellgrün, „ausstehend“, „zugew., Datum fehlt“ und „zugew., nicht synchron“ hellgelb.
 - go.ps1: Protokoll schreibt bei bereits registrierten Geräten „BEREITS REGISTRIERT“ statt „UPLOAD OK“ (Setup › Status, Spalte HUPilot).
 
