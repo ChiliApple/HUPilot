@@ -1,7 +1,7 @@
 # Changelog
 
 ## v2.7.4 - 2026-10-30
-- go.ps1: **„Nur hochladen“ im Einrichtungsbildschirm (OOBE) startet automatisch neu,** sobald das Profil zugewiesen ist. Laut Microsoft holt Windows das Autopilot-Profil bei jedem Neustart neu; ein Zurücksetzen ist im OOBE nicht nötig. Vorher wartet go, bis der Stick abgezogen ist (sonst bootet das Gerät evtl. vom Stick), dann 15 s Countdown, [A] bricht ab. Steckt der Stick nach 5 Min noch, kein automatischer Neustart. Im eingerichteten Windows bleibt der Hinweis aufs Zurücksetzen.
+- go.ps1: **„Nur hochladen“ im Einrichtungsbildschirm (OOBE) startet automatisch neu,** sobald das Profil zugewiesen ist. Laut Microsoft holt Windows das Autopilot-Profil bei jedem Neustart neu; ein Zurücksetzen ist im OOBE nicht nötig. Der Stick ist da normalerweise schon abgezogen (nach „STICK ABZIEHEN“ beim Upload); steckt er noch, erscheint ein gelber Hinweis und go wartet, bis er weg ist (sonst bootet das Gerät evtl. vom Stick). Dann 15 s Countdown, [A] bricht ab. Steckt der Stick nach 5 Min noch, kein automatischer Neustart. Im eingerichteten Windows bleibt der Hinweis aufs Zurücksetzen.
 - go.ps1: Profilstatus wird auf Deutsch angezeigt (z. B. „kein Profil zugewiesen“, „Zuweisung läuft“, „zugewiesen“ statt `notAssigned`, `pending`, `assignedUnkownSyncState`); im Log steht zusätzlich der Graph-Wert.
 
 ## v2.7.3 - 2026-10-30

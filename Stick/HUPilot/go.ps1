@@ -877,11 +877,11 @@ if (-not $DoReset) {
         $shown = $false
         while ((Test-Path -LiteralPath ($stickRoot + '\')) -and (Get-Date) -lt $wait) {
             if (-not $shown) {
-                Banner 'OK  -  PROFIL ZUGEWIESEN  -  JETZT STICK ABZIEHEN' 'DarkGreen' @(
+                Banner 'PROFIL ZUGEWIESEN  -  STICK STECKT NOCH' 'DarkYellow' @(
                     '',
                     ('Profil: ' + $wr.Profil + '   Group Tag: ' + $cfg.GroupTag),
-                    'Sobald der Stick abgezogen ist, startet das Geraet neu',
-                    'und laedt im Einrichtungsbildschirm das Autopilot-Profil.')
+                    'Der Stick steckt noch - bitte abziehen (sonst bootet das Geraet evtl. vom Stick).',
+                    'Danach startet das Geraet automatisch neu und laedt das Autopilot-Profil.')
                 $shown = $true
             }
             Start-Sleep -Seconds 2
