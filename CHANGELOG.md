@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.7.5 - 2026-10-30
+- go.ps1: **Anzeige beim Warten auf das Profil vereinfacht** – eine kurze Zeile pro Abfrage: „noch nicht sichtbar – warten“, „Zuweisung fehlt – warten“, „falsches Profil – warten“, „zugewiesen (Profil) – Kontrolle in 30 s“, „zugewiesen (Profil)“. Keine zweite Erklärungszeile mehr. Die Entscheidung, wann zurückgesetzt bzw. neu gestartet wird, ist unverändert; der genaue Grund steht weiter im Log.
+
 ## v2.7.4 - 2026-10-30
 - go.ps1: **„Nur hochladen“ im Einrichtungsbildschirm (OOBE) startet automatisch neu,** sobald das Profil zugewiesen ist. Laut Microsoft holt Windows das Autopilot-Profil bei jedem Neustart neu; ein Zurücksetzen ist im OOBE nicht nötig. Der Stick ist da normalerweise schon abgezogen (nach „STICK ABZIEHEN“ beim Upload); steckt er noch, erscheint ein gelber Hinweis und go wartet, bis er weg ist (sonst bootet das Gerät evtl. vom Stick). Dann 15 s Countdown, [A] bricht ab. Steckt der Stick nach 5 Min noch, kein automatischer Neustart. Im eingerichteten Windows bleibt der Hinweis aufs Zurücksetzen.
 - go.ps1: Profilstatus wird auf Deutsch angezeigt (z. B. „kein Profil zugewiesen“, „Zuweisung läuft“, „zugewiesen“ statt `notAssigned`, `pending`, `assignedUnkownSyncState`); im Log steht zusätzlich der Graph-Wert.
