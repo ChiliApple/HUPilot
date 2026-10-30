@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.7.7 - 2026-10-30
+- go.ps1: **Weiter auch ohne Zuweisungsdatum nach 10 Min.** Passt alles (Status zugewiesen, richtiges Profil, kein Fehler), fehlt aber nur das Zuweisungsdatum, macht go nach 10 Min stabil trotzdem weiter (Neustart im OOBE bzw. Zurücksetzen). Anzeige „zugewiesen – Datum fehlt noch (weiter in x Min)“. Grund: Test im Gym-Tenant – Gerät mit SN-2026 bekam auch nach Neuimport kein Datum, nach Neustart im OOBE kam trotzdem die Autopilot-Anmeldung. Mit Datum unverändert. Abweichung von der MS-Prüfliste („Date assigned“ abwarten) bewusst.
+
 ## v2.7.6 - 2026-10-30
 - go.ps1: Ist das Profil zugewiesen, aber das Zuweisungsdatum noch leer, zeigt go „Profil: zugewiesen – Datum fehlt noch“ statt „Zuweisung fehlt – warten“ (passt zum Portal, das dann schon „Zugewiesen“ zeigt). Entscheidung unverändert: laut Microsoft erst ausrollen, wenn das Datum gesetzt ist.
 
