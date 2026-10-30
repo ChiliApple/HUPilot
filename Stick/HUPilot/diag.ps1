@@ -20,8 +20,8 @@ if (-not $isAdmin) {
         Write-Host '  Weiter im neuen Fenster.' -ForegroundColor Green
         Start-Sleep -Seconds 3
     } catch {
-        Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausfuehren" oeffnen, dann:  D:  und  diag' -ForegroundColor Red
-        try { Read-Host '  Enter = Fenster schliessen' | Out-Null } catch { }
+        Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausführen" öffnen, dann:  D:  und  diag' -ForegroundColor Red
+        try { Read-Host '  Enter = Fenster schließen' | Out-Null } catch { }
     }
     exit 1
 }
@@ -40,13 +40,13 @@ function Tail([string]$File, [int]$N, [string]$Pattern) {
     if ($Pattern) { $l = @($l | Where-Object { $_ -match $Pattern }) }
     foreach ($x in @($l | Select-Object -Last $N)) {
         $c = 'Gray'
-        if ($x -match 'FEHLER|ERR |Fehler') { $c = 'Red' } elseif ($x -match 'ACHTUNG|OFFLINE|Hinweis|nicht moeglich') { $c = 'Yellow' } elseif ($x -match ' OK|erfolgreich|gespeichert|zugewiesen') { $c = 'Green' }
+        if ($x -match 'FEHLER|ERR |Fehler') { $c = 'Red' } elseif ($x -match 'ACHTUNG|OFFLINE|Hinweis|nicht m(ö|oe)glich') { $c = 'Yellow' } elseif ($x -match ' OK|erfolgreich|gespeichert|zugewiesen') { $c = 'Green' }
         $t = $x; if ($t.Length -gt 150) { $t = $t.Substring(0, 150) }
         Write-Host ('  ' + $t) -ForegroundColor $c
     }
 }
 function Show-Device {
-    Head 'Geraet'
+    Head 'Gerät'
     try { $os = Get-CimInstance Win32_OperatingSystem; Write-Host ('  Windows      : ' + $os.Caption + '  ' + $os.Version + '  (' + $os.OSArchitecture + ')') } catch { }
     try { $cs = Get-CimInstance Win32_ComputerSystem; Write-Host ('  Hersteller   : ' + $cs.Manufacturer + '  ' + $cs.Model) } catch { }
     try { $b = Get-CimInstance Win32_BIOS; Write-Host ('  Seriennummer : ' + $b.SerialNumber + '   BIOS ' + $b.SMBIOSBIOSVersion) } catch { }
@@ -134,7 +134,7 @@ function Show-Prov {
     Write-Host '  Geplante Aufgabe HUPilot-Wipe:' -ForegroundColor White
     $all = @(cmd.exe /c 'schtasks /query /tn HUPilot-Wipe /v /fo list 2>&1')
     $q = @($all | Where-Object { $_ -match 'Status|Letztes|Last Result|Energie|Power' } | Select-Object -First 6)
-    if ($LASTEXITCODE -ne 0 -or -not $q.Count) { Write-Host '  nicht vorhanden (normal, solange kein Zuruecksetzen laeuft)' }
+    if ($LASTEXITCODE -ne 0 -or -not $q.Count) { Write-Host '  nicht vorhanden (normal, solange kein Zurücksetzen läuft)' }
     foreach ($x in $q) { Write-Host ('  ' + ([string]$x).Trim()) }
 }
 function Save-All {
@@ -153,11 +153,11 @@ function Save-All {
 }
 
 while ($true) {
-    Head 'Menue'
+    Head 'Menü'
     Write-Host '   [1]  HUPilot-Log  (letzte 30 Zeilen)'
     Write-Host '   [2]  HUPilot-Log  nur Fehler / Warnungen'
-    Write-Host '   [3]  Zuruecksetzen  (Wipe-Log)'
-    Write-Host '   [4]  Geraet  (Windows, Seriennr, Akku, Uhr, TPM, Hash, Stick-Config)'
+    Write-Host '   [3]  Zurücksetzen  (Wipe-Log)'
+    Write-Host '   [4]  Gerät  (Windows, Seriennr, Akku, Uhr, TPM, Hash, Stick-Config)'
     Write-Host '   [5]  Netzwerk / WLAN / Microsoft-Adressen'
     Write-Host '   [6]  WLAN-Paket, Intune-Sperre, Recovery, geplante Aufgabe'
     Write-Host '   [7]  ALLES in Datei am Stick speichern  (logs\diag-...txt)'
@@ -166,8 +166,8 @@ while ($true) {
     $k = Read-Host '  Auswahl'
     switch ($k) {
         '1' { Head 'HUPilot.log - letzte 30 Zeilen'; Tail $LocalLog 30 '' }
-        '2' { Head 'HUPilot.log - Fehler / Warnungen'; Tail $LocalLog 30 'FEHLER|ACHTUNG|OFFLINE|Hinweis|nicht moeglich|Exitcode|Abbruch|Fehler|START' }
-        '3' { Head 'HUPilot-Wipe.log'; Tail $WipeLog 30 ''; Write-Host ''; Tail $LocalLog 8 'Zuruecksetzen|schtasks|Aufgabe|provtool|SYSTEM' }
+        '2' { Head 'HUPilot.log - Fehler / Warnungen'; Tail $LocalLog 30 'FEHLER|ACHTUNG|OFFLINE|Hinweis|nicht m(ö|oe)glich|Exitcode|Abbruch|Fehler|START' }
+        '3' { Head 'HUPilot-Wipe.log'; Tail $WipeLog 30 ''; Write-Host ''; Tail $LocalLog 8 'Zur(ü|ue)cksetzen|schtasks|Aufgabe|provtool|SYSTEM' }
         '4' { Show-Device }
         '5' { Show-Net }
         '6' { Show-Prov }
@@ -176,5 +176,5 @@ while ($true) {
         default { continue }
     }
     Write-Host ''
-    Read-Host '  Enter = zurueck zum Menue' | Out-Null
+    Read-Host '  Enter = zurück zum Menü' | Out-Null
 }

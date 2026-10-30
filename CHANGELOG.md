@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.8 - 2026-10-30
+- go.ps1: **Neustart im Einrichtungsbildschirm erzwungen** (`shutdown /r /f /t 0`). Vorher konnte „Program Manager – diese App verhindert den Neustart“ den automatischen Neustart blockieren.
+- Alle Anzeigen (go, diag, Setup, Update) einheitlich mit echten Umlauten und ß statt ae/oe/ue/ss. `protokoll.csv` und `hashes.csv` bleiben ASCII (Umlaute werden dort umgeschrieben). Bei der Warnung „Gerät ist schon eingerichtet“ wird `LÖSCHEN` und `LOESCHEN` akzeptiert (Tastatur im OOBE evtl. englisch).
+- Setup: Hauptfenster scrollt, wenn es kleiner gezogen wird; schmale dunkle Scrollbalken in allen Fenstern; Anfasser rechts unten zum Größerziehen.
+
 ## v2.7.7 - 2026-10-30
 - go.ps1: **Live-Anzeige bei allen Wartestellen.** Statt alle 30 s eine neue Zeile gibt es eine Zeile, die sich jede Sekunde aktualisiert: Status, gelaufene Zeit / Höchstzeit, Countdown bis zur nächsten Abfrage und ein drehendes Zeichen (`| / - \`). Ändert sich der Status, bleibt die alte Zeile als Verlauf stehen. Gilt für Profil, Import, Löschen, LAN, WLAN, Anmeldung, Netzteil, Stick abziehen, Neustart-Countdown, Zurücksetzen. Auch alle Auswahlen mit Zeitlimit zeigen den Countdown live. Ins Log kommt weiter jede Abfrage.
 - go.ps1: **Im Einrichtungsbildschirm (nur hochladen) nach 11 Min auch ohne Zuweisungsdatum neu starten,** wenn Status, Profil und „kein Fehler“ stabil passen (Test 30.10.: Profil kam ohne Datum an; ein Irrtum kostet nur einen Neustart). Beim Zurücksetzen wird das Datum weiter abgewartet.

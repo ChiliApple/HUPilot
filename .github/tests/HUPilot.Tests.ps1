@@ -90,7 +90,7 @@ Describe 'Update: Pruefsumme und Signatur' {
             Test-HMManifestSignature $man $sig $cert.Thumbprint | Should -BeNullOrEmpty
             Test-HMManifestSignature $man $sig ('0' * 40) | Should -Match 'anderen Zertifikat'
             $man2 = [System.Text.Encoding]::UTF8.GetBytes(('b' * 64) + "  go.ps1`n")
-            Test-HMManifestSignature $man2 $sig $cert.Thumbprint | Should -Match 'ungueltig'
+            Test-HMManifestSignature $man2 $sig $cert.Thumbprint | Should -Match 'Signatur ung'
             Test-HMManifestSignature $man $null $cert.Thumbprint | Should -Match 'keine Signatur'
             Test-HMManifestSignature $man $sig '' | Should -Match 'Fingerabdruck'
             # Signieren wie in HUPilot (Release signieren)

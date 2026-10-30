@@ -139,7 +139,7 @@ function Test-HMManifestSignature([byte[]]$Manifest, [byte[]]$Signature, [string
         if (-not $tps.Count) { return 'Signatur ohne Zertifikat' }
         if ($tps -notcontains $want) { return "signiert mit einem anderen Zertifikat ($($tps -join ', '))" }
         return ''
-    } catch { return "Signatur ungueltig: $($_.Exception.Message)" }
+    } catch { return "Signatur ungültig: $($_.Exception.Message)" }
 }
 #endregion HMUpdateLib
 
@@ -184,24 +184,24 @@ function Publish-HMReleaseSignature([string]$Owner, [string]$Repo, [string]$Tag,
 function Invoke-HMReleaseSigning([string]$Owner, [string]$Repo, [string]$Thumbprint, [string]$Token, [string[]]$Tags = @()) {
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
     $cert = Get-HMSigningCert $Thumbprint
-    if (-not $cert) { throw "Signatur-Zertifikat $Thumbprint mit privatem Schluessel ist auf diesem PC nicht vorhanden (oder abgelaufen)." }
+    if (-not $cert) { throw "Signatur-Zertifikat $Thumbprint mit privatem Schlüssel ist auf diesem PC nicht vorhanden (oder abgelaufen)." }
     $list = @(Get-HMReleases $Owner $Repo $Token)
     if (@($Tags).Count) { $todo = @($list | Where-Object { @($Tags) -contains $_.Tag }) }
     else { $todo = @($list | Where-Object { $_.ManifestUrl -and -not $_.SignatureUrl }) }
     $out = @()
     foreach ($r in $todo) {
         try {
-            if (-not $r.ManifestUrl) { throw 'keine Pruefsummen-Datei (automatische Tests noch nicht fertig?)' }
+            if (-not $r.ManifestUrl) { throw 'keine Prüfsummen-Datei (automatische Tests noch nicht fertig?)' }
             $man = Get-HMReleaseAsset $r.ManifestUrl $r.ManifestApi $Token
-            if (-not (ConvertFrom-HMManifest ([System.Text.Encoding]::UTF8.GetString($man))).Count) { throw 'Pruefsummen-Datei leer oder beschaedigt' }
+            if (-not (ConvertFrom-HMManifest ([System.Text.Encoding]::UTF8.GetString($man))).Count) { throw 'Prüfsummen-Datei leer oder beschädigt' }
             $sig = New-HMManifestSignature $man $cert
             $why = Test-HMManifestSignature $man $sig $cert.Thumbprint
-            if ($why) { throw "Signatur-Pruefung fehlgeschlagen: $why" }
+            if ($why) { throw "Signatur-Prüfung fehlgeschlagen: $why" }
             Publish-HMReleaseSignature $Owner $Repo $r.Tag $sig $Token
             $out += [pscustomobject]@{ Tag = $r.Tag; Ok = $true; Text = 'signiert' }
         } catch {
             $code = 0; try { $code = [int]$_.Exception.Response.StatusCode } catch { }
-            $out += [pscustomobject]@{ Tag = $r.Tag; Ok = $false; Text = $(if ($code -in 401, 403, 404) { "kein Schreibrecht (HTTP $code) - Token pruefen" } else { "$($_.Exception.Message)" }) }
+            $out += [pscustomobject]@{ Tag = $r.Tag; Ok = $false; Text = $(if ($code -in 401, 403, 404) { "kein Schreibrecht (HTTP $code) - Token prüfen" } else { "$($_.Exception.Message)" }) }
         }
     }
     return $out
@@ -213,12 +213,12 @@ function Publish-HMRelease([string]$Owner, [string]$Repo, [string]$Tag, [string]
     $h = @{ Authorization = "token $Token"; Accept = 'application/vnd.github+json'; 'User-Agent' = $script:HMUserAgent }
     $r = @(Get-HMReleases $Owner $Repo $Token | Where-Object { $_.Tag -eq $Tag })[0]
     if (-not $r) { throw "Release $Tag nicht gefunden" }
-    if (-not $r.ManifestUrl) { throw "$Tag hat keine Pruefsummen-Datei - nicht freigegeben" }
+    if (-not $r.ManifestUrl) { throw "$Tag hat keine Prüfsummen-Datei - nicht freigegeben" }
     if (-not $r.SignatureUrl) { throw "$Tag ist nicht signiert - zuerst 'Release signieren'" }
     $man = Get-HMReleaseAsset $r.ManifestUrl $r.ManifestApi $Token
     $sig = Get-HMReleaseAsset $r.SignatureUrl $r.SignatureApi $Token
     $why = Test-HMManifestSignature $man $sig $Thumbprint
-    if ($why) { throw "Signatur von $Tag ungueltig ($why) - nicht freigegeben" }
+    if ($why) { throw "Signatur von $Tag ungültig ($why) - nicht freigegeben" }
     $rel = Invoke-RestMethod "https://api.github.com/repos/$Owner/$Repo/releases/tags/$Tag" -Headers $h -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
     $body = @{ prerelease = $false; make_latest = 'true' } | ConvertTo-Json -Compress
     Invoke-RestMethod "https://api.github.com/repos/$Owner/$Repo/releases/$($rel.id)" -Method Patch -Headers $h -ContentType 'application/json' -Body $body -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop | Out-Null

@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.7'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.8'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -40,8 +40,8 @@ if (-not $isAdmin) {
         Write-Host '  Weiter im neuen Fenster.' -ForegroundColor Green
         Start-Sleep -Seconds 3
     } catch {
-        Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausfuehren" oeffnen, dann:  D:  und  go' -ForegroundColor Red
-        try { Read-Host '  Enter = Fenster schliessen' | Out-Null } catch { }
+        Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausführen" öffnen, dann:  D:  und  go' -ForegroundColor Red
+        try { Read-Host '  Enter = Fenster schließen' | Out-Null } catch { }
     }
     exit 1
 }
@@ -94,6 +94,8 @@ function Banner {
 }
 function Protokoll {
     param([string]$Result)
+    # protokoll.csv bleibt ASCII (Setup liest sie so) - Umlaute umschreiben
+    $Result = $Result.Replace([string][char]0xE4, 'ae').Replace([string][char]0xF6, 'oe').Replace([string][char]0xFC, 'ue').Replace([string][char]0xC4, 'Ae').Replace([string][char]0xD6, 'Oe').Replace([string][char]0xDC, 'Ue').Replace([string][char]0xDF, 'ss')
     try {
         $p = Join-Path $CfgDir 'logs\protokoll.csv'
         if (-not (Test-Path $p)) { Add-Content -Path $p -Value 'Zeit;Seriennr;Tenant;Tag;Ergebnis' -Encoding ASCII }
@@ -104,14 +106,14 @@ function Fail {
     param([string]$Msg)
     Log ('FEHLER: ' + $Msg)
     Protokoll ('FEHLER: ' + $Msg)
-    Banner 'FEHLER  -  NICHT ZURUECKGESETZT' 'DarkRed' @(
+    Banner 'FEHLER  -  NICHT ZURÜCKGESETZT' 'DarkRed' @(
         '',
         ('Grund: ' + $Msg),
         '',
         'Nochmal versuchen: D:\go',
         'Klappt es wieder nicht: Foto von diesem Bild an den Admin.',
         ('Log: ' + $LocalLog))
-    Read-Host '  Enter = Fenster schliessen' | Out-Null
+    Read-Host '  Enter = Fenster schließen' | Out-Null
     exit 1
 }
 function Get-ErrText {
@@ -159,7 +161,7 @@ function Sync-Clock {
             Set-Date -Date $srv.LocalDateTime | Out-Null
             Log ('Uhr korrigiert um ' + (-$diff) + ' s (war ' + $diff + ' s daneben)')
         } else { Log ('Uhr OK (Abweichung ' + $diff + ' s)') }
-    } catch { Log ('Uhrzeit-Pruefung: ' + $_.Exception.Message) }
+    } catch { Log ('Uhrzeit-Prüfung: ' + $_.Exception.Message) }
 }
 
 $OfflineHdr = 'Device Serial Number,Windows Product ID,Hardware Hash,Group Tag,Assigned User'
@@ -175,14 +177,14 @@ function Save-Offline {
         Set-Content -Path $f -Value (@($OfflineHdr) + $rows) -Encoding ASCII -ErrorAction Stop
         Protokoll ('OFFLINE: Hash gespeichert (' + $Why + ')')
     } catch { Fail ($Why + '  (Hash konnte auch nicht am Stick gespeichert werden: ' + $_.Exception.Message + ')') }
-    Banner 'HASH GESPEICHERT  -  SPAETER HOCHLADEN' 'DarkYellow' @(
+    Banner 'HASH GESPEICHERT  -  SPÄTER HOCHLADEN' 'DarkYellow' @(
         '',
         ('Grund: ' + $Why),
         '',
         ('Hash + Tag ' + $cfg.GroupTag + ' liegen am Stick: HUPilot\logs\hashes.csv'),
         'Am PC: HUPilot-Setup > "Hashes importieren".',
-        'Geraet wurde NICHT zurueckgesetzt - Stick kann abgezogen werden.')
-    Read-Host '  Enter = Fenster schliessen' | Out-Null
+        'Gerät wurde NICHT zurückgesetzt - Stick kann abgezogen werden.')
+    Read-Host '  Enter = Fenster schließen' | Out-Null
     exit 2
 }
 
@@ -232,7 +234,7 @@ foreach ($k in 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','WlanSsi
 if ([string]$cfg.ClientSecret -match '^<.*>$' -or [string]$cfg.TenantId -match '^<.*>$') { Fail 'config.json: Platzhalter noch nicht ersetzt (TenantId / ClientSecret)' }
 $TagPattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 if ($cfg.TagPattern) { $TagPattern = [string]$cfg.TagPattern }
-if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungueltig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
+if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungültig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
 
 try { $Serial = ([string](Get-CimInstance Win32_BIOS).SerialNumber).Trim() } catch { }
 if (-not $Serial) { Fail 'Seriennummer nicht lesbar' }
@@ -268,7 +270,7 @@ function Complete-Live {
 }
 function Wait-Live {
     # wartet $Seconds; Anzeige: Text | gelaufen / hoechstens | <Next> in x s
-    param([int]$Seconds, [string]$Text, [datetime]$Since = (Get-Date), [int]$MaxSec = 0, [string]$Next = 'naechste Abfrage')
+    param([int]$Seconds, [string]$Text, [datetime]$Since = (Get-Date), [int]$MaxSec = 0, [string]$Next = 'nächste Abfrage')
     $end = (Get-Date).AddSeconds($Seconds)
     do {
         $now = Get-Date
@@ -316,12 +318,12 @@ function Wait-Power {
     Banner 'NETZTEIL ANSTECKEN' 'DarkYellow' @(
         '',
         ('Mindestens ' + $MinBattery + ' % Akku oder Netzteil.'),
-        'Zuruecksetzen ohne Strom kann das Geraet unbrauchbar machen.',
+        'Zurücksetzen ohne Strom kann das Gerät unbrauchbar machen.',
         '',
         'Wartet, bis das Netzteil steckt.   J = trotzdem weiter')
     while (-not $p.Ok) {
-        $k = Read-KeyTimeout 5 ('Strom: ' + $p.Text + '  |  naechste Pruefung')
-        if ($k -eq 'J' -or $k -eq 'Y') { Log ('Strom-Warnung uebergangen: ' + $p.Text); break }
+        $k = Read-KeyTimeout 5 ('Strom: ' + $p.Text + '  |  nächste Prüfung')
+        if ($k -eq 'J' -or $k -eq 'Y') { Log ('Strom-Warnung übergangen: ' + $p.Text); break }
         $p = Get-PowerInfo
     }
     Log ('Strom jetzt: ' + $p.Text)
@@ -333,12 +335,12 @@ $choices = @()
 if ($cfg.TagChoices) { $choices = @($cfg.TagChoices) }
 else { $y = (Get-Date).Year; $choices = @(($y - 5)..$y | ForEach-Object { 'SN-' + $_ }) }
 if ($choices.Count -gt 9) { $choices = $choices[0..8] }
-Write-Host '  Group Tag waehlen:' -ForegroundColor Cyan
+Write-Host '  Group Tag wählen:' -ForegroundColor Cyan
 Write-Host ('    [Enter]  ' + $cfg.GroupTag + '   (Standard)') -ForegroundColor White
 for ($i = 0; $i -lt $choices.Count; $i++) { Write-Host ('    [' + ($i + 1) + ']      ' + $choices[$i]) }
 $sel = Read-KeyTimeout 10 ('ohne Eingabe: ' + $cfg.GroupTag)
 if ($sel -match '^[1-9]$' -and [int]$sel -le $choices.Count) { $cfg.GroupTag = $choices[[int]$sel - 1] }
-if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungueltig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
+if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungültig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
 Write-Host ''
 
 # ---------- Optional: Benutzer vorab zuweisen (config "AskUser": true) ----------
@@ -348,7 +350,7 @@ if ($cfg.AskUser -eq $true) {
         $u = ([string](Read-Host '  UPN')).Trim()
         if (-not $u) { break }
         if ($u -match '^[^@\s,]+@[^@\s,]+\.[^@\s,]+$') { $AssignUpn = $u; break }
-        Write-Host '  Ungueltig - Form name@schule.at' -ForegroundColor Yellow
+        Write-Host '  Ungültig - Form name@schule.at' -ForegroundColor Yellow
     }
     Write-Host ''
 }
@@ -356,10 +358,10 @@ if ($cfg.AskUser -eq $true) {
 # ---------- Zuruecksetzen ja/nein (10 s, sonst Standard aus config.json "Reset") ----------
 $DoReset = $true
 if ($null -ne $cfg.Reset) { $DoReset = [bool]$cfg.Reset }
-Write-Host '  Nach dem Upload zuruecksetzen?' -ForegroundColor Cyan
-if ($DoReset) { Write-Host '    [Enter]  JA, zuruecksetzen   (Standard)' -ForegroundColor White; Write-Host '    [N]      nein, nur hochladen' }
-else          { Write-Host '    [Enter]  NEIN, nur hochladen (Standard)' -ForegroundColor White; Write-Host '    [J]      ja, zuruecksetzen' }
-$k = Read-KeyTimeout 10 ('ohne Eingabe: ' + $(if ($DoReset) { 'zuruecksetzen' } else { 'nur hochladen' }))
+Write-Host '  Nach dem Upload zurücksetzen?' -ForegroundColor Cyan
+if ($DoReset) { Write-Host '    [Enter]  JA, zurücksetzen   (Standard)' -ForegroundColor White; Write-Host '    [N]      nein, nur hochladen' }
+else          { Write-Host '    [Enter]  NEIN, nur hochladen (Standard)' -ForegroundColor White; Write-Host '    [J]      ja, zurücksetzen' }
+$k = Read-KeyTimeout 10 ('ohne Eingabe: ' + $(if ($DoReset) { 'zurücksetzen' } else { 'nur hochladen' }))
 if ($k -eq 'N') { $DoReset = $false } elseif ($k -eq 'J' -or $k -eq 'Y') { $DoReset = $true }
 Write-Host ''
 
@@ -367,12 +369,12 @@ Say ('Seriennummer : ' + $Serial) 'White'
 Say ('Tenant       : ' + $cfg.Tenant) 'White'
 Say ('Group Tag    : ' + $cfg.GroupTag) 'White'
 if ($AssignUpn) { Say ('Benutzer     : ' + $AssignUpn) 'White' }
-Say ('Zuruecksetzen: ' + $(if ($DoReset) { 'JA' } else { 'NEIN - nur Upload' })) 'White'
+Say ('Zurücksetzen: ' + $(if ($DoReset) { 'JA' } else { 'NEIN - nur Upload' })) 'White'
 
 $os = Get-CimInstance Win32_OperatingSystem
 Say ('Windows      : ' + $os.Caption + ' ' + $os.Version)
 if ($os.Caption -notmatch 'Pro|Education|Enterprise') {
-    Fail ('Edition "' + $os.Caption + '" - Zuruecksetzen per RemoteWipe nur mit Pro/Education/Enterprise')
+    Fail ('Edition "' + $os.Caption + '" - Zurücksetzen per RemoteWipe nur mit Pro/Education/Enterprise')
 }
 if ($null -ne $cfg.MinBattery) { $MinBattery = [int]$cfg.MinBattery }
 
@@ -383,20 +385,20 @@ if ($DoReset) {
     try {
         $prof = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | Where-Object {
             -not $_.Special -and $_.LocalPath -match '\\Users\\' -and $_.LocalPath -notmatch '\\defaultuser\d*$' })
-    } catch { Log ('Benutzerprofile pruefen: ' + $_.Exception.Message) }
+    } catch { Log ('Benutzerprofile prüfen: ' + $_.Exception.Message) }
     Log ('Benutzer: ' + $me + ' | Profile: ' + (($prof | ForEach-Object { $_.LocalPath }) -join ', '))
     if ($prof.Count -or $me -notmatch '^defaultuser\d*$') {
-        Banner 'ACHTUNG  -  GERAET IST SCHON EINGERICHTET' 'DarkRed' @(
+        Banner 'ACHTUNG  -  GERÄT IST SCHON EINGERICHTET' 'DarkRed' @(
             '',
-            'HUPilot ist fuer neue Geraete im Einrichtungsbildschirm gedacht.',
+            'HUPilot ist für neue Geräte im Einrichtungsbildschirm gedacht.',
             ('Angemeldet als: ' + $me),
             ('Benutzerprofile: ' + $(if ($prof.Count) { ($prof | ForEach-Object { Split-Path $_.LocalPath -Leaf }) -join ', ' } else { 'keine' })),
             '',
-            'Beim Zuruecksetzen gehen ALLE Daten auf dem Geraet verloren.',
-            'Zum Fortfahren  LOESCHEN  eintippen, sonst nur Enter (Abbruch).')
+            'Beim Zurücksetzen gehen ALLE Daten auf dem Gerät verloren.',
+            'Zum Fortfahren  LÖSCHEN  eintippen, sonst nur Enter (Abbruch).')
         $a = Read-Host '  Eingabe'
-        if ($a -cne 'LOESCHEN') { Log 'Abbruch: Geraet hat Benutzerdaten'; Protokoll 'ABBRUCH: Benutzerdaten vorhanden'; exit 1 }
-        Log 'Benutzerdaten-Warnung mit LOESCHEN bestaetigt'
+        if ($a -cne 'LÖSCHEN' -and $a -cne 'LOESCHEN') { Log 'Abbruch: Gerät hat Benutzerdaten'; Protokoll 'ABBRUCH: Benutzerdaten vorhanden'; exit 1 }
+        Log 'Benutzerdaten-Warnung mit LÖSCHEN bestätigt'
         try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
     }
     Wait-Power
@@ -422,7 +424,7 @@ Say ('Hash gelesen (' + $hash.Length + ' Zeichen)') 'Green'
 # ---------- 2. Netz / WLAN ----------
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Write-Host ''
-Say 'Pruefe Internet ...'
+Say 'Prüfe Internet ...'
 Sync-Clock
 $netOk = Test-Net $cfg.TenantId
 if (-not $netOk) {
@@ -433,13 +435,13 @@ if (-not $netOk) {
         Say 'LAN verbunden - warte auf Internet (bis 60 s) ...' 'Yellow'
         $t0 = Get-Date
         for ($i = 0; $i -lt 6 -and -not $netOk; $i++) {
-            Wait-Live 10 'LAN: warte auf Internet' $t0 60 'naechster Test'
+            Wait-Live 10 'LAN: warte auf Internet' $t0 60 'nächster Test'
             Show-Live 'LAN: teste Internet ...'
             Sync-Clock
             $netOk = Test-Net $cfg.TenantId
         }
         Complete-Live
-        if (-not $netOk) { Say 'Ueber LAN kein Internet - versuche zusaetzlich WLAN' 'Yellow' }
+        if (-not $netOk) { Say 'Über LAN kein Internet - versuche zusätzlich WLAN' 'Yellow' }
     }
 }
 if (-not $netOk) {
@@ -476,7 +478,7 @@ if (-not $netOk) {
                 Log ('netsh connect: ' + (($o | Out-String).Trim()))
             } catch { Log ('netsh connect: ' + $_.Exception.Message) }
         }
-        Wait-Live 10 'WLAN: verbinde' $t0 120 'naechster Test'
+        Wait-Live 10 'WLAN: verbinde' $t0 120 'nächster Test'
         Show-Live 'WLAN: teste Internet ...'
         Sync-Clock
         if (Test-Net $cfg.TenantId) { $ok = $true; break }
@@ -486,7 +488,7 @@ if (-not $netOk) {
         $st = ''
         try { $st = ((netsh wlan show interfaces | Select-String 'SSID|Status|State|Signal') -join ' / ') } catch { }
         Log ('WLAN-Status: ' + $st)
-        Save-Offline 'Kein Internet nach 2 Min (WLAN-Reichweite/Kennwort/Firewall pruefen)'
+        Save-Offline 'Kein Internet nach 2 Min (WLAN-Reichweite/Kennwort/Firewall prüfen)'
     }
 }
 Say 'Internet OK' 'Green'
@@ -530,11 +532,11 @@ function Update-Token {
 function Invoke-ApSync {
     param([string]$Grund)
     Update-Token
-    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotSettings/sync') -Headers $h | Out-Null; Log ('Autopilot-Sync angestossen (' + $Grund + ')') }
+    try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotSettings/sync') -Headers $h | Out-Null; Log ('Autopilot-Sync angestoßen (' + $Grund + ')') }
     catch {
         $m = Get-ErrText $_
         $sc = 0; try { $sc = [int]$_.Exception.Response.StatusCode } catch { }
-        if ($sc -eq 409 -or $sc -eq 429 -or $m -match 'Conflict|TooManyRequests|Too Many Requests') { Log ('Autopilot-Sync (' + $Grund + '): laeuft bereits oder vor weniger als 10 Min - ok') }
+        if ($sc -eq 409 -or $sc -eq 429 -or $m -match 'Conflict|TooManyRequests|Too Many Requests') { Log ('Autopilot-Sync (' + $Grund + '): läuft bereits oder vor weniger als 10 Min - ok') }
         else { Log ('Autopilot-Sync (' + $Grund + '): ' + $m) }
     }
 }
@@ -564,7 +566,7 @@ function Get-TagProfiles {
     param([string]$Tag)
     $script:TagProfIds = $null
     try { $pr = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments') -Headers $h).value) }
-    catch { Log ('Tag-Pruefung Profile: ' + (Get-ErrText $_)); return $null }
+    catch { Log ('Tag-Prüfung Profile: ' + (Get-ErrText $_)); return $null }
     $gcache = @{}
     $grp = @(); $all = @()
     foreach ($p in $pr) {
@@ -579,38 +581,38 @@ function Get-TagProfiles {
                 try { $gcache[$gid] = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/groups/' + $gid + '?$select=displayName,membershipRule') -Headers $h }
                 catch {
                     $em = Get-ErrText $_
-                    if ($em -match 'Authorization_RequestDenied|Forbidden|403|Insufficient privileges') { Log ('Tag-Pruefung Gruppe (Group.Read.All fehlt): ' + $em); return $null }
-                    Log ('Tag-Pruefung: Gruppe ' + $gid + ' nicht lesbar/geloescht - uebersprungen'); $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' }
+                    if ($em -match 'Authorization_RequestDenied|Forbidden|403|Insufficient privileges') { Log ('Tag-Prüfung Gruppe (Group.Read.All fehlt): ' + $em); return $null }
+                    Log ('Tag-Prüfung: Gruppe ' + $gid + ' nicht lesbar/gelöscht - übersprungen'); $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' }
                 }
             }
             if (Test-RuleTag ([string]$gcache[$gid].membershipRule) $Tag) {
                 if ($isExc) { $exc = $true } else { $inc = $true; $gname = [string]$gcache[$gid].displayName }
             }
         }
-        if ($exc) { Log ('Tag-Pruefung: Profil ' + $p.displayName + ' schliesst die Tag-Gruppe aus'); continue }
+        if ($exc) { Log ('Tag-Prüfung: Profil ' + $p.displayName + ' schließt die Tag-Gruppe aus'); continue }
         $cd = [datetime]::MaxValue; try { if ($p.createdDateTime) { $cd = [datetime]$p.createdDateTime } } catch { }
         if ($inc) { $grp += [pscustomobject]@{ Id = [string]$p.id; Name = ([string]$p.displayName + ' (' + $gname + ')'); Created = $cd } }
-        elseif ($incAll) { $all += [pscustomobject]@{ Id = [string]$p.id; Name = ([string]$p.displayName + ' (Alle Geraete)'); Created = $cd } }
+        elseif ($incAll) { $all += [pscustomobject]@{ Id = [string]$p.id; Name = ([string]$p.displayName + ' (Alle Geräte)'); Created = $cd } }
     }
     $cand = @(if ($grp.Count) { $grp } else { $all })
     if (-not $cand.Count) { $script:TagProfIds = @(); return ,@() }
     $win = @($cand | Sort-Object Created)[0]
-    if ($cand.Count -gt 1) { Log ('Tag-Pruefung: ' + $cand.Count + ' Profile passen, aeltestes gewinnt: ' + $win.Name) }
+    if ($cand.Count -gt 1) { Log ('Tag-Prüfung: ' + $cand.Count + ' Profile passen, ältestes gewinnt: ' + $win.Name) }
     $script:TagProfIds = @($win.Id)
     # Komma: leere Liste NICHT zu $null aufloesen lassen ($null = nicht pruefbar)
     return ,@($win.Name)
 }
 $tp = Get-TagProfiles $cfg.GroupTag
-if ($null -eq $tp) { Log 'Tag-Pruefung nicht moeglich (optional: Group.Read.All fuer die App)' }
-elseif ($tp.Count) { Say ('Profil fuer Tag: ' + ($tp -join ', ')) 'Green' }
+if ($null -eq $tp) { Log 'Tag-Prüfung nicht möglich (optional: Group.Read.All für die App)' }
+elseif ($tp.Count) { Say ('Profil für Tag: ' + ($tp -join ', ')) 'Green' }
 else {
-    Log ('Tag-Pruefung: KEIN Profil fuer ' + $cfg.GroupTag)
+    Log ('Tag-Prüfung: KEIN Profil für ' + $cfg.GroupTag)
     Write-Host ''
-    Write-Host ('  ACHTUNG: Fuer Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
-    Write-Host '  Das Geraet wuerde nach dem Upload vergeblich auf ein Profil warten.' -ForegroundColor Yellow
+    Write-Host ('  ACHTUNG: Für Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
+    Write-Host '  Das Gerät würde nach dem Upload vergeblich auf ein Profil warten.' -ForegroundColor Yellow
     Write-Host '  [A] Abbrechen   -   [Enter] trotzdem hochladen' -ForegroundColor Yellow
     $k = Read-KeyTimeout 20 'ohne Eingabe: trotzdem hochladen'
-    if ($k -eq 'A') { Log 'Abbruch: kein Profil fuer Tag'; Protokoll 'ABBRUCH: kein Profil fuer Tag'; exit 1 }
+    if ($k -eq 'A') { Log 'Abbruch: kein Profil für Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; exit 1 }
 }
 
 # ---------- Benutzer pruefen (optional User.Read.All) ----------
@@ -623,7 +625,7 @@ if ($AssignUpn) {
     } catch {
         $m = Get-ErrText $_
         if ($m -match 'Request_ResourceNotFound|does not exist') { Say ('Benutzer ' + $AssignUpn + ' NICHT gefunden - wird nicht zugewiesen') 'Yellow'; $AssignUpn = '' }
-        else { Log ('Benutzer-Pruefung nicht moeglich (User.Read.All?): ' + $m) }
+        else { Log ('Benutzer-Prüfung nicht möglich (User.Read.All?): ' + $m) }
     }
     if (-not $AssignName -and $AssignUpn) { $AssignName = $AssignUpn.Split('@')[0] }
 }
@@ -637,7 +639,7 @@ function Get-ApDevice {
         $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial.Replace("'", "''") + "')")
         $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h
         $m = @($r.value | Where-Object { $_.serialNumber -eq $Serial })
-        if ($m.Count -gt 1) { Log ('ACHTUNG: ' + $m.Count + ' Autopilot-Eintraege mit Seriennummer ' + $Serial + ' - verwende den mit der juengsten Profilzuweisung') }
+        if ($m.Count -gt 1) { Log ('ACHTUNG: ' + $m.Count + ' Autopilot-Einträge mit Seriennummer ' + $Serial + ' - verwende den mit der jüngsten Profilzuweisung') }
         return @($m | Sort-Object { [string]$_.deploymentProfileAssignedDateTime } -Descending)[0]
     } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)); $script:ApLookupFailed = $true; return $null }
 }
@@ -665,26 +667,26 @@ if ($script:ApLookupFailed) { Fail 'Autopilot-Abfrage 3x fehlgeschlagen (Netz/Gr
 # der gespeicherte Hash passt nicht mehr. MS Doku (Autopilot motherboard replacement / Deregister a device):
 # zuerst Intune-Eintrag loeschen, dann Autopilot-Eintrag loeschen, dann mit neuem Hash neu registrieren.
 if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', 'manualRemediationRequired')) {
-    Log ('Hardware-Aenderung erkannt: remediationState=' + $ap.remediationState + ', Tag ' + $ap.groupTag)
+    Log ('Hardware-Änderung erkannt: remediationState=' + $ap.remediationState + ', Tag ' + $ap.groupTag)
     Write-Host ''
-    Write-Host '  ACHTUNG: Autopilot meldet eine HARDWARE-AENDERUNG (z. B. Mainboardtausch).' -ForegroundColor Yellow
+    Write-Host '  ACHTUNG: Autopilot meldet eine HARDWARE-ÄNDERUNG (z. B. Mainboardtausch).' -ForegroundColor Yellow
     Write-Host '  Der gespeicherte Hash passt nicht mehr - das Autopilot-Profil greift so nicht.' -ForegroundColor Yellow
-    Write-Host '  Neu registrieren = Intune-Eintrag und Autopilot-Eintrag loeschen, neuen Hash hochladen.' -ForegroundColor Yellow
+    Write-Host '  Neu registrieren = Intune-Eintrag und Autopilot-Eintrag löschen, neuen Hash hochladen.' -ForegroundColor Yellow
     Write-Host '  [N] neu registrieren (empfohlen)   -   [Enter] abbrechen' -ForegroundColor Yellow
     $k = ''
     try { $k = ([string](Read-Host '  Auswahl')).Trim().ToUpper() } catch { }
-    if ($k -ne 'N') { Fail 'Hardware geaendert - nicht neu registriert (Abbruch)' }
+    if ($k -ne 'N') { Fail 'Hardware geändert - nicht neu registriert (Abbruch)' }
     # 1. Intune-Eintraege mit dieser Seriennummer loeschen
     $md = @()
     try {
         $f = [uri]::EscapeDataString("serialNumber eq '" + $Serial + "'")
         $md = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/managedDevices?$filter=' + $f + '&$select=id,deviceName,serialNumber') -Headers $h).value | Where-Object { $_.serialNumber -eq $Serial })
-    } catch { Fail ('Intune-Eintraege lesen: ' + (Get-ErrText $_) + ' (App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All noetig)') }
+    } catch { Fail ('Intune-Einträge lesen: ' + (Get-ErrText $_) + ' (App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All nötig)') }
     foreach ($d in $md) {
         try {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/managedDevices/' + $d.id) -Headers $h | Out-Null
-            Say ('Intune-Eintrag geloescht: ' + $d.deviceName) 'Yellow'
-        } catch { Fail ('Intune-Eintrag ' + $d.deviceName + ' nicht loeschbar: ' + (Get-ErrText $_) + ' - im Intune-Portal loeschen oder App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All ergaenzen, dann nochmal go') }
+            Say ('Intune-Eintrag gelöscht: ' + $d.deviceName) 'Yellow'
+        } catch { Fail ('Intune-Eintrag ' + $d.deviceName + ' nicht löschbar: ' + (Get-ErrText $_) + ' - im Intune-Portal löschen oder App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All ergänzen, dann nochmal go') }
     }
     if (-not $md.Count) { Log 'Kein Intune-Eintrag mit dieser Seriennummer' }
     # 2. Benutzer-Zuweisung aufheben (sonst laesst sich der Eintrag nicht loeschen)
@@ -694,15 +696,15 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     }
     # 3. Autopilot-Eintrag loeschen und warten, bis er weg ist
     try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id) -Headers $h | Out-Null }
-    catch { Fail ('Autopilot-Eintrag loeschen: ' + (Get-ErrText $_)) }
-    Say 'Autopilot-Eintrag geloescht - warte, bis er verschwunden ist (bis 30 Min) ...'
-    Invoke-ApSync 'nach Loeschen'
+    catch { Fail ('Autopilot-Eintrag löschen: ' + (Get-ErrText $_)) }
+    Say 'Autopilot-Eintrag gelöscht - warte, bis er verschwunden ist (bis 30 Min) ...'
+    Invoke-ApSync 'nach Löschen'
     $gone = $false
     $t0 = Get-Date
     $lim = $t0.AddMinutes(30)
     while ((Get-Date) -lt $lim) {
-        Wait-Live 30 'Alter Eintrag wird geloescht' $t0 1800
-        Show-Live 'Alter Eintrag wird geloescht  |  frage ab ...'
+        Wait-Live 30 'Alter Eintrag wird gelöscht' $t0 1800
+        Show-Live 'Alter Eintrag wird gelöscht  |  frage ab ...'
         Update-Token
         try {
             $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial.Replace("'", "''") + "')")
@@ -711,7 +713,7 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
         } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)) }
     }
     Complete-Live
-    if (-not $gone) { Fail 'Autopilot-Eintrag nach 30 Min noch vorhanden - spaeter nochmal go (das Geraet wird dann normal neu importiert)' }
+    if (-not $gone) { Fail 'Autopilot-Eintrag nach 30 Min noch vorhanden - später nochmal go (das Gerät wird dann normal neu importiert)' }
     Say 'Alter Autopilot-Eintrag entfernt - importiere neu mit aktuellem Hash' 'Green'
     $ap = $null
 }
@@ -722,28 +724,28 @@ if ($ap) {
     # Weicht der gewaehlte Tag ab, wird gefragt; ohne Eingabe (10 s) bleibt der vorhandene Tag.
     if ([string]$ap.groupTag -and [string]$ap.groupTag -ne [string]$cfg.GroupTag) {
         Write-Host ''
-        Write-Host ('  Geraet hat schon den Tag "' + $ap.groupTag + '", gewaehlt ist "' + $cfg.GroupTag + '".') -ForegroundColor Yellow
+        Write-Host ('  Gerät hat schon den Tag "' + $ap.groupTag + '", gewählt ist "' + $cfg.GroupTag + '".') -ForegroundColor Yellow
         Write-Host ('    [Enter]  Tag "' + $ap.groupTag + '" behalten   (Standard)') -ForegroundColor White
-        Write-Host ('    [J]      auf "' + $cfg.GroupTag + '" aendern')
+        Write-Host ('    [J]      auf "' + $cfg.GroupTag + '" ändern')
         try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }   # alte Tastendruecke verwerfen
         $k = Read-KeyTimeout 10 ('ohne Eingabe: Tag ' + $ap.groupTag + ' behalten')
-        if ($k -eq 'J' -or $k -eq 'Y') { Log ('Tag-Aenderung bestaetigt: ' + $ap.groupTag + ' -> ' + $cfg.GroupTag) }
+        if ($k -eq 'J' -or $k -eq 'Y') { Log ('Tag-Änderung bestätigt: ' + $ap.groupTag + ' -> ' + $cfg.GroupTag) }
         else {
-            Log ('Vorhandener Tag bleibt: ' + $ap.groupTag + ' (gewaehlt war ' + $cfg.GroupTag + ')')
+            Log ('Vorhandener Tag bleibt: ' + $ap.groupTag + ' (gewählt war ' + $cfg.GroupTag + ')')
             $cfg.GroupTag = [string]$ap.groupTag
             if ($cfg.GroupTag -notmatch $TagPattern) { Log ('Hinweis: vorhandener Tag passt nicht zum Muster ' + $TagPattern + ': ' + $cfg.GroupTag) }
             # erwartetes Profil fuer den behaltenen Tag neu bestimmen (Tag-Pruefung lief mit dem gewaehlten Tag)
             $tp = Get-TagProfiles $cfg.GroupTag
-            if ($null -eq $tp) { Log 'Tag-Pruefung nicht moeglich (optional: Group.Read.All fuer die App)' }
-            elseif ($tp.Count) { Say ('Profil fuer Tag: ' + ($tp -join ', ')) 'Green' }
+            if ($null -eq $tp) { Log 'Tag-Prüfung nicht möglich (optional: Group.Read.All für die App)' }
+            elseif ($tp.Count) { Say ('Profil für Tag: ' + ($tp -join ', ')) 'Green' }
             else {
-                Log ('Tag-Pruefung: KEIN Profil fuer behaltenen Tag ' + $cfg.GroupTag)
-                Write-Host ('  ACHTUNG: Fuer den vorhandenen Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
-                Write-Host '  Das Geraet wuerde vergeblich auf ein Profil warten (Tippfehler in der CSV?).' -ForegroundColor Yellow
+                Log ('Tag-Prüfung: KEIN Profil für behaltenen Tag ' + $cfg.GroupTag)
+                Write-Host ('  ACHTUNG: Für den vorhandenen Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
+                Write-Host '  Das Gerät würde vergeblich auf ein Profil warten (Tippfehler in der CSV?).' -ForegroundColor Yellow
                 Write-Host '  [A] Abbrechen   -   [Enter] trotzdem weiter' -ForegroundColor Yellow
                 try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }
                 $k2 = Read-KeyTimeout 20 'ohne Eingabe: trotzdem weiter'
-                if ($k2 -eq 'A') { Log 'Abbruch: kein Profil fuer behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil fuer Tag'; exit 1 }
+                if ($k2 -eq 'A') { Log 'Abbruch: kein Profil für behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; exit 1 }
             }
         }
         Write-Host ''
@@ -753,7 +755,7 @@ if ($ap) {
         if ($op) { Log ('Bisheriges Profil: ' + $op.displayName) }
         try {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = $cfg.GroupTag } | ConvertTo-Json) | Out-Null
-            Say ('Tag geaendert -> ' + $cfg.GroupTag) 'Green'
+            Say ('Tag geändert -> ' + $cfg.GroupTag) 'Green'
             $TagChanged = $true
         } catch { Fail ('Tag setzen fehlgeschlagen: ' + (Get-ErrText $_)) }
     }
@@ -784,8 +786,8 @@ else {
     $t0 = Get-Date
     $limit = $t0.AddMinutes(10)
     while ((Get-Date) -lt $limit) {
-        Wait-Live 10 ('Import laeuft' + $(if ($state -and $state -notin 'unknown', 'pending') { ' (' + $state + ')' } else { '' })) $t0 600
-        Show-Live 'Import laeuft  |  frage ab ...'
+        Wait-Live 10 ('Import läuft' + $(if ($state -and $state -notin 'unknown', 'pending') { ' (' + $state + ')' } else { '' })) $t0 600
+        Show-Live 'Import läuft  |  frage ab ...'
         Update-Token
         $prev = $state
         try {
@@ -801,7 +803,7 @@ else {
         $en = [string]$st.state.deviceErrorName; $ec = [string]$st.state.deviceErrorCode
         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h | Out-Null } catch { }
         # MS Doku (Error 806 or 808 when you import ...): auch ein Rest-Datensatz im EIGENEN Tenant/Intune kann 806/808 ausloesen
-        if ($ec -eq '808' -or $en -match 'OtherTenant') { Fail ('Geraet ist in einem ANDEREN Tenant registriert oder es gibt noch einen alten Datensatz im eigenen Tenant/Intune (' + $en + ' ' + $ec + ')') }
+        if ($ec -eq '808' -or $en -match 'OtherTenant') { Fail ('Gerät ist in einem ANDEREN Tenant registriert oder es gibt noch einen alten Datensatz im eigenen Tenant/Intune (' + $en + ' ' + $ec + ')') }
         Fail ('Import-Fehler: ' + $en + ' (' + $ec + ')')
     }
     if ($state -ne 'complete') { Fail ('Import nach 10 Min nicht fertig (Status: ' + $state + ')') }
@@ -819,7 +821,7 @@ if ($AssignUpn) {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $apU.id + '/assignUserToDevice') -Headers $hj -Body (@{ userPrincipalName = $AssignUpn; addressableUserName = $AssignName } | ConvertTo-Json) | Out-Null
             Say ('Benutzer zugewiesen: ' + $AssignUpn) 'Green'
         } catch { Say ('Benutzer zuweisen fehlgeschlagen: ' + (Get-ErrText $_)) 'Yellow' }
-    } else { Say 'Benutzer zuweisen: Geraet in Autopilot noch nicht sichtbar - spaeter im Portal' 'Yellow' }
+    } else { Say 'Benutzer zuweisen: Gerät in Autopilot noch nicht sichtbar - später im Portal' 'Yellow' }
 }
 if (-not $ap -or $TagChanged -or $AssignUpn -or ([string]$ap.deploymentProfileAssignmentStatus -notin 'assignedInSync', 'assignedUnkownSyncState')) { Invoke-ApSync 'nach Import/Tag/Benutzer bzw. noch ohne Profil' }
 
@@ -827,11 +829,11 @@ if (-not $ap -or $TagChanged -or $AssignUpn -or ([string]$ap.deploymentProfileAs
 if ($StickPkg) {
     try {
         Copy-Item -Path $StickPkg -Destination $TmpPkg -Force
-        if ((Get-Item $TmpPkg).Length -ne (Get-Item $StickPkg).Length) { throw 'Groesse stimmt nicht' }
+        if ((Get-Item $TmpPkg).Length -ne (Get-Item $StickPkg).Length) { throw 'Größe stimmt nicht' }
     } catch { Fail ('WLAN-Paket kopieren: ' + $_.Exception.Message) }
     Log 'WLAN-Paket lokal kopiert'
 }
-Protokoll ($(if ($AlreadyReg) { 'BEREITS REGISTRIERT' } else { 'UPLOAD OK' }) + $(if ($DoReset) { '' } else { ' (ohne Zuruecksetzen)' }))
+Protokoll ($(if ($AlreadyReg) { 'BEREITS REGISTRIERT' } else { 'UPLOAD OK' }) + $(if ($DoReset) { '' } else { ' (ohne Zurücksetzen)' }))
 Log '--- Stick wird ab jetzt nicht mehr gebraucht ---'
 $StickLog = $null
 
@@ -856,7 +858,7 @@ function ConvertTo-PsText {
     switch ($Ps) {
         ''                        { return 'noch nicht sichtbar' }
         'notAssigned'             { return 'kein Profil zugewiesen' }
-        'pending'                 { return 'Zuweisung laeuft' }
+        'pending'                 { return 'Zuweisung läuft' }
         'assignedInSync'          { return 'zugewiesen' }
         'assignedUnkownSyncState' { return 'zugewiesen' }
         'assignedOutOfSync'       { return 'zugewiesen, nicht synchron' }
@@ -868,8 +870,8 @@ function ConvertTo-PsText {
 function ConvertTo-DetailText {
     param([string]$D)
     switch ($D) {
-        'hardwareRequirementsNotMet'  { return 'Hardware erfuellt die Voraussetzungen nicht' }
-        'windowsPcProfileNotSupported' { return 'Profil fuer Windows-PC nicht unterstuetzt' }
+        'hardwareRequirementsNotMet'  { return 'Hardware erfüllt die Voraussetzungen nicht' }
+        'windowsPcProfileNotSupported' { return 'Profil für Windows-PC nicht unterstützt' }
         default                       { return $D }
     }
 }
@@ -886,7 +888,7 @@ function Wait-ApProfile {
     $okCount = 0
     $lastTxt = ''
     $extra = $false
-    if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geaendert, Tag-Pruefung nicht moeglich - keine automatische Freigabe' }
+    if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geändert, Tag-Prüfung nicht möglich - keine automatische Freigabe' }
     $limit = (Get-Date).AddMinutes($ProfileWaitMin)
     $syncAt = Get-Date
     while ((Get-Date) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
@@ -915,9 +917,9 @@ function Wait-ApProfile {
         if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
             if (-not $pi) { $why = 'Profil nicht lesbar' }
             elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { $why = ConvertTo-DetailText ([string]$ap.deploymentProfileAssignmentDetailedStatus) }
-            elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { $why = 'fuer den Tag ist kein Profil zugewiesen'; $wrong = $true }
-            elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { $why = 'anderes Profil als fuer den Tag erwartet'; $wrong = $true }
-            elseif ($TagChanged -and $null -eq $TagProfIds) { $why = 'Tag geaendert, erwartetes Profil unbekannt' }
+            elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { $why = 'für den Tag ist kein Profil zugewiesen'; $wrong = $true }
+            elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { $why = 'anderes Profil als für den Tag erwartet'; $wrong = $true }
+            elseif ($TagChanged -and $null -eq $TagProfIds) { $why = 'Tag geändert, erwartetes Profil unbekannt' }
             elseif (-not $pd) {
                 $noDate = $true
                 if (-not $noDateSince) { $noDateSince = Get-Date }
@@ -948,14 +950,14 @@ function Wait-ApProfile {
         if ($extra) { Complete-Live; break }
         $lt = 'Profil: ' + $txt
         if ($noDate -and $NoDateMin -gt 0) { $lt += ' (Neustart in ' + [int][math]::Max(1, [math]::Ceiling($NoDateMin - ((Get-Date) - $noDateSince).TotalMinutes)) + ' Min)' }
-        Wait-Live 30 $lt $t0 ($ProfileWaitMin * 60) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'naechste Abfrage' })
+        Wait-Live 30 $lt $t0 ($ProfileWaitMin * 60) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'nächste Abfrage' })
     }
     Complete-Live
     return [pscustomobject]@{ Assigned = $assigned; LastTxt = $lastTxt; Profil = $pn }
 }
 
 if (-not $DoReset) {
-    Log 'Nur Upload gewaehlt - kein Zuruecksetzen, pruefe Profilzuweisung'
+    Log 'Nur Upload gewählt - kein Zurücksetzen, prüfe Profilzuweisung'
     # WLAN-Paket (WLAN + ggf. lokaler Admin) auch ohne Zuruecksetzen installieren
     if ($StickPkg) {
         $persist = Join-Path $env:ProgramData ('Microsoft\Provisioning\' + $WlanPkgName)
@@ -964,9 +966,9 @@ if (-not $DoReset) {
         if ($same) { Log 'WLAN-Paket ist bereits installiert (identisch)' }
         else {
             $pr = $null
-            Log ('provtool.exe ' + $TmpPkg + ' /quiet (ohne Zuruecksetzen)')
+            Log ('provtool.exe ' + $TmpPkg + ' /quiet (ohne Zurücksetzen)')
             try { $pr = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\provtool.exe') -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden } catch { Log ('provtool: ' + $_.Exception.Message) }
-            if ($pr -and $pr.ExitCode -eq 0) { Log 'WLAN-Paket installiert (ohne Zuruecksetzen)'; Say 'WLAN-Paket installiert' 'Green' }
+            if ($pr -and $pr.ExitCode -eq 0) { Log 'WLAN-Paket installiert (ohne Zurücksetzen)'; Say 'WLAN-Paket installiert' 'Green' }
             else { Log ('WLAN-Paket NICHT installiert, provtool Exitcode ' + $(if ($pr) { $pr.ExitCode } else { '-' })); Say 'WLAN-Paket konnte nicht installiert werden' 'Yellow' }
         }
     }
@@ -995,7 +997,7 @@ if (-not $DoReset) {
             if (-not $shown) {
                 Banner 'PROFIL DA  -  JETZT STICK ABZIEHEN' 'DarkYellow' @(
                     '',
-                    'Stick abziehen - dann startet das Geraet von selbst neu.')
+                    'Stick abziehen - dann startet das Gerät von selbst neu.')
                 $shown = $true
             }
             Wait-Live 2 'Warte, bis der Stick abgezogen ist' $t0 300 ''
@@ -1005,8 +1007,8 @@ if (-not $DoReset) {
             Log 'Stick nach 5 Min noch gesteckt - kein automatischer Neustart'
             Banner 'PROFIL DA  -  NEUSTART VON HAND' 'DarkYellow' @(
                 '',
-                'Stick abziehen, dann Geraet neu starten.')
-            Read-Host '  Enter = Fenster schliessen' | Out-Null
+                'Stick abziehen, dann Gerät neu starten.')
+            Read-Host '  Enter = Fenster schließen' | Out-Null
             exit 0
         }
         Banner 'OK  -  PROFIL DA  -  NEUSTART IN 15 s' 'DarkGreen' @(
@@ -1015,33 +1017,34 @@ if (-not $DoReset) {
             '[A] = nicht neu starten')
         try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }
         $k = Read-KeyTimeout 15 'Neustart'
-        if ($k -eq 'A') { Log 'Neustart abgebrochen'; Read-Host '  Enter = Fenster schliessen' | Out-Null; exit 0 }
-        Log 'Neustart (shutdown /r /t 0)'
-        Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\shutdown.exe') -ArgumentList '/r', '/t', '0' -WindowStyle Hidden
+        if ($k -eq 'A') { Log 'Neustart abgebrochen'; Read-Host '  Enter = Fenster schließen' | Out-Null; exit 0 }
+        # /f: offene Programme (z. B. "Program Manager" im OOBE) duerfen den Neustart nicht blockieren
+        Log 'Neustart (shutdown /r /f /t 0)'
+        Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\shutdown.exe') -ArgumentList '/r', '/f', '/t', '0' -WindowStyle Hidden
         exit 0
     }
     if ($wr.Assigned) {
         Log ('Nur Upload: Profil zugewiesen: ' + $wr.Profil)
         Banner 'OK  -  PROFIL DA' 'DarkGreen' @(
             '',
-            'Jetzt Geraet zuruecksetzen:',
-            'Einstellungen > System > Wiederherstellung > PC zuruecksetzen')
+            'Jetzt Gerät zurücksetzen:',
+            'Einstellungen > System > Wiederherstellung > PC zurücksetzen')
     } else {
         Log ('Nur Upload: Profil nach Wartezeit NICHT sicher zugewiesen, letzter Status: ' + $wr.LastTxt)
         Banner 'NOCH KEIN PROFIL' 'DarkYellow' @(
             '',
             'Upload ist fertig, das Profil fehlt noch.',
-            'Spaeter nochmal D:\go starten.')
+            'Später nochmal D:\go starten.')
     }
-    Read-Host '  Enter = Fenster schliessen' | Out-Null
+    Read-Host '  Enter = Fenster schließen' | Out-Null
     exit 0
 }
 
-Banner 'OK  -  STICK ABZIEHEN  -  naechstes Geraet' 'DarkGreen' @(
+Banner 'OK  -  STICK ABZIEHEN  -  nächstes Gerät' 'DarkGreen' @(
     '',
     ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
-    'Geraet NICHT ausschalten.',
-    'Es setzt sich selbst zurueck, sobald das Profil da ist.')
+    'Gerät NICHT ausschalten.',
+    'Es setzt sich selbst zurück, sobald das Profil da ist.')
 $GreenAt = Get-Date
 
 # ---------- 5. Auf Profil warten ----------
@@ -1053,31 +1056,31 @@ if (-not $assigned) {
     Log ('Profil nach Wartezeit NICHT sicher zugewiesen, letzter Status: ' + $lastTxt)
     Banner 'NOCH KEIN PROFIL' 'DarkYellow' @(
         '',
-        'Ohne Profil kommt nach dem Zuruecksetzen das normale Windows-Setup.',
+        'Ohne Profil kommt nach dem Zurücksetzen das normale Windows-Setup.',
         '',
-        'N = abbrechen, spaeter nochmal go  (empfohlen)',
-        'J = trotzdem zuruecksetzen')
+        'N = abbrechen, später nochmal go  (empfohlen)',
+        'J = trotzdem zurücksetzen')
     $a = Read-Host '  J / N'
     if ($a -notmatch '^[jJyY]') { Log 'Abbruch durch Benutzer (kein Reset)'; exit 1 }
 }
 
 # Gruenen Hinweis mind. 60 s stehen lassen (damit man ihn sieht und den Stick abzieht)
 $rest = 60 - [int]((Get-Date) - $GreenAt).TotalSeconds
-if ($rest -gt 0) { Log ('Gruen bleibt noch ' + $rest + ' s stehen'); Wait-Live $rest 'Profil da' (Get-Date) 0 'Zuruecksetzen startet'; Complete-Live }
+if ($rest -gt 0) { Log ('Grün bleibt noch ' + $rest + ' s stehen'); Wait-Live $rest 'Profil da' (Get-Date) 0 'Zurücksetzen startet'; Complete-Live }
 # ---------- 6. WLAN-Paket + Zuruecksetzen ohne Hersteller-Anpassungen ----------
 Wait-Power
 $ErrorActionPreference = 'Continue'
 function Fail-Reset {
     param([string]$Msg)
-    Log ('FEHLER Zuruecksetzen: ' + $Msg)
-    Banner 'FEHLER beim Zuruecksetzen' 'DarkRed' @(
+    Log ('FEHLER Zurücksetzen: ' + $Msg)
+    Banner 'FEHLER beim Zurücksetzen' 'DarkRed' @(
         '',
-        'Autopilot-Upload ist OK, nur das Zuruecksetzen ist nicht gestartet.',
+        'Autopilot-Upload ist OK, nur das Zurücksetzen ist nicht gestartet.',
         ('Grund: ' + $Msg),
         ('Log: ' + $LocalLog + ' und ' + $WipeLog),
-        'Nochmal: Stick rein, Shift+F10, D:\go  (Upload wird uebersprungen)',
+        'Nochmal: Stick rein, Shift+F10, D:\go  (Upload wird übersprungen)',
         'Diagnose zum Abfotografieren: D:\diag')
-    Read-Host '  Enter = Fenster schliessen' | Out-Null
+    Read-Host '  Enter = Fenster schließen' | Out-Null
     exit 1
 }
 
@@ -1092,24 +1095,24 @@ if ($StickPkg) {
     # Intune-Richtlinie Security/AllowAddProvisioningPackage = 0 sperrt neue Pakete (auch fuer SYSTEM)
     $ppBlocked = $false
     try { $pv = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Security' -Name 'AllowAddProvisioningPackage' -ErrorAction Stop; if ([int]$pv.AllowAddProvisioningPackage -eq 0) { $ppBlocked = $true } } catch { }
-    if ($same) { Log 'WLAN-Paket ist bereits installiert (identisch) - provtool uebersprungen' }
+    if ($same) { Log 'WLAN-Paket ist bereits installiert (identisch) - provtool übersprungen' }
     elseif ($ppBlocked -and (Test-Path $persist)) {
         Log 'Intune sperrt Bereitstellungspakete (AllowAddProvisioningPackage=0) - vorhandenes WLAN-Paket bleibt, neues wird NICHT installiert'
         Write-Host ''
-        Write-Host '  Hinweis: Intune sperrt neue Pakete auf diesem Geraet.' -ForegroundColor Yellow
-        Write-Host '  Das vorhandene WLAN-Paket bleibt - Aenderungen (z. B. lokaler Admin) kommen NICHT mit.' -ForegroundColor Yellow
+        Write-Host '  Hinweis: Intune sperrt neue Pakete auf diesem Gerät.' -ForegroundColor Yellow
+        Write-Host '  Das vorhandene WLAN-Paket bleibt - Änderungen (z. B. lokaler Admin) kommen NICHT mit.' -ForegroundColor Yellow
         [void](Read-KeyTimeout 30 'beliebige Taste oder weiter')
     }
     elseif ($ppBlocked) {
         Log 'Intune sperrt Bereitstellungspakete (AllowAddProvisioningPackage=0) und es ist kein WLAN-Paket installiert'
         Banner 'ACHTUNG  -  WLAN-PAKET VON INTUNE GESPERRT' 'DarkYellow' @(
             '',
-            'Intune verbietet auf diesem Geraet neue Bereitstellungspakete.',
-            'Nach dem Zuruecksetzen ist das Konfigurations-WLAN NICHT da:',
-            'LAN-Kabel anstecken oder WLAN im Einrichtungsbildschirm von Hand waehlen.')
-        $a = Read-Host '  J = trotzdem zuruecksetzen, Enter = abbrechen'
+            'Intune verbietet auf diesem Gerät neue Bereitstellungspakete.',
+            'Nach dem Zurücksetzen ist das Konfigurations-WLAN NICHT da:',
+            'LAN-Kabel anstecken oder WLAN im Einrichtungsbildschirm von Hand wählen.')
+        $a = Read-Host '  J = trotzdem zurücksetzen, Enter = abbrechen'
         if ($a -notmatch '^[jJyY]') { Fail-Reset 'WLAN-Paket von Intune gesperrt (AllowAddProvisioningPackage=0) - abgebrochen' }
-        Log 'Trotzdem zuruecksetzen (ohne WLAN-Paket) bestaetigt'
+        Log 'Trotzdem zurücksetzen (ohne WLAN-Paket) bestätigt'
     }
     else {
         $prov = Join-Path $env:SystemRoot 'System32\provtool.exe'
@@ -1118,7 +1121,7 @@ if ($StickPkg) {
         $pr = Start-Process -FilePath $prov -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden
         Log ('provtool Exitcode: ' + $pr.ExitCode)
         if ($pr.ExitCode -ne 0) { Log 'provtool fehlgeschlagen - neuer Versuch als SYSTEM im Hilfsscript'; $SysPkg = $TmpPkg }
-        elseif (-not (Test-Path $persist)) { Log ('Hinweis: ' + $persist + ' nicht gefunden - WLAN nach dem Zuruecksetzen evtl. von Hand') }
+        elseif (-not (Test-Path $persist)) { Log ('Hinweis: ' + $persist + ' nicht gefunden - WLAN nach dem Zurücksetzen evtl. von Hand') }
         else { Log 'WLAN-Paket in ProgramData\Provisioning gespeichert' }
     }
 }
@@ -1239,7 +1242,7 @@ $RmOther = ($cfg.RemoveOtherPackages -eq $true)
 # Hersteller-Apps (Regex auf den App-Namen), Standard McAfee; "RemoveApps": "" schaltet es aus
 $RmApps = 'McAfee'
 if ($null -ne $cfg.RemoveApps) { $RmApps = [string]$cfg.RemoveApps }
-try { [void][regex]::new($RmApps) } catch { Log ('RemoveApps ist kein gueltiger Ausdruck - aus: ' + $RmApps); $RmApps = '' }
+try { [void][regex]::new($RmApps) } catch { Log ('RemoveApps ist kein gültiger Ausdruck - aus: ' + $RmApps); $RmApps = '' }
 $KeepHash = ''
 if (Test-Path -LiteralPath $TmpPkg) { try { $KeepHash = (Get-FileHash -LiteralPath $TmpPkg -Algorithm SHA256).Hash } catch { } }
 try {
@@ -1253,9 +1256,9 @@ if ($other.Count) {
     if ($RmOther) { Say ('Fremde Bereitstellungspakete werden entfernt: ' + ($other -join ', ')) 'Yellow' }
     else { Log ('Fremde Bereitstellungspakete bleiben (RemoveOtherPackages=false): ' + ($other -join ', ')) }
 }
-Banner 'ZURUECKSETZEN STARTET' 'DarkBlue' @(
+Banner 'ZURÜCKSETZEN STARTET' 'DarkBlue' @(
     '',
-    'Hersteller-Anpassungen werden entfernt, dann setzt sich das Geraet zurueck.',
+    'Hersteller-Anpassungen werden entfernt, dann setzt sich das Gerät zurück.',
     'Danach kommt das Schul-Anmeldefenster (Autopilot).')
 
 # 6c. Als SYSTEM starten (geplante Aufgabe) und auf Ergebnis warten
@@ -1264,7 +1267,7 @@ $tn = 'HUPilot-Wipe'
 $taskXml = @'
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>HUPilot - Zuruecksetzen als SYSTEM</Description></RegistrationInfo>
+  <RegistrationInfo><Description>HUPilot - Zurücksetzen als SYSTEM</Description></RegistrationInfo>
   <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
@@ -1317,14 +1320,14 @@ if (-not $started) {
 $res = ''
 $t0 = Get-Date
 for ($i = 0; $i -lt 60; $i++) {
-    Wait-Live 3 'Zuruecksetzen wird vorbereitet' $t0 180 ''
+    Wait-Live 3 'Zurücksetzen wird vorbereitet' $t0 180 ''
     if (Test-Path $WipeResult) { $res = ([string](Get-Content -Path $WipeResult -Raw)).Trim(); break }
 }
 Complete-Live
 try { Get-Content -Path $WipeLog -ErrorAction Stop | ForEach-Object { Log ('[SYSTEM] ' + $_) } } catch { }
-if (-not $res) { Fail-Reset 'keine Rueckmeldung vom SYSTEM-Script (3 Min)' }
+if (-not $res) { Fail-Reset 'keine Rückmeldung vom SYSTEM-Script (3 Min)' }
 if ($res -notlike 'OK*') { Fail-Reset $res }
-Log ('Zuruecksetzen angenommen: ' + $res)
+Log ('Zurücksetzen angenommen: ' + $res)
 Write-Host ''
-Write-Host '  Zuruecksetzen angenommen - Neustart folgt in Kuerze.' -ForegroundColor White
+Write-Host '  Zurücksetzen angenommen - Neustart folgt in Kürze.' -ForegroundColor White
 Wait-Live 900 'Warte auf Neustart' (Get-Date) 0 ''
