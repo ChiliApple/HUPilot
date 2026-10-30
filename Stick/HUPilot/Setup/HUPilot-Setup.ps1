@@ -700,7 +700,7 @@ $ui.bLoad.Add_Click({
     $p = $srcCfg
     if (-not (Test-Path $p)) { Out-Log ('Noch keine config.json in der Quelle: ' + $p + ' - Felder ausfüllen, dann 3. Speichern'); return }
     try {
-        $c = Get-Content $p -Raw | ConvertFrom-Json
+        $c = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
         $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey

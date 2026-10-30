@@ -65,6 +65,65 @@ $ProvLogDir = 'C:\Windows\Temp\HUPilot-ProvLogs'
 $ProfileWaitMin = 20
 $GB = 'https://graph.microsoft.com/beta'
 
+# ---------- Live-Anzeige beim Warten: EINE Zeile, die sich jede Sekunde selbst aktualisiert ----------
+# Zeit laeuft mit, Countdown bis zur naechsten Abfrage, drehendes Zeichen = Programm lebt.
+# Aendert sich der Status, bleibt die alte Zeile stehen (Verlauf) und eine neue beginnt.
+$script:LiveOn = $false
+$script:SpinI = 0
+function Format-Dauer {
+    param([double]$Sec)
+    $s = [int][math]::Max(0, [math]::Floor($Sec))
+    return ('{0}:{1:00}' -f [int][math]::Floor($s / 60), ($s % 60))
+}
+function Show-Live {
+    param([string]$Text)
+    $c = '|/-\'[$script:SpinI % 4]
+    $script:SpinI++
+    $line = '  ' + $Text + '   ' + $c
+    try {
+        $w = [Console]::WindowWidth - 1
+        if ($line.Length -gt $w) { $line = $line.Substring(0, $w) }
+        Write-Host ("`r" + $line.PadRight($w)) -NoNewline
+    } catch { Write-Host ("`r" + $line) -NoNewline }
+    $script:LiveOn = $true
+}
+function Complete-Live {
+    if ($script:LiveOn) { Write-Host ''; $script:LiveOn = $false }
+}
+function Wait-Live {
+    # wartet $Seconds; Anzeige: Text | gelaufen / hoechstens | <Next> in x s
+    param([int]$Seconds, [string]$Text, [datetime]$Since = (Get-Date), [int]$MaxSec = 0, [string]$Next = 'nächste Abfrage')
+    $end = (Get-Date).AddSeconds($Seconds)
+    do {
+        $now = Get-Date
+        $l = $Text + '  |  ' + (Format-Dauer ($now - $Since).TotalSeconds) + $(if ($MaxSec -gt 0) { ' / ' + (Format-Dauer $MaxSec) } else { '' })
+        if ($Next) { $l += '  |  ' + $Next + ' in ' + [int][math]::Max(0, [math]::Ceiling(($end - $now).TotalSeconds)) + ' s' }
+        Show-Live $l
+        $ms = [int][math]::Min(1000, [math]::Max(0, ($end - (Get-Date)).TotalMilliseconds))
+        if ($ms -gt 0) { Start-Sleep -Milliseconds $ms }
+    } while ((Get-Date) -lt $end)
+}
+
+function Read-KeyTimeout {
+    # Tastendruck mit Zeitlimit; zeigt live "<Label> in x s"
+    param([int]$Seconds = 10, [string]$Label = 'ohne Eingabe weiter')
+    $until = (Get-Date).AddSeconds($Seconds)
+    $res = ''
+    try {
+        while ((Get-Date) -lt $until) {
+            if ([Console]::KeyAvailable) {
+                $key = [Console]::ReadKey($true)
+                if ($key.Key -eq 'Enter') { $res = 'ENTER' } else { $res = ([string]$key.KeyChar).ToUpper() }
+                break
+            }
+            if ($Label) { Show-Live ($Label + ' in ' + [int][math]::Ceiling(($until - (Get-Date)).TotalSeconds) + ' s') }
+            Start-Sleep -Milliseconds 200
+        }
+    } catch { Log ('Tastatur-Abfrage: ' + $_.Exception.Message) }
+    Complete-Live
+    return $res
+}
+
 function Log {
     param([string]$Msg)
     $line = '{0}  [{1,5:N0}s]  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), ((Get-Date) - $Start).TotalSeconds, $Msg
@@ -227,7 +286,7 @@ Log ('===== START go.ps1 v' + $Ver + ' =====')
 
 # ---------- 1. Config + Seriennummer ----------
 $cfg = $null
-try { $cfg = Get-Content (Join-Path $CfgDir 'config.json') -Raw | ConvertFrom-Json } catch { Fail ('config.json nicht lesbar: ' + $_.Exception.Message) }
+try { $cfg = Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Fail ('config.json nicht lesbar: ' + $_.Exception.Message) }
 foreach ($k in 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','WlanSsid','WlanKey') {
     if (-not $cfg.$k) { Fail ('config.json: Feld ' + $k + ' fehlt') }
 }
@@ -242,65 +301,6 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $CfgDir 'logs') -Force | Out-Null
     $StickLog = Join-Path $CfgDir ('logs\{0}_{1}.log' -f $Serial, (Get-Date -Format 'yyyyMMdd_HHmm'))
 } catch { $StickLog = $null }
-
-# ---------- Live-Anzeige beim Warten: EINE Zeile, die sich jede Sekunde selbst aktualisiert ----------
-# Zeit laeuft mit, Countdown bis zur naechsten Abfrage, drehendes Zeichen = Programm lebt.
-# Aendert sich der Status, bleibt die alte Zeile stehen (Verlauf) und eine neue beginnt.
-$script:LiveOn = $false
-$script:SpinI = 0
-function Format-Dauer {
-    param([double]$Sec)
-    $s = [int][math]::Max(0, [math]::Floor($Sec))
-    return ('{0}:{1:00}' -f [int][math]::Floor($s / 60), ($s % 60))
-}
-function Show-Live {
-    param([string]$Text)
-    $c = '|/-\'[$script:SpinI % 4]
-    $script:SpinI++
-    $line = '  ' + $Text + '   ' + $c
-    try {
-        $w = [Console]::WindowWidth - 1
-        if ($line.Length -gt $w) { $line = $line.Substring(0, $w) }
-        Write-Host ("`r" + $line.PadRight($w)) -NoNewline
-    } catch { Write-Host ("`r" + $line) -NoNewline }
-    $script:LiveOn = $true
-}
-function Complete-Live {
-    if ($script:LiveOn) { Write-Host ''; $script:LiveOn = $false }
-}
-function Wait-Live {
-    # wartet $Seconds; Anzeige: Text | gelaufen / hoechstens | <Next> in x s
-    param([int]$Seconds, [string]$Text, [datetime]$Since = (Get-Date), [int]$MaxSec = 0, [string]$Next = 'nächste Abfrage')
-    $end = (Get-Date).AddSeconds($Seconds)
-    do {
-        $now = Get-Date
-        $l = $Text + '  |  ' + (Format-Dauer ($now - $Since).TotalSeconds) + $(if ($MaxSec -gt 0) { ' / ' + (Format-Dauer $MaxSec) } else { '' })
-        if ($Next) { $l += '  |  ' + $Next + ' in ' + [int][math]::Max(0, [math]::Ceiling(($end - $now).TotalSeconds)) + ' s' }
-        Show-Live $l
-        $ms = [int][math]::Min(1000, [math]::Max(0, ($end - (Get-Date)).TotalMilliseconds))
-        if ($ms -gt 0) { Start-Sleep -Milliseconds $ms }
-    } while ((Get-Date) -lt $end)
-}
-
-function Read-KeyTimeout {
-    # Tastendruck mit Zeitlimit; zeigt live "<Label> in x s"
-    param([int]$Seconds = 10, [string]$Label = 'ohne Eingabe weiter')
-    $until = (Get-Date).AddSeconds($Seconds)
-    $res = ''
-    try {
-        while ((Get-Date) -lt $until) {
-            if ([Console]::KeyAvailable) {
-                $key = [Console]::ReadKey($true)
-                if ($key.Key -eq 'Enter') { $res = 'ENTER' } else { $res = ([string]$key.KeyChar).ToUpper() }
-                break
-            }
-            if ($Label) { Show-Live ($Label + ' in ' + [int][math]::Ceiling(($until - (Get-Date)).TotalSeconds) + ' s') }
-            Start-Sleep -Milliseconds 200
-        }
-    } catch { Log ('Tastatur-Abfrage: ' + $_.Exception.Message) }
-    Complete-Live
-    return $res
-}
 
 function Get-PowerInfo {
     # Win32_Battery.BatteryStatus: 2/3 = Netzteil, 6-9 = laedt; kein Akku = Netzbetrieb
@@ -896,7 +896,8 @@ function Wait-ApProfile {
         # wenn kurz vorher (< 10 Min, MS Doku) schon einer lief - z. B. vom vorigen Geraet. Dann kommt die Zuweisung sonst erst spaet.
         if ($okCount -eq 0 -and ((Get-Date) - $syncAt).TotalMinutes -ge 5) { Invoke-ApSync 'Warten auf Profil'; $syncAt = Get-Date }
         if ((Get-Date) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
-        Show-Live 'Profil: frage ab ...'
+        # Abfrage-Hinweis an die aktuelle Zeile anhaengen, damit bei Statuswechsel der ALTE Status als Verlauf stehen bleibt
+        if ($shownTxt) { Show-Live ('Profil: ' + $shownTxt + '  |  ' + (Format-Dauer ((Get-Date) - $t0).TotalSeconds) + '  |  frage ab ...') } else { Show-Live 'Profil: frage ab ...' }
         $ap = Get-ApDevice
         $ps = ''
         $pn = ''
@@ -929,6 +930,8 @@ function Wait-ApProfile {
             else { $ready = $true }
         } else { $why = 'Status ' + $(if ($ps) { $ps } else { 'leer' }) }
         if (-not $noDate) { $noDateSince = $null }
+        # Ohne Datum (nur OOBE): Wartezeit so verlaengern, dass die NoDateMin-Frist sicher ablaufen kann (nur nach oben)
+        if ($noDateSince -and $NoDateMin -gt 0) { $lim2 = $noDateSince.AddMinutes($NoDateMin + 1.5); if ($lim2 -gt $limit) { $limit = $lim2 } }
         if ($ready) { $okCount++ } else { $okCount = 0 }
         # Anzeige: EINE Live-Zeile; aendert sich der Status, bleibt die alte Zeile als Verlauf stehen
         $pnTxt = $(if ($pn) { ' (' + $pn + ')' } else { '' })
@@ -950,7 +953,7 @@ function Wait-ApProfile {
         if ($extra) { Complete-Live; break }
         $lt = 'Profil: ' + $txt
         if ($noDate -and $NoDateMin -gt 0) { $lt += ' (Neustart in ' + [int][math]::Max(1, [math]::Ceiling($NoDateMin - ((Get-Date) - $noDateSince).TotalMinutes)) + ' Min)' }
-        Wait-Live 30 $lt $t0 ($ProfileWaitMin * 60) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'nächste Abfrage' })
+        Wait-Live 30 $lt $t0 ([int]($limit - $t0).TotalSeconds) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'nächste Abfrage' })
     }
     Complete-Live
     return [pscustomobject]@{ Assigned = $assigned; LastTxt = $lastTxt; Profil = $pn }
@@ -967,7 +970,12 @@ if (-not $DoReset) {
         else {
             $pr = $null
             Log ('provtool.exe ' + $TmpPkg + ' /quiet (ohne Zurücksetzen)')
-            try { $pr = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\provtool.exe') -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden } catch { Log ('provtool: ' + $_.Exception.Message) }
+            Show-Live 'WLAN-Paket wird installiert ...'
+            try {
+                $pr = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\provtool.exe') -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -PassThru -WindowStyle Hidden
+                if (-not $pr.WaitForExit(120000)) { Log 'provtool nach 2 Min nicht fertig - abgebrochen'; try { $pr.Kill() } catch { }; $pr = $null }
+            } catch { Log ('provtool: ' + $_.Exception.Message); $pr = $null }
+            Complete-Live
             if ($pr -and $pr.ExitCode -eq 0) { Log 'WLAN-Paket installiert (ohne Zurücksetzen)'; Say 'WLAN-Paket installiert' 'Green' }
             else { Log ('WLAN-Paket NICHT installiert, provtool Exitcode ' + $(if ($pr) { $pr.ExitCode } else { '-' })); Say 'WLAN-Paket konnte nicht installiert werden' 'Yellow' }
         }
@@ -989,7 +997,9 @@ if (-not $DoReset) {
     if ($wr.Assigned -and $inOobe) {
         Log ('Nur Upload im OOBE: Profil zugewiesen (' + $wr.Profil + ') - Neustart')
         # Stick muss weg, sonst bootet das Geraet evtl. vom Stick (Ventoy)
-        $stickRoot = Split-Path -Qualifier $PSScriptRoot
+        $stickRoot = ''
+        try { $stickRoot = Split-Path -Qualifier $PSScriptRoot } catch { Log ('Stick-Laufwerk: ' + $_.Exception.Message) }
+        if (-not $stickRoot) { $stickRoot = 'Z:\HUPilot-kein-Stick' }   # Pfad gibt es nicht -> nicht warten
         $t0 = Get-Date
         $wait = $t0.AddMinutes(5)
         $shown = $false
@@ -1331,3 +1341,11 @@ Log ('Zurücksetzen angenommen: ' + $res)
 Write-Host ''
 Write-Host '  Zurücksetzen angenommen - Neustart folgt in Kürze.' -ForegroundColor White
 Wait-Live 900 'Warte auf Neustart' (Get-Date) 0 ''
+Log 'Nach 15 Min kein Neustart - Zuruecksetzen hat nicht begonnen'
+Protokoll 'FEHLER: Zuruecksetzen nach 15 Min nicht begonnen'
+Banner 'ZURÜCKSETZEN NICHT GESTARTET' 'DarkRed' @(
+    '',
+    'Nach 15 Minuten kein Neustart.',
+    'Foto von diesem Bild an den Admin.',
+    ('Log: ' + $LocalLog + ' und ' + $WipeLog))
+Read-Host '  Enter = Fenster schließen' | Out-Null

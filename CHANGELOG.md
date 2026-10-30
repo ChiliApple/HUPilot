@@ -1,6 +1,7 @@
 # Changelog
 
 ## v2.7.8 - 2026-10-30
+- Prüfung Grok (Briefkasten 076): Fehler bei kaputter config.json zeigte kein rotes Banner (Live-Anzeige war zu spät definiert) – behoben. config.json wird überall als UTF-8 gelesen (Umlaute in WLAN-Kennwort/Tenant). WLAN-Paket ohne Zurücksetzen mit 2-Min-Zeitlimit und Anzeige. Im OOBE verlängert sich die Wartezeit, damit der Neustart nach 11 Min ohne Datum auch bei spätem Profil greift. Verlauf zeigt bei Statuswechsel den alten Status statt „frage ab“. Startet das Zurücksetzen nach 15 Min nicht, kommt ein rotes Banner. CI-Update-Test auf Umlaut angepasst.
 - Setup Status: Geräte, die noch nicht in Intune registriert sind (gerade in Arbeit), stehen jetzt **oben** statt ganz unten.
 - go.ps1: **Neustart im Einrichtungsbildschirm erzwungen** (`shutdown /r /f /t 0`). Vorher konnte „Program Manager – diese App verhindert den Neustart“ den automatischen Neustart blockieren.
 - Alle Anzeigen (go, diag, Setup, Update) einheitlich mit echten Umlauten und ß statt ae/oe/ue/ss. `protokoll.csv` und `hashes.csv` bleiben ASCII (Umlaute werden dort umgeschrieben). Bei der Warnung „Gerät ist schon eingerichtet“ wird `LÖSCHEN` und `LOESCHEN` akzeptiert (Tastatur im OOBE evtl. englisch).

@@ -171,7 +171,7 @@ jobs:
           $out
           if ($c -ne 0) { throw "Pull.ps1 (Update) Exitcode $c" }
           if ($out -notmatch 'abgebrochen') { throw 'Journal wurde nicht ausgewertet' }
-          if ($out -notmatch [regex]::Escape("zurueckgestellt: $lib")) { throw 'Journal: Core-Update.ps1 nicht zurueckgestellt (Array-Auswertung PS 5.1?)' }
+          if ($out -notmatch ('zur.{1,2}ckgestellt: ' + [regex]::Escape($lib))) { throw 'Journal: Core-Update.ps1 nicht zurueckgestellt (Array-Auswertung PS 5.1?)' }
           if ((Get-Content -LiteralPath $main -Raw) -match 'kaputt') { throw 'go.ps1 nicht erneuert' }
           if (-not (Test-Path -LiteralPath $lib) -or (Get-FileHash -LiteralPath $lib -Algorithm SHA256).Hash -ne $libHash) { throw 'Core-Update.ps1 fehlt oder falsch' }
           if (Test-Path -LiteralPath $old) { throw 'veraltete Datei nicht entfernt' }

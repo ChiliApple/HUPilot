@@ -36,7 +36,7 @@ function Head([string]$t) {
 }
 function Tail([string]$File, [int]$N, [string]$Pattern) {
     if (-not (Test-Path $File)) { Write-Host ('  (nicht vorhanden: ' + $File + ')') -ForegroundColor Yellow; return }
-    $l = @(Get-Content -Path $File -ErrorAction SilentlyContinue)
+    $l = @(Get-Content -Path $File -Encoding UTF8 -ErrorAction SilentlyContinue)
     if ($Pattern) { $l = @($l | Where-Object { $_ -match $Pattern }) }
     foreach ($x in @($l | Select-Object -Last $N)) {
         $c = 'Gray'
@@ -66,7 +66,7 @@ function Show-Device {
         $dd = Get-CimInstance -Namespace root/cimv2/mdm/dmmap -Class MDM_DevDetail_Ext01 -Filter "InstanceID='Ext' AND ParentID='./DevDetail'"
         Write-Host ('  Hash         : ' + $(if ($dd.DeviceHardwareData) { 'lesbar (' + ([string]$dd.DeviceHardwareData).Length + ' Zeichen)' } else { 'NICHT lesbar' }))
     } catch { Write-Host '  Hash         : NICHT lesbar' -ForegroundColor Red }
-    try { $c = Get-Content (Join-Path $CfgDir 'config.json') -Raw | ConvertFrom-Json; Write-Host ('  Stick-Config : ' + $c.Tenant + ' | Tag ' + $c.GroupTag + ' | WLAN ' + $c.WlanSsid) } catch { Write-Host '  Stick-Config : nicht lesbar' -ForegroundColor Red }
+    try { $c = Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json; Write-Host ('  Stick-Config : ' + $c.Tenant + ' | Tag ' + $c.GroupTag + ' | WLAN ' + $c.WlanSsid) } catch { Write-Host '  Stick-Config : nicht lesbar' -ForegroundColor Red }
     try { $v = Get-Content -LiteralPath (Join-Path $CfgDir 'Config\version.json') -Raw | ConvertFrom-Json; Write-Host ('  HUPilot      : v' + $v.version + ' (' + $v.buildDate + ')') } catch { Write-Host '  HUPilot      : Version nicht lesbar' }
     try { $i = Get-Content -LiteralPath (Join-Path $CfgDir 'Config\installed.json') -Raw | ConvertFrom-Json; Write-Host ('  Update       : ' + $i.Date + ', ' + $i.Check) } catch { }
 }
