@@ -93,18 +93,18 @@ $script:Extra = @{}
       <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-        <Track x:Name="PART_Track" IsDirectionReversed="True" Background="Transparent">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
           <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
-        </Track>
+        </Track></Border>
       </ControlTemplate></Setter.Value></Setter>
       <Style.Triggers>
         <Trigger Property="Orientation" Value="Horizontal">
           <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
           <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
           <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-            <Track x:Name="PART_Track" Background="Transparent">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
               <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
-            </Track>
+            </Track></Border>
           </ControlTemplate></Setter.Value></Setter>
         </Trigger>
       </Style.Triggers>
@@ -308,18 +308,18 @@ function Show-PrepSticks {
       <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-        <Track x:Name="PART_Track" IsDirectionReversed="True" Background="Transparent">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
           <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
-        </Track>
+        </Track></Border>
       </ControlTemplate></Setter.Value></Setter>
       <Style.Triggers>
         <Trigger Property="Orientation" Value="Horizontal">
           <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
           <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
           <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-            <Track x:Name="PART_Track" Background="Transparent">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
               <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
-            </Track>
+            </Track></Border>
           </ControlTemplate></Setter.Value></Setter>
         </Trigger>
       </Style.Triggers>
@@ -529,18 +529,18 @@ function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkTe
       <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-        <Track x:Name="PART_Track" IsDirectionReversed="True" Background="Transparent">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
           <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
-        </Track>
+        </Track></Border>
       </ControlTemplate></Setter.Value></Setter>
       <Style.Triggers>
         <Trigger Property="Orientation" Value="Horizontal">
           <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
           <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
           <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-            <Track x:Name="PART_Track" Background="Transparent">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
               <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
-            </Track>
+            </Track></Border>
           </ControlTemplate></Setter.Value></Setter>
         </Trigger>
       </Style.Triggers>
@@ -915,18 +915,18 @@ function Show-Status {
       <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-        <Track x:Name="PART_Track" IsDirectionReversed="True" Background="Transparent">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
           <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
-        </Track>
+        </Track></Border>
       </ControlTemplate></Setter.Value></Setter>
       <Style.Triggers>
         <Trigger Property="Orientation" Value="Horizontal">
           <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
           <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
           <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-            <Track x:Name="PART_Track" Background="Transparent">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
               <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
-            </Track>
+            </Track></Border>
           </ControlTemplate></Setter.Value></Setter>
         </Trigger>
       </Style.Triggers>
@@ -1219,18 +1219,18 @@ function Show-Grid {
       <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-        <Track x:Name="PART_Track" IsDirectionReversed="True" Background="Transparent">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
           <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
-        </Track>
+        </Track></Border>
       </ControlTemplate></Setter.Value></Setter>
       <Style.Triggers>
         <Trigger Property="Orientation" Value="Horizontal">
           <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
           <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
           <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-            <Track x:Name="PART_Track" Background="Transparent">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
               <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
-            </Track>
+            </Track></Border>
           </ControlTemplate></Setter.Value></Setter>
         </Trigger>
       </Style.Triggers>
@@ -1328,18 +1328,18 @@ function Show-HashImport {
       <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-        <Track x:Name="PART_Track" IsDirectionReversed="True" Background="Transparent">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
           <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
-        </Track>
+        </Track></Border>
       </ControlTemplate></Setter.Value></Setter>
       <Style.Triggers>
         <Trigger Property="Orientation" Value="Horizontal">
           <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
           <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
           <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-            <Track x:Name="PART_Track" Background="Transparent">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
               <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
-            </Track>
+            </Track></Border>
           </ControlTemplate></Setter.Value></Setter>
         </Trigger>
       </Style.Triggers>
