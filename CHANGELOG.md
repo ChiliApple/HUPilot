@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.7.4 - 2026-10-30
+- go.ps1: **„Nur hochladen“ im Einrichtungsbildschirm (OOBE) startet automatisch neu,** sobald das Profil zugewiesen ist. Laut Microsoft holt Windows das Autopilot-Profil bei jedem Neustart neu; ein Zurücksetzen ist im OOBE nicht nötig. Vorher wartet go, bis der Stick abgezogen ist (sonst bootet das Gerät evtl. vom Stick), dann 15 s Countdown, [A] bricht ab. Steckt der Stick nach 5 Min noch, kein automatischer Neustart. Im eingerichteten Windows bleibt der Hinweis aufs Zurücksetzen.
+- go.ps1: Profilstatus wird auf Deutsch angezeigt (z. B. „kein Profil zugewiesen“, „Zuweisung läuft“, „zugewiesen“ statt `notAssigned`, `pending`, `assignedUnkownSyncState`); im Log steht zusätzlich der Graph-Wert.
+
 ## v2.7.3 - 2026-10-30
 - go.ps1: **LAN wird abgewartet.** Schlägt der erste Internet-Test fehl und steckt ein LAN-Kabel (physischer Ethernet-Adapter verbunden), zeigt go „LAN verbunden – warte auf Internet“ und testet bis zu 60 s lang alle 10 s erneut, bevor das Konfigurations-WLAN versucht wird. Vorher ging go sofort zum WLAN, auch wenn das LAN nur noch keine Adresse hatte.
 - go.ps1: Jeder fehlgeschlagene Internet-Test schreibt den Grund ins Log (`C:\Windows\Temp\HUPilot.log`); vorher wurde der Fehler verschluckt.
