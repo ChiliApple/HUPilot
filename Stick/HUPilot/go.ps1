@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.7'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.6'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -805,8 +805,6 @@ function Wait-ApProfile {
     $okCount = 0
     $lastTxt = ''
     $extra = $false
-    $noDateSince = $null   # seit wann alles passt ausser dem Zuweisungsdatum
-    $NoDateMin = 10        # danach auch ohne Datum weiter (Tenant-Test 30.10.2026: Profil kam ohne Datum an)
     if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geaendert, Tag-Pruefung nicht moeglich - keine automatische Freigabe' }
     $limit = (Get-Date).AddMinutes($ProfileWaitMin)
     $syncAt = Get-Date
@@ -834,20 +832,13 @@ function Wait-ApProfile {
         $wrong = $false; $noDate = $false
         if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
             if (-not $pi) { $why = 'Profil nicht lesbar' }
+            elseif (-not $pd) { $why = 'Zuweisungsdatum leer'; $noDate = $true }
             elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { $why = ConvertTo-DetailText ([string]$ap.deploymentProfileAssignmentDetailedStatus) }
             elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { $why = 'fuer den Tag ist kein Profil zugewiesen'; $wrong = $true }
             elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { $why = 'anderes Profil als fuer den Tag erwartet'; $wrong = $true }
             elseif ($TagChanged -and $null -eq $TagProfIds) { $why = 'Tag geaendert, erwartetes Profil unbekannt' }
-            elseif (-not $pd) {
-                # Alles passt, nur das Zuweisungsdatum ist leer: nach $NoDateMin Minuten trotzdem weiter
-                $noDate = $true
-                if (-not $noDateSince) { $noDateSince = Get-Date }
-                if (((Get-Date) - $noDateSince).TotalMinutes -ge $NoDateMin) { $ready = $true; $why = 'ohne Zuweisungsdatum freigegeben (' + $NoDateMin + ' Min stabil)' }
-                else { $why = 'Zuweisungsdatum leer' }
-            }
             else { $ready = $true }
         } else { $why = 'Status ' + $(if ($ps) { $ps } else { 'leer' }) }
-        if (-not $noDate) { $noDateSince = $null }
         if ($ready) { $okCount++ } else { $okCount = 0 }
         # Anzeige: EINE kurze Zeile
         $pnTxt = $(if ($pn) { ' (' + $pn + ')' } else { '' })
@@ -855,7 +846,7 @@ function Wait-ApProfile {
         elseif ($ready)        { $txt = 'zugewiesen' + $pnTxt + $(if ($okCount -ge 2) { '' } else { ' - Kontrolle in 30 s' }) }
         elseif ($wrong)        { $txt = 'falsches Profil' + $pnTxt + ' - warten' }
         elseif ($ps -eq 'failed') { $txt = 'Zuweisung fehlgeschlagen - warten' }
-        elseif ($noDate)       { $txt = 'zugewiesen - Datum fehlt noch (weiter in ' + [math]::Max(1, [math]::Ceiling($NoDateMin - ((Get-Date) - $noDateSince).TotalMinutes)) + ' Min)' }
+        elseif ($noDate)       { $txt = 'zugewiesen - Datum fehlt noch' }
         else                   { $txt = 'Zuweisung fehlt - warten' }
         $lastTxt = ($txt -replace ' - (warten|Kontrolle in 30 s)$', '')
         Write-Host ('  {0}  Profil: {1}' -f (Get-Date -Format 'HH:mm:ss'), $txt)
