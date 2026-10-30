@@ -1,6 +1,9 @@
 # Changelog
 
 ## v2.7.7 - 2026-10-30
+- go.ps1: **Live-Anzeige bei allen Wartestellen.** Statt alle 30 s eine neue Zeile gibt es eine Zeile, die sich jede Sekunde aktualisiert: Status, gelaufene Zeit / Höchstzeit, Countdown bis zur nächsten Abfrage und ein drehendes Zeichen (`| / - \`). Ändert sich der Status, bleibt die alte Zeile als Verlauf stehen. Gilt für Profil, Import, Löschen, LAN, WLAN, Anmeldung, Netzteil, Stick abziehen, Neustart-Countdown, Zurücksetzen. Auch alle Auswahlen mit Zeitlimit zeigen den Countdown live. Ins Log kommt weiter jede Abfrage.
+- go.ps1: **Im Einrichtungsbildschirm (nur hochladen) nach 11 Min auch ohne Zuweisungsdatum neu starten,** wenn Status, Profil und „kein Fehler“ stabil passen (Test 30.10.: Profil kam ohne Datum an; ein Irrtum kostet nur einen Neustart). Beim Zurücksetzen wird das Datum weiter abgewartet.
+- go.ps1: Schrift im Fenster größer (mind. 20 statt meist 16).
 - go.ps1: **WLAN-Paket auch bei „nur hochladen“ (ohne Zurücksetzen).** Bisher wurde das Paket (WLAN + ggf. lokaler Admin) nur beim Zurücksetzen installiert. Jetzt installiert go es auch ohne Zurücksetzen per provtool, bevor auf das Profil gewartet wird; ist es schon identisch installiert, wird es übersprungen. Schlägt es fehl, gelbe Meldung, go macht weiter.
 
 ## v2.7.6 - 2026-10-30
