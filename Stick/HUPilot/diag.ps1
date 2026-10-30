@@ -124,11 +124,12 @@ function Show-Prov {
         }
     }
     Write-Host ''
-    Write-Host '  McAfee / Hersteller-Apps:' -ForegroundColor White
+    $appRx = 'McAfee'; try { $cc = Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ($null -ne $cc.RemoveApps -and "$($cc.RemoveApps)") { $appRx = [string]$cc.RemoveApps } } catch { }
+    Write-Host ('  Hersteller-Apps (' + $appRx + '):') -ForegroundColor White
     $hit = $false
-    try { foreach ($x in @(Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object { $_.DisplayName -match 'McAfee' })) { Write-Host ('  vorinstallierte App: ' + $x.PackageName) -ForegroundColor Yellow; $hit = $true } } catch { Write-Host '  vorinstallierte Apps: nicht lesbar' }
-    try { foreach ($x in @(Get-AppxPackage -AllUsers -ErrorAction Stop | Where-Object { $_.Name -match 'McAfee' })) { Write-Host ('  installierte App   : ' + $x.PackageFullName) -ForegroundColor Yellow; $hit = $true } } catch { }
-    foreach ($x in @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'McAfee' })) { Write-Host ('  Programm           : ' + $x.DisplayName + ' ' + $x.DisplayVersion) -ForegroundColor Yellow; $hit = $true }
+    try { foreach ($x in @(Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object { $_.DisplayName -match $appRx })) { Write-Host ('  vorinstallierte App: ' + $x.PackageName) -ForegroundColor Yellow; $hit = $true } } catch { Write-Host '  vorinstallierte Apps: nicht lesbar' }
+    try { foreach ($x in @(Get-AppxPackage -AllUsers -ErrorAction Stop | Where-Object { $_.Name -match $appRx })) { Write-Host ('  installierte App   : ' + $x.PackageFullName) -ForegroundColor Yellow; $hit = $true } } catch { }
+    foreach ($x in @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match $appRx })) { Write-Host ('  Programm           : ' + $x.DisplayName + ' ' + $x.DisplayVersion) -ForegroundColor Yellow; $hit = $true }
     if (-not $hit) { Write-Host '  keine gefunden' -ForegroundColor Green }
     Write-Host ''
     Write-Host '  Geplante Aufgabe HUPilot-Wipe:' -ForegroundColor White
@@ -173,7 +174,7 @@ while ($true) {
         '6' { Show-Prov }
         '7' { Save-All }
         '0' { try { $Host.UI.RawUI.BackgroundColor = 'Black' } catch { }; exit 0 }
-        default { continue }
+        default { Write-Host '  Ungültige Auswahl - bitte 0 bis 7' -ForegroundColor Yellow; Start-Sleep -Seconds 2; continue }
     }
     Write-Host ''
     Read-Host '  Enter = zurück zum Menü' | Out-Null

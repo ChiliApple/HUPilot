@@ -1,6 +1,10 @@
 # Changelog
 
 ## v2.7.8 - 2026-10-30
+- go.ps1: Graph-Abfragen wiederholen bei Überlast (429/503/504) mit Retry-After bzw. 5/15/45 s + Zufall; Profil-Abfrage im Takt 26–35 s statt fix 30 s (viele Geräte gleichzeitig). Hinweis am Bildschirm, wenn das Profil mangels Recht Group.Read.All nicht geprüft werden kann. Live-Zeile wird bei schmalem Fenster gekürzt, Zeit und Countdown bleiben sichtbar.
+- diag.ps1: Hersteller-Apps nach `RemoveApps` aus config.json statt fest McAfee; ungültige Menüauswahl wird gemeldet.
+- Update: verständliche Meldung, wenn die GitHub-Abfragegrenze (60/Stunde ohne Token) erreicht ist.
+- CI: neue Prüfungen „Funktionen vor Verwendung definiert“ (go/diag) und „config.json nur mit -Encoding lesen“.
 - Prüfung Grok (Briefkasten 076): Fehler bei kaputter config.json zeigte kein rotes Banner (Live-Anzeige war zu spät definiert) – behoben. config.json wird überall als UTF-8 gelesen (Umlaute in WLAN-Kennwort/Tenant). WLAN-Paket ohne Zurücksetzen mit 2-Min-Zeitlimit und Anzeige. Im OOBE verlängert sich die Wartezeit, damit der Neustart nach 11 Min ohne Datum auch bei spätem Profil greift. Verlauf zeigt bei Statuswechsel den alten Status statt „frage ab“. Startet das Zurücksetzen nach 15 Min nicht, kommt ein rotes Banner. CI-Update-Test auf Umlaut angepasst.
 - Setup Status: Geräte, die noch nicht in Intune registriert sind (gerade in Arbeit), stehen jetzt **oben** statt ganz unten.
 - go.ps1: **Neustart im Einrichtungsbildschirm erzwungen** (`shutdown /r /f /t 0`). Vorher konnte „Program Manager – diese App verhindert den Neustart“ den automatischen Neustart blockieren.

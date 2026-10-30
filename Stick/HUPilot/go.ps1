@@ -1,5 +1,5 @@
 ﻿# =====================================================================
-# HUPilot  go.ps1  v2.1
+# HUPilot  go.ps1  (Version: HUPilot\Config\version.json)
 # https://github.com/ChiliApple/HUPilot
 # ZIELMASCHINE: neues Windows-Geraet im OOBE (Shift+F10 -> D:\go)
 # Ablauf:
@@ -8,6 +8,7 @@
 #   3. Hardware-Hash -> Autopilot-Import mit Group Tag (oder Tag setzen)
 #   4. WLAN-Paket lokal kopieren -> GRUEN "STICK ABZIEHEN"
 #   5. Warten bis Autopilot-Profil zugewiesen
+#   5b. "nur hochladen": WLAN-Paket installieren, im OOBE nach Profilzuweisung neu starten (shutdown /r /f)
 #   6. WLAN-Paket anwenden (bleibt ueber das Zuruecksetzen erhalten),
 #      Hersteller-Anpassungen (C:\Recovery\Customizations) wegschieben,
 #      Zuruecksetzen per RemoteWipe doWipePersistProvisionedData (als SYSTEM)
@@ -61,7 +62,6 @@ $TmpPkg     = 'C:\Windows\Temp\HUPilot-WLAN.ppkg'
 $WipePs1    = 'C:\Windows\Temp\HUPilot-Wipe.ps1'
 $WipeLog    = 'C:\Windows\Temp\HUPilot-Wipe.log'
 $WipeResult = 'C:\Windows\Temp\HUPilot-Wipe.result'
-$ProvLogDir = 'C:\Windows\Temp\HUPilot-ProvLogs'
 $ProfileWaitMin = 20
 $GB = 'https://graph.microsoft.com/beta'
 
@@ -96,8 +96,13 @@ function Wait-Live {
     $end = (Get-Date).AddSeconds($Seconds)
     do {
         $now = Get-Date
-        $l = $Text + '  |  ' + (Format-Dauer ($now - $Since).TotalSeconds) + $(if ($MaxSec -gt 0) { ' / ' + (Format-Dauer $MaxSec) } else { '' })
-        if ($Next) { $l += '  |  ' + $Next + ' in ' + [int][math]::Max(0, [math]::Ceiling(($end - $now).TotalSeconds)) + ' s' }
+        $el = Format-Dauer ($now - $Since).TotalSeconds
+        $mx = $(if ($MaxSec -gt 0) { ' / ' + (Format-Dauer $MaxSec) } else { '' })
+        $cd = $(if ($Next) { [string][int][math]::Max(0, [math]::Ceiling(($end - $now).TotalSeconds)) + ' s' } else { '' })
+        $l = $Text + '  |  ' + $el + $mx + $(if ($cd) { '  |  ' + $Next + ' in ' + $cd } else { '' })
+        # schmales Fenster (grosse Schrift): kuerzer, damit Zeit und Countdown sichtbar bleiben
+        $w = 120; try { $w = [Console]::WindowWidth - 6 } catch { }
+        if ($l.Length -gt $w) { $l = $Text + ' | ' + $el + $(if ($cd) { ' | ' + $cd } else { '' }) }
         Show-Live $l
         $ms = [int][math]::Min(1000, [math]::Max(0, ($end - (Get-Date)).TotalMilliseconds))
         if ($ms -gt 0) { Start-Sleep -Milliseconds $ms }
@@ -528,6 +533,23 @@ function Update-Token {
         }
     } catch { Log ('Token erneuern: ' + (Get-ErrText $_)) }
 }
+# Graph-GET mit Wiederholung bei Ueberlast (429/503/504): Retry-After beachten, sonst 5/15/45 s + Zufall 0-10 s.
+# Viele Sticks gleichzeitig im selben Tenant teilen sich dasselbe Limit (MS Doku Graph throttling) - nur GET, daher gefahrlos wiederholbar.
+function Invoke-GraphGet {
+    param([string]$Uri)
+    for ($try = 0; ; $try++) {
+        try { return (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $Uri -Headers $script:h) }
+        catch {
+            $sc = 0; try { $sc = [int]$_.Exception.Response.StatusCode } catch { }
+            if ($try -ge 3 -or $sc -notin 429, 503, 504) { throw }
+            $wait = @(5, 15, 45)[$try]
+            try { $ra = [int]("" + $_.Exception.Response.Headers['Retry-After']); if ($ra -gt 0) { $wait = [math]::Min($ra, 120) } } catch { }
+            $wait += Get-Random -Minimum 0 -Maximum 11
+            Log ('Graph ' + $sc + ' (Ueberlast) - neuer Versuch ' + ($try + 1) + '/3 in ' + $wait + ' s')
+            Start-Sleep -Seconds $wait
+        }
+    }
+}
 # Autopilot-Sync: laut MS Doku 409 = Sync laeuft schon, 429 = letzter Sync vor weniger als 10 Min - beides kein Fehler
 function Invoke-ApSync {
     param([string]$Grund)
@@ -565,7 +587,7 @@ function Get-TagProfiles {
     # Ausschluesse (exclusionGroupAssignmentTarget), deren Gruppenregel auf den Tag passt, schliessen das Profil aus.
     param([string]$Tag)
     $script:TagProfIds = $null
-    try { $pr = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments') -Headers $h).value) }
+    try { $pr = @((Invoke-GraphGet ($GB + '/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments')).value) }
     catch { Log ('Tag-Prüfung Profile: ' + (Get-ErrText $_)); return $null }
     $gcache = @{}
     $grp = @(); $all = @()
@@ -578,7 +600,7 @@ function Get-TagProfiles {
             if (-not $isExc -and $ty -notlike '*.groupAssignmentTarget') { continue }
             $gid = [string]$t.groupId
             if (-not $gcache.ContainsKey($gid)) {
-                try { $gcache[$gid] = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/groups/' + $gid + '?$select=displayName,membershipRule') -Headers $h }
+                try { $gcache[$gid] = Invoke-GraphGet ('https://graph.microsoft.com/v1.0/groups/' + $gid + '?$select=displayName,membershipRule') }
                 catch {
                     $em = Get-ErrText $_
                     if ($em -match 'Authorization_RequestDenied|Forbidden|403|Insufficient privileges') { Log ('Tag-Prüfung Gruppe (Group.Read.All fehlt): ' + $em); return $null }
@@ -603,7 +625,7 @@ function Get-TagProfiles {
     return ,@($win.Name)
 }
 $tp = Get-TagProfiles $cfg.GroupTag
-if ($null -eq $tp) { Log 'Tag-Prüfung nicht möglich (optional: Group.Read.All für die App)' }
+if ($null -eq $tp) { Log 'Tag-Prüfung nicht möglich (optional: Group.Read.All für die App)'; Say 'Hinweis: Profil kann nicht geprüft werden (Recht Group.Read.All fehlt) - im Intune kontrollieren' 'Yellow' }
 elseif ($tp.Count) { Say ('Profil für Tag: ' + ($tp -join ', ')) 'Green' }
 else {
     Log ('Tag-Prüfung: KEIN Profil für ' + $cfg.GroupTag)
@@ -619,7 +641,7 @@ else {
 $AssignName = ''
 if ($AssignUpn) {
     try {
-        $usr = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/v1.0/users/' + [uri]::EscapeDataString($AssignUpn) + '?$select=displayName,userPrincipalName') -Headers $h
+        $usr = Invoke-GraphGet ('https://graph.microsoft.com/v1.0/users/' + [uri]::EscapeDataString($AssignUpn) + '?$select=displayName,userPrincipalName')
         $AssignName = [string]$usr.displayName
         Say ('Benutzer gefunden: ' + $AssignName) 'Green'
     } catch {
@@ -637,7 +659,7 @@ function Get-ApDevice {
     try {
         # OData: einfaches Hochkomma im Wert verdoppeln
         $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial.Replace("'", "''") + "')")
-        $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h
+        $r = Invoke-GraphGet ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f)
         $m = @($r.value | Where-Object { $_.serialNumber -eq $Serial })
         if ($m.Count -gt 1) { Log ('ACHTUNG: ' + $m.Count + ' Autopilot-Einträge mit Seriennummer ' + $Serial + ' - verwende den mit der jüngsten Profilzuweisung') }
         return @($m | Sort-Object { [string]$_.deploymentProfileAssignedDateTime } -Descending)[0]
@@ -647,7 +669,7 @@ function Get-ApProfile {
     param([string]$Id)
     Update-Token
     try {
-        $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $Id + '?$expand=deploymentProfile') -Headers $h
+        $r = Invoke-GraphGet ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $Id + '?$expand=deploymentProfile')
         return $r.deploymentProfile
     } catch { Log ('Profil-Abfrage: ' + (Get-ErrText $_)); return $null }
 }
@@ -680,7 +702,7 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     $md = @()
     try {
         $f = [uri]::EscapeDataString("serialNumber eq '" + $Serial + "'")
-        $md = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/managedDevices?$filter=' + $f + '&$select=id,deviceName,serialNumber') -Headers $h).value | Where-Object { $_.serialNumber -eq $Serial })
+        $md = @((Invoke-GraphGet ($GB + '/deviceManagement/managedDevices?$filter=' + $f + '&$select=id,deviceName,serialNumber')).value | Where-Object { $_.serialNumber -eq $Serial })
     } catch { Fail ('Intune-Einträge lesen: ' + (Get-ErrText $_) + ' (App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All nötig)') }
     foreach ($d in $md) {
         try {
@@ -708,7 +730,7 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
         Update-Token
         try {
             $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial.Replace("'", "''") + "')")
-            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h
+            $r = Invoke-GraphGet ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities?$filter=' + $f)
             if (-not @($r.value | Where-Object { $_.serialNumber -eq $Serial }).Count) { $gone = $true; break }
         } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)) }
     }
@@ -791,7 +813,7 @@ else {
         Update-Token
         $prev = $state
         try {
-            $st = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h
+            $st = Invoke-GraphGet ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id)
             $state = [string]$st.state.deviceImportStatus
             if ($state -ne $prev) { Log ('Import-Status: ' + $state) }
             if ($state -eq 'complete') { break }
@@ -953,7 +975,7 @@ function Wait-ApProfile {
         if ($extra) { Complete-Live; break }
         $lt = 'Profil: ' + $txt
         if ($noDate -and $NoDateMin -gt 0) { $lt += ' (Neustart in ' + [int][math]::Max(1, [math]::Ceiling($NoDateMin - ((Get-Date) - $noDateSince).TotalMinutes)) + ' Min)' }
-        Wait-Live 30 $lt $t0 ([int]($limit - $t0).TotalSeconds) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'nächste Abfrage' })
+        Wait-Live (Get-Random -Minimum 26 -Maximum 35) $lt $t0 ([int]($limit - $t0).TotalSeconds) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'nächste Abfrage' })
     }
     Complete-Live
     return [pscustomobject]@{ Assigned = $assigned; LastTxt = $lastTxt; Profil = $pn }

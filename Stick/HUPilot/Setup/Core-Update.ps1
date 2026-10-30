@@ -79,7 +79,13 @@ function Get-HMReleases([string]$Owner, [string]$Repo, [string]$Token) {
     # GitHub liefert die Liste mit "Cache-Control: max-age=60" - Proxys/Zwischenspeicher wuerden z.B. eine gerade
     # angehaengte Signatur bis zu 1 Minute nicht zeigen. Darum: no-cache + eindeutige Adresse je Abfrage
     $h['Cache-Control'] = 'no-cache'
-    $raw = Invoke-RestMethod "https://api.github.com/repos/$Owner/$Repo/releases?per_page=100&nocache=$([DateTime]::UtcNow.Ticks)" -Headers $h -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+    try { $raw = Invoke-RestMethod "https://api.github.com/repos/$Owner/$Repo/releases?per_page=100&nocache=$([DateTime]::UtcNow.Ticks)" -Headers $h -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop }
+    catch {
+        # ohne Token erlaubt GitHub 60 Abfragen pro Stunde je Internet-Adresse (mehrere PCs hinter einer Schul-Adresse teilen sich das)
+        $m = "$($_.Exception.Message) $($_.ErrorDetails.Message)"
+        if ($m -match 'rate limit|403') { throw 'GitHub-Abfragegrenze erreicht (ohne Token 60 pro Stunde je Internet-Adresse) - in einer Stunde nochmal versuchen.' }
+        throw
+    }
     return @(ConvertTo-HMReleaseList $raw)
 }
 # Kanal Stabil = nur freigegebene Releases, Test = auch Vorab-Releases; jeweils die hoechste Version
