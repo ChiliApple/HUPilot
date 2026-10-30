@@ -95,6 +95,54 @@ function Install-HMModule([string]$Name, [string]$Max = '') {
     if ($Max) { $p.MaximumVersion = $Max }
     Install-Module @p
 }
+# 5b. Funktionen vor Verwendung definiert (Skripte, die von oben nach unten laufen)
+#     Jede Anweisung auf oberster Ebene darf - direkt oder ueber aufgerufene Funktionen - nur Funktionen nutzen,
+#     die VORHER definiert sind (sonst z. B. Fehler-Banner kaputt, Pruefung Grok 076 B2).
+Step 'Funktionen vor Verwendung definiert (go.ps1, diag.ps1)' {
+    $bad = @()
+    foreach ($rel in 'Stick\HUPilot\go.ps1', 'Stick\HUPilot\diag.ps1') {
+        $tk = $null; $er = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $rel), [ref]$tk, [ref]$er)
+        $stmts = @($ast.EndBlock.Statements)
+        $fn = @{}
+        foreach ($s in $stmts) {
+            if ($s -is [System.Management.Automation.Language.FunctionDefinitionAst]) {
+                $calls = @($s.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() } | Where-Object { $_ } | Sort-Object -Unique)
+                $fn[$s.Name] = [pscustomobject]@{ Pos = $s.Extent.StartOffset; Line = $s.Extent.StartLineNumber; Calls = $calls }
+            }
+        }
+        foreach ($s in $stmts) {
+            if ($s -is [System.Management.Automation.Language.FunctionDefinitionAst]) { continue }
+            $todo = New-Object System.Collections.Generic.Queue[string]
+            $seen = @{}
+            foreach ($c in @($s.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() } | Where-Object { $_ })) { $todo.Enqueue($c) }
+            while ($todo.Count) {
+                $c = $todo.Dequeue()
+                if ($seen.ContainsKey($c) -or -not $fn.ContainsKey($c)) { continue }
+                $seen[$c] = $true
+                if ($fn[$c].Pos -gt $s.Extent.StartOffset) { $bad += "${rel}:$($s.Extent.StartLineNumber) nutzt $c (definiert erst Zeile $($fn[$c].Line))"; continue }
+                foreach ($x in $fn[$c].Calls) { $todo.Enqueue($x) }
+            }
+        }
+    }
+    if ($bad.Count) { throw (($bad | Select-Object -Unique -First 10) -join ' | ') }
+    'Reihenfolge ok'
+}
+
+# 5c. config.json immer mit -Encoding UTF8 lesen (Setup schreibt UTF-8 ohne BOM; 5.1 liest sonst ANSI -> Umlaute kaputt)
+Step 'config.json wird mit -Encoding gelesen' {
+    $bad = @()
+    foreach ($f in @(Get-ChildItem -Path (Join-Path $root 'Stick') -Recurse -File -Filter *.ps1)) {
+        $n = 0
+        foreach ($line in [System.IO.File]::ReadAllLines($f.FullName)) {
+            $n++
+            if ($line -match "Get-Content[^|;]*config\.json" -and $line -notmatch '-Encoding') { $bad += "$($f.Name):$n" }
+        }
+    }
+    if ($bad.Count) { throw ('ohne -Encoding: ' + ($bad -join ', ')) }
+    'ok'
+}
+
 Step 'PSScriptAnalyzer (Fehler)' {
     Install-HMModule 'PSScriptAnalyzer'
     Import-Module PSScriptAnalyzer

@@ -25,10 +25,10 @@ if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Securit
     Start-Log 'nicht Admin -> Neustart mit UAC'
     try {
         Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $PSCommandPath + '"') -ErrorAction Stop
-        Start-Log 'UAC bestaetigt, Admin-Prozess gestartet'
+        Start-Log 'UAC bestätigt, Admin-Prozess gestartet'
     } catch {
         Start-Log ('UAC abgelehnt/Fehler: ' + $_.Exception.Message)
-        try { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('HUPilot-Setup braucht Administratorrechte (fuer ICD.exe).' + [Environment]::NewLine + $_.Exception.Message, 'HUPilot-Setup') } catch { }
+        try { Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('HUPilot-Setup braucht Administratorrechte (für ICD.exe).' + [Environment]::NewLine + $_.Exception.Message, 'HUPilot-Setup') } catch { }
     }
     return
 }
@@ -55,20 +55,20 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.7'
+$SetupVer = '2.7.8'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
 $script:Mutex = New-Object System.Threading.Mutex($false, $mxName)
 if (-not $script:Mutex.WaitOne(0)) {
-    Start-Log 'laeuft bereits -> Ende'
-    [void][System.Windows.MessageBox]::Show('HUPilot-Setup laeuft bereits fuer ' + $srcStick + ' (evtl. unsichtbar im Hintergrund).' + [Environment]::NewLine + 'Task-Manager > Details > powershell.exe beenden und neu starten.', 'HUPilot-Setup')
+    Start-Log 'läuft bereits -> Ende'
+    [void][System.Windows.MessageBox]::Show('HUPilot-Setup läuft bereits für ' + $srcStick + ' (evtl. unsichtbar im Hintergrund).' + [Environment]::NewLine + 'Task-Manager > Details > powershell.exe beenden und neu starten.', 'HUPilot-Setup')
     exit 0
 }
 # Abgebrochenes Update: nicht mit einem Mischstand starten - Pull.ps1 stellt den bisherigen Stand wieder her
 if (Test-Path -LiteralPath (Join-Path $CfgDirHU 'pull-journal.json')) {
     Start-Log 'pull-journal.json vorhanden -> kein Start'
-    $q = [System.Windows.MessageBox]::Show('Das letzte Update wurde abgebrochen (HUPilot\Config\pull-journal.json).' + [Environment]::NewLine + [Environment]::NewLine + 'Jetzt Pull.ps1 ausfuehren? Es stellt den bisherigen Stand wieder her und laedt die Version neu.', 'HUPilot-Setup', 'YesNo', 'Warning')
+    $q = [System.Windows.MessageBox]::Show('Das letzte Update wurde abgebrochen (HUPilot\Config\pull-journal.json).' + [Environment]::NewLine + [Environment]::NewLine + 'Jetzt Pull.ps1 ausführen? Es stellt den bisherigen Stand wieder her und lädt die Version neu.', 'HUPilot-Setup', 'YesNo', 'Warning')
     try { $script:Mutex.ReleaseMutex() } catch { }
     if ($q -eq 'Yes') { Start-Process -FilePath powershell.exe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $PSScriptRoot 'Pull.ps1') + '" -Target "' + $srcStick.TrimEnd('\') + '"') }
     exit 0
@@ -82,13 +82,40 @@ $script:Extra = @{}
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="890" Height="880" WindowStartupLocation="CenterScreen" FontSize="13">
+        Title="HUPilot-Setup" Width="890" Height="880" WindowStartupLocation="CenterScreen" FontSize="13" ResizeMode="CanResizeWithGrip">
+  <Window.Resources>
+    <Style x:Key="HuThumb" TargetType="Thumb">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+        <Border CornerRadius="3" Background="#FF6A6A6A"/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
+          <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
+        </Track></Border>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
+          <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
+          <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
+              <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
+            </Track></Border>
+          </ControlTemplate></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
   <DockPanel Margin="14">
   <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
-      <Button VerticalAlignment="Center" x:Name="bLnk" FontFamily="Segoe MDL2 Assets" Content="&#xE718;" Width="32" Padding="0,5" Margin="0,0,8,0" ToolTip="Desktop-Verknuepfung zu diesem Ordner anlegen (oeffentlicher Desktop, mit HUPilot-Symbol)." ToolTipService.ShowDuration="30000"/>
-      <Button VerticalAlignment="Center" x:Name="bHelp" ToolTip="Anleitung oeffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="0,0,0,0"/>
-      <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prueft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfuegbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unveraendert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
+      <Button VerticalAlignment="Center" x:Name="bLnk" FontFamily="Segoe MDL2 Assets" Content="&#xE718;" Width="32" Padding="0,5" Margin="0,0,8,0" ToolTip="Desktop-Verknüpfung zu diesem Ordner anlegen (öffentlicher Desktop, mit HUPilot-Symbol)." ToolTipService.ShowDuration="30000"/>
+      <Button VerticalAlignment="Center" x:Name="bHelp" ToolTip="Anleitung öffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="0,0,0,0"/>
+      <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prüft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfügbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unverändert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <Image x:Name="iLogo" Width="44" Height="44"/>
     <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
@@ -96,72 +123,74 @@ $script:Extra = @{}
       <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="Gray"/>
     </StackPanel>
   </DockPanel>
-  <Grid>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <Grid Margin="0,0,6,0">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <GroupBox Grid.Row="0" Header="Tenant / App-Registrierung" Padding="6">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="Anzeigename" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tTenant" ToolTip="Anzeigename des Tenants - nur fuer Log und Protokoll am Stick (z. B. Schulname)." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <TextBlock Grid.Row="1" Text="Tenant-ID" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tTenantId" ToolTip="Verzeichnis-(Mandanten-)ID des Tenants (GUID).&#x0a;Entra Admin Center &gt; Uebersicht &gt; Mandanten-ID." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="0" Text="Anzeigename" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tTenant" ToolTip="Anzeigename des Tenants - nur für Log und Protokoll am Stick (z. B. Schulname)." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Tenant-ID" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tTenantId" ToolTip="Verzeichnis-(Mandanten-)ID des Tenants (GUID).&#x0a;Entra Admin Center &gt; Übersicht &gt; Mandanten-ID." ToolTipService.ShowDuration="30000" Margin="2"/>
         <TextBlock Grid.Row="2" Text="App-ID (Client)" VerticalAlignment="Center"/><TextBox Grid.Row="2" Grid.Column="1" x:Name="tClientId" ToolTip="Anwendungs-(Client-)ID der App-Registrierung HUPilot-Upload (GUID).&#x0a;Berechtigung: DeviceManagementServiceConfig.ReadWrite.All (Anwendung) + Administratorzustimmung." ToolTipService.ShowDuration="30000" Margin="2"/>
         <TextBlock Grid.Row="3" Text="Secret (Wert)" VerticalAlignment="Center"/>
-        <DockPanel Grid.Row="3" Grid.Column="1"><CheckBox x:Name="cShow" ToolTip="Secret im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pSecret" ToolTip="Geheimer Clientschluessel der App HUPilot-Upload - den WERT, nicht die Geheimnis-ID.&#x0a;Kurz gueltig halten (7-14 Tage) und vor jedem Einsatz erneuern." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tSecret" ToolTip="Geheimer Clientschluessel (Wert) im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
+        <DockPanel Grid.Row="3" Grid.Column="1"><CheckBox x:Name="cShow" ToolTip="Secret im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pSecret" ToolTip="Geheimer Clientschlüssel der App HUPilot-Upload - den WERT, nicht die Geheimnis-ID.&#x0a;Kurz gültig halten (7-14 Tage) und vor jedem Einsatz erneuern." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tSecret" ToolTip="Geheimer Clientschlüssel (Wert) im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="1" Header="Group Tag" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="Standard" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tTag" ToolTip="Group Tag, den die Geraete standardmaessig bekommen (z. B. SN-2026).&#x0a;Am Geraet: Enter oder 10 s warten = dieser Tag." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <TextBlock Grid.Row="1" Text="Auswahl (Komma)" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tTagChoices" ToolTip="Auswahl am Geraet (max. 9), durch Komma getrennt.&#x0a;Am Geraet mit Taste 1-9 waehlbar - z. B. fuer Nachzuegler aus anderen Jahrgaengen." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cAskUser" Margin="2,4,0,0" Content="Am Geraet nach Benutzer (UPN) fragen und vorab zuweisen" ToolTip="go.ps1 fragt nach dem Tag nach einem Anmeldenamen (Enter = keiner) und weist ihn in Autopilot zu.&#x0a;Sinnvoll fuer Einzelgeraete, nicht fuer ganze Klassen. Pruefung des Namens: optional User.Read.All." ToolTipService.ShowDuration="30000"/>
+        <TextBlock Grid.Row="0" Text="Standard" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tTag" ToolTip="Group Tag, den die Geräte standardmäßig bekommen (z. B. SN-2026).&#x0a;Am Gerät: Enter oder 10 s warten = dieser Tag." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Auswahl (Komma)" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tTagChoices" ToolTip="Auswahl am Gerät (max. 9), durch Komma getrennt.&#x0a;Am Gerät mit Taste 1-9 wählbar - z. B. für Nachzügler aus anderen Jahrgängen." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cAskUser" Margin="2,4,0,0" Content="Am Gerät nach Benutzer (UPN) fragen und vorab zuweisen" ToolTip="go.ps1 fragt nach dem Tag nach einem Anmeldenamen (Enter = keiner) und weist ihn in Autopilot zu.&#x0a;Sinnvoll für Einzelgeräte, nicht für ganze Klassen. Prüfung des Namens: optional User.Read.All." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="2" Header="Konfigurations-WLAN (WPA2-Personal)" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="WLAN-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tSsid" ToolTip="Name des Konfigurations-WLANs (WPA2-Personal).&#x0a;go.ps1 verbindet sich damit zum Hochladen; das WLAN-Paket bringt es nach dem Zuruecksetzen wieder mit." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="0" Text="WLAN-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tSsid" ToolTip="Name des Konfigurations-WLANs (WPA2-Personal).&#x0a;go.ps1 verbindet sich damit zum Hochladen; das WLAN-Paket bringt es nach dem Zurücksetzen wieder mit." ToolTipService.ShowDuration="30000" Margin="2"/>
         <TextBlock Grid.Row="1" Text="Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tKey" ToolTip="Kennwort des Konfigurations-WLANs (mind. 8 Zeichen).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cRmPkg" IsChecked="False" Margin="2,4,0,0" Content="Fremde Bereitstellungspakete beim Zuruecksetzen entfernen (Test)" ToolTip="Alte Pakete am Geraet (z. B. ein frueheres Schul-MDM-Paket) wuerden das Zuruecksetzen ueberleben und im Einrichtungsbildschirm erneut angewendet - das kann Autopilot stoeren.&#x0a;Bleibt nur HUPilot-WLAN.ppkg. Die entfernten Pakete werden vorher nach C:\Recovery\HUPilot-PPKG-Backup\&lt;Datum&gt; gesichert.&#x0a;Noch nicht an einem Geraet bestaetigt - erst an einem Testgeraet ausprobieren." ToolTipService.ShowDuration="30000"/>
+        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cRmPkg" IsChecked="False" Margin="2,4,0,0" Content="Fremde Bereitstellungspakete beim Zurücksetzen entfernen (Test)" ToolTip="Alte Pakete am Gerät (z. B. ein früheres Schul-MDM-Paket) würden das Zurücksetzen überleben und im Einrichtungsbildschirm erneut angewendet - das kann Autopilot stören.&#x0a;Bleibt nur HUPilot-WLAN.ppkg. Die entfernten Pakete werden vorher nach C:\Recovery\HUPilot-PPKG-Backup\&lt;Datum&gt; gesichert.&#x0a;Noch nicht an einem Gerät bestätigt - erst an einem Testgerät ausprobieren." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="3" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="Admin-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tAdmName" ToolTip="Lokales Administratorkonto fuer die Kustoden (max. 20 Zeichen, z. B. kustode).&#x0a;Kommt mit 4. WLAN-Paket bauen ins Paket und wird nach JEDEM Zuruecksetzen neu angelegt.&#x0a;Kennwort und Konto laufen nie ab. Leer lassen = kein lokaler Admin.&#x0a;Aenderung wirkt erst nach neuem Paket + Zuruecksetzen mit dem Stick." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <TextBlock Grid.Row="1" Text="Admin-Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tAdmPw" ToolTip="Kennwort des lokalen Admins (mind. 8 Zeichen, auf allen Geraeten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <TextBlock Grid.Row="2" Text="Admin 2 - Name" VerticalAlignment="Center" Margin="0,6,0,0"/><TextBox Grid.Row="2" Grid.Column="1" x:Name="tAdm2Name" ToolTip="Zweites lokales Administratorkonto, z. B. fuer den Elternverein (max. 20 Zeichen, z. B. elternadmin).&#x0a;Gleiche Regeln wie Admin 1: kommt ins WLAN-Paket, nach JEDEM Zuruecksetzen neu angelegt, Kennwort und Konto laufen nie ab.&#x0a;Leer lassen = kein zweiter Admin." ToolTipService.ShowDuration="30000" Margin="2,8,2,2"/>
-        <TextBlock Grid.Row="3" Text="Admin 2 - Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="3" Grid.Column="1" x:Name="tAdm2Pw" ToolTip="Kennwort des zweiten lokalen Admins (mind. 8 Zeichen, auf allen Geraeten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="0" Text="Admin-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tAdmName" ToolTip="Lokales Administratorkonto für die Kustoden (max. 20 Zeichen, z. B. kustode).&#x0a;Kommt mit 4. WLAN-Paket bauen ins Paket und wird nach JEDEM Zurücksetzen neu angelegt.&#x0a;Kennwort und Konto laufen nie ab. Leer lassen = kein lokaler Admin.&#x0a;Änderung wirkt erst nach neuem Paket + Zurücksetzen mit dem Stick." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Admin-Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tAdmPw" ToolTip="Kennwort des lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="2" Text="Admin 2 - Name" VerticalAlignment="Center" Margin="0,6,0,0"/><TextBox Grid.Row="2" Grid.Column="1" x:Name="tAdm2Name" ToolTip="Zweites lokales Administratorkonto, z. B. für den Elternverein (max. 20 Zeichen, z. B. elternadmin).&#x0a;Gleiche Regeln wie Admin 1: kommt ins WLAN-Paket, nach JEDEM Zurücksetzen neu angelegt, Kennwort und Konto laufen nie ab.&#x0a;Leer lassen = kein zweiter Admin." ToolTipService.ShowDuration="30000" Margin="2,8,2,2"/>
+        <TextBlock Grid.Row="3" Text="Admin 2 - Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="3" Grid.Column="1" x:Name="tAdm2Pw" ToolTip="Kennwort des zweiten lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
       </Grid>
     </GroupBox>
     <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Vorbereiten" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
-      <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup laeuft)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,0,0"/>
+      <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup läuft)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,0,0"/>
       <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Content="1. Verbindung testen" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geraete in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob fuer einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Content="2. Tags pruefen" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusaetzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Content="3. Speichern" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberflaeche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="4. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geräte in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob für einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Content="2. Tags prüfen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Content="3. Speichern" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="4. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
-      <ComboBox x:Name="cDrive" ToolTip="Ziel-Stick fuer 5. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000" Width="180" Margin="0,0,0,0"/>
+      <ComboBox x:Name="cDrive" ToolTip="Ziel-Stick für 5. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000" Width="180" Margin="0,0,0,0"/>
       <Button x:Name="bReload" ToolTip="USB-Laufwerke neu einlesen." ToolTipService.ShowDuration="30000" Content="Aktualisieren" Padding="8,2" Margin="6,0,0,0"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen." ToolTipService.ShowDuration="30000" Content="5. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC laeuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befuellen. ALLE Daten auf den gewaehlten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,0"/>
+      <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,0"/>
     </StackPanel>
     <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
-      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geraete des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV und Drucken moeglich." ToolTipService.ShowDuration="30000" Content="6. Status" Padding="10,4" Margin="0,0,0,0"/>
-      <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien koennen hinzugefuegt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Content="7. Hashes importieren" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV und Drucken möglich." ToolTipService.ShowDuration="30000" Content="6. Status" Padding="10,4" Margin="0,0,0,0"/>
+      <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Content="7. Hashes importieren" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
-    <TextBox Grid.Row="7" x:Name="tLog" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+    <TextBox Grid.Row="7" x:Name="tLog" Height="160" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
+  </ScrollViewer>
   </DockPanel>
 </Window>
 '@
@@ -186,7 +215,7 @@ function Get-ReadyDrive {
     $d = Get-Drive
     if (-not $d) { return $null }
     try { if ([System.IO.Directory]::Exists($d + '\')) { return $d } } catch { }
-    Out-Log ('Stick ' + $d + ' nicht mehr vorhanden - Stick einstecken und "Aktualisieren" druecken')
+    Out-Log ('Stick ' + $d + ' nicht mehr vorhanden - Stick einstecken und "Aktualisieren" drücken')
     return $null
 }
 function Update-Drives {
@@ -196,7 +225,7 @@ function Update-Drives {
     }
     if ($ui.cDrive.Items.Count) {
         $ui.cDrive.SelectedIndex = 0
-    } else { Out-Log 'Kein Ziel-Stick gefunden (nur fuer 5. noetig).' }
+    } else { Out-Log 'Kein Ziel-Stick gefunden (nur für 5. nötig).' }
 }
 function Get-Cfg {
     $choices = @($ui.tTagChoices.Text -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -216,11 +245,11 @@ function Test-Fields([string[]]$Names) {
     if ($miss.Count) { Out-Log ('FEHLT: ' + ($miss -join ', ')); return $false }
     if ($Names -contains 'TenantId' -and $c.TenantId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'Tenant-ID ist keine GUID'; return $false }
     if ($Names -contains 'ClientId' -and $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'App-ID ist keine GUID'; return $false }
-    if ($Names -contains 'WlanKey' -and $c.WlanKey.Length -lt 8) { Out-Log 'WLAN-Kennwort kuerzer als 8 Zeichen'; return $false }
+    if ($Names -contains 'WlanKey' -and $c.WlanKey.Length -lt 8) { Out-Log 'WLAN-Kennwort kürzer als 8 Zeichen'; return $false }
     foreach ($a in @(@('Admin', $c.AdminName, $c.AdminPassword), @('Admin 2', $c.Admin2Name, $c.Admin2Password))) {
         if (-not $a[1]) { if ($a[2]) { Out-Log ($a[0] + ': Kennwort ohne Name - Name eintragen oder Kennwort leeren'); return $false }; continue }
-        if ($a[1].Length -gt 20 -or $a[1] -match '["/\\\[\]:;|=,+*?<>@ ]') { Out-Log ($a[0] + '-Name ungueltig (max. 20 Zeichen, keine Leer- oder Sonderzeichen wie / \ [ ] : ; | = , + * ? < > @)'); return $false }
-        if ([string]$a[2] -eq '' -or $a[2].Length -lt 8) { Out-Log ($a[0] + '-Kennwort kuerzer als 8 Zeichen'); return $false }
+        if ($a[1].Length -gt 20 -or $a[1] -match '["/\\\[\]:;|=,+*?<>@ ]') { Out-Log ($a[0] + '-Name ungültig (max. 20 Zeichen, keine Leer- oder Sonderzeichen wie / \ [ ] : ; | = , + * ? < > @)'); return $false }
+        if ([string]$a[2] -eq '' -or $a[2].Length -lt 8) { Out-Log ($a[0] + '-Kennwort kürzer als 8 Zeichen'); return $false }
     }
     if ($c.AdminName -and $c.Admin2Name -and $c.AdminName -eq $c.Admin2Name) { Out-Log 'Admin und Admin 2 haben denselben Namen'; return $false }
     return $true
@@ -268,21 +297,48 @@ function Show-PrepSticks {
     [xml]$px = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot - Sticks vorbereiten" Width="720" Height="560" WindowStartupLocation="CenterOwner" FontSize="13">
+        Title="HUPilot - Sticks vorbereiten" Width="720" Height="560" WindowStartupLocation="CenterOwner" FontSize="13" ResizeMode="CanResizeWithGrip">
+  <Window.Resources>
+    <Style x:Key="HuThumb" TargetType="Thumb">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+        <Border CornerRadius="3" Background="#FF6A6A6A"/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
+          <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
+        </Track></Border>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
+          <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
+          <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
+              <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
+            </Track></Border>
+          </ControlTemplate></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
   <DockPanel Margin="12">
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="Firebrick" FontWeight="SemiBold" Margin="0,0,0,8"
-      Text="ACHTUNG: Die gewaehlten USB-Sticks werden FORMATIERT - alle Daten darauf gehen verloren. Interne Laufwerke und der Quell-Datentraeger werden nie angezeigt."/>
+      Text="ACHTUNG: Die gewählten USB-Sticks werden FORMATIERT - alle Daten darauf gehen verloren. Interne Laufwerke und der Quell-Datenträger werden nie angezeigt."/>
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
       <TextBlock Text="Name:" VerticalAlignment="Center"/>
       <TextBox x:Name="tLabel" Width="120" Margin="6,0,0,0" MaxLength="11" ToolTip="Laufwerksname (max. 11 Zeichen, keine Sonderzeichen)."/>
       <TextBlock Text="Dateisystem:" VerticalAlignment="Center" Margin="16,0,0,0"/>
       <ComboBox x:Name="cFs" Width="90" Margin="6,0,0,0" ToolTip="NTFS empfohlen. FAT32 nur bis 32 GB."/>
       <Button x:Name="bScan" Content="Neu einlesen" Padding="8,2" Margin="16,0,0,0" ToolTip="Sticks tauschen, dann neu einlesen."/>
-      <Button x:Name="bAll" Content="Alle waehlen" Padding="8,2" Margin="6,0,0,0"/>
+      <Button x:Name="bAll" Content="Alle wählen" Padding="8,2" Margin="6,0,0,0"/>
     </StackPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button x:Name="bGo" Content="Gewaehlte formatieren + befuellen" Padding="10,4" FontWeight="SemiBold"/>
-      <Button x:Name="bClose" Content="Schliessen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bGo" Content="Gewählte formatieren + befüllen" Padding="10,4" FontWeight="SemiBold"/>
+      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <TextBox x:Name="tPLog" DockPanel.Dock="Bottom" Height="150" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
     <ListBox x:Name="lSticks" SelectionMode="Multiple" FontFamily="Consolas"/>
@@ -309,9 +365,9 @@ function Show-PrepSticks {
     $g.bClose.Add_Click({ $pw.Close() })
     $g.bGo.Add_Click({
         $sel = @(); foreach ($i in @($g.lSticks.SelectedItems)) { $sel += @($script:PrepList | Where-Object { $_.Text -eq [string]$i }) }
-        if (-not $sel.Count) { & $plog 'Keinen Stick gewaehlt (anklicken).'; return }
+        if (-not $sel.Count) { & $plog 'Keinen Stick gewählt (anklicken).'; return }
         $label = $g.tLabel.Text.Trim(); $fs = [string]$g.cFs.SelectedItem
-        if ($label -notmatch '^[A-Za-z0-9_-]{1,11}$') { & $plog 'Name ungueltig (1-11 Zeichen: Buchstaben, Ziffern, - _)'; return }
+        if ($label -notmatch '^[A-Za-z0-9_-]{1,11}$') { & $plog 'Name ungültig (1-11 Zeichen: Buchstaben, Ziffern, - _)'; return }
         if (-not (Save-Cfg)) { & $plog 'Config nicht gespeichert - siehe Hauptfenster'; return }
         if (-not (Test-Path $srcPkg)) { & $plog 'Hinweis: kein WLAN-Paket in der Quelle (4. WLAN-Paket bauen)' }
         $list = ($sel | ForEach-Object { '   ' + $_.Text }) -join "`r`n"
@@ -323,15 +379,15 @@ function Show-PrepSticks {
             try {
                 # Sicherheitscheck direkt vor dem Formatieren erneut
                 $disk = Get-Partition -DriveLetter $dl -ErrorAction Stop | Get-Disk -ErrorAction Stop
-                if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { throw 'kein reiner USB-Stick mehr - uebersprungen' }
-                if ($fs -eq 'FAT32' -and (Get-Volume -DriveLetter $dl).Size -gt 32GB) { throw 'FAT32 nur bis 32 GB - NTFS waehlen' }
+                if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { throw 'kein reiner USB-Stick mehr - übersprungen' }
+                if ($fs -eq 'FAT32' -and (Get-Volume -DriveLetter $dl).Size -gt 32GB) { throw 'FAT32 nur bis 32 GB - NTFS wählen' }
                 & $plog ($dl + ': formatiere ...')
                 Format-Volume -DriveLetter $dl -FileSystem $fs -NewFileSystemLabel $label -Force -Confirm:$false -ErrorAction Stop | Out-Null
                 & $plog ($dl + ': kopiere HUPilot ...')
                 if (Copy-ToStick ($dl + ':')) { & $plog ($dl + ': OK - fertig, abziehen'); $ok++ } else { & $plog ($dl + ': FEHLER beim Kopieren') }
             } catch { & $plog ($dl + ': FEHLER ' + $_.Exception.Message) }
         }
-        & $plog ('Fertig: ' + $ok + ' von ' + $sel.Count + ' Stick(s). Naechste Sticks anstecken -> Neu einlesen.')
+        & $plog ('Fertig: ' + $ok + ' von ' + $sel.Count + ' Stick(s). Nächste Sticks anstecken -> Neu einlesen.')
         Out-Log ('Sticks vorbereitet: ' + $ok + ' von ' + $sel.Count)
         & $scan
     })
@@ -400,8 +456,8 @@ function Get-HttpCode($e) { $code = 0; try { $code = [int]$e.Exception.Response.
 
 function Invoke-UpdateCheck([switch]$Quiet) {
     $c = Get-UpdCfg
-    if (-not $c) { Set-UpdButton -Text 'Update ...'; Out-Log 'Update-Pruefung: HUPilot\Setup\Core-Update.ps1 fehlt'; return }
-    $ui.bUpd.Content = 'Pruefe ...'; Step-Ui
+    if (-not $c) { Set-UpdButton -Text 'Update ...'; Out-Log 'Update-Prüfung: HUPilot\Setup\Core-Update.ps1 fehlt'; return }
+    $ui.bUpd.Content = 'Prüfe ...'; Step-Ui
     $chan = $(if ($c.UseBranch) { 'Branch ' + $c.Branch } else { 'Kanal ' + (Format-Channel $c.Channel) })
     try {
         $tok = Read-GhToken
@@ -415,7 +471,7 @@ function Invoke-UpdateCheck([switch]$Quiet) {
             $rel = Select-HMRelease @(Get-HMReleases $c.Owner $c.Repo $tok) $c.Channel -SignedOnly:$c.RequireSignature
             if (-not $rel) {
                 $script:UpdRemote = ''; Set-UpdButton
-                if (-not $Quiet) { Out-Log ('Update-Pruefung: kein ' + $(if ($c.RequireSignature) { 'signiertes ' }) + 'Release im ' + $chan) }
+                if (-not $Quiet) { Out-Log ('Update-Prüfung: kein ' + $(if ($c.RequireSignature) { 'signiertes ' }) + 'Release im ' + $chan) }
                 return
             }
             $rv = [string]$rel.Version; $pre = [bool]$rel.Prerelease
@@ -424,7 +480,7 @@ function Invoke-UpdateCheck([switch]$Quiet) {
         if ($cmp -gt 0) {
             $script:UpdRemote = $rv
             Set-UpdButton $rv $pre
-            Out-Log ('NEUE VERSION v' + $rv + ' verfuegbar (installiert: v' + $SetupVer + ', ' + $chan + ') - Knopf "Update" klicken')
+            Out-Log ('NEUE VERSION v' + $rv + ' verfügbar (installiert: v' + $SetupVer + ', ' + $chan + ') - Knopf "Update" klicken')
         } else {
             $script:UpdRemote = ''
             Set-UpdButton
@@ -433,8 +489,8 @@ function Invoke-UpdateCheck([switch]$Quiet) {
     } catch {
         $code = Get-HttpCode $_
         Set-UpdButton -Text 'Update: offline'
-        if ($code -in 401, 403, 404) { Out-Log ('Update-Pruefung: ' + $c.Owner + '/' + $c.Repo + ' nicht erreichbar (HTTP ' + $code + ')') }
-        else { Out-Log ('Versionspruefung nicht moeglich: ' + $_.Exception.Message) }
+        if ($code -in 401, 403, 404) { Out-Log ('Update-Prüfung: ' + $c.Owner + '/' + $c.Repo + ' nicht erreichbar (HTTP ' + $code + ')') }
+        else { Out-Log ('Versionsprüfung nicht möglich: ' + $_.Exception.Message) }
     }
 }
 
@@ -443,8 +499,8 @@ function Start-Pull([string]$Version = '') {
     if (-not (Test-Path -LiteralPath $script:PullPs)) { Out-Log ('Pull.ps1 nicht gefunden: ' + $script:PullPs); return }
     $c = Get-UpdCfg
     $what = $(if ($Version) { 'Version ' + $Version } elseif ($script:UpdRemote) { 'v' + $script:UpdRemote } else { 'die neueste Version im Kanal ' + (Format-Channel $(if ($c) { $c.Channel } else { 'Stable' })) })
-    $chk = $(if ($c -and $c.RequireSignature) { 'Pruefsumme + Signatur werden geprueft' } else { 'Pruefsumme wird geprueft' })
-    $q = [System.Windows.MessageBox]::Show($win, ('HUPilot-Setup schliessen, ' + $what + ' von GitHub laden und neu starten?' + "`r`n`r`n" + '  Ziel:         ' + $srcStick + "`r`n" + '  Installiert:  v' + $SetupVer + "`r`n" + '  ' + $chk + "`r`n`r`n" + 'config.json, WLAN-Paket und logs bleiben unveraendert.'), 'HUPilot - Update', 'YesNo', 'Question')
+    $chk = $(if ($c -and $c.RequireSignature) { 'Prüfsumme + Signatur werden geprüft' } else { 'Prüfsumme wird geprüft' })
+    $q = [System.Windows.MessageBox]::Show($win, ('HUPilot-Setup schließen, ' + $what + ' von GitHub laden und neu starten?' + "`r`n`r`n" + '  Ziel:         ' + $srcStick + "`r`n" + '  Installiert:  v' + $SetupVer + "`r`n" + '  ' + $chk + "`r`n`r`n" + 'config.json, WLAN-Paket und logs bleiben unverändert.'), 'HUPilot - Update', 'YesNo', 'Question')
     if ($q -ne 'Yes') { return }
     try {
         $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -462,7 +518,34 @@ function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkTe
     [xml]$vx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Width="860" Height="440" WindowStartupLocation="CenterOwner" FontSize="13" ShowInTaskbar="False">
+        Width="860" Height="440" WindowStartupLocation="CenterOwner" FontSize="13" ShowInTaskbar="False" ResizeMode="CanResizeWithGrip">
+  <Window.Resources>
+    <Style x:Key="HuThumb" TargetType="Thumb">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+        <Border CornerRadius="3" Background="#FF6A6A6A"/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
+          <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
+        </Track></Border>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
+          <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
+          <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
+              <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
+            </Track></Border>
+          </ControlTemplate></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
   <DockPanel Margin="12">
     <TextBlock x:Name="tHint" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
@@ -498,11 +581,11 @@ function Show-VersionPicker {
         $first = @("$($x.Notes)" -split "`r?`n" | Where-Object { "$_".Trim() -and "$_" -notmatch '^\s*#' } | ForEach-Object { ("$_".Trim().TrimStart('-', ' ', '*') -replace '\*\*|`', '') })[0]
         [pscustomobject][ordered]@{
             Version = "$($x.Version)"; Kanal = $(if ($x.Prerelease) { 'Test' } else { 'Stabil' })
-            Stand = $(if ($cmp -eq 0) { 'installiert' } elseif ($cmp -lt 0) { 'aelter' } else { 'neuer' })
+            Stand = $(if ($cmp -eq 0) { 'installiert' } elseif ($cmp -lt 0) { 'älter' } else { 'neuer' })
             Datum = "$($x.Date)"; Pruefsumme = $(if ($x.ManifestUrl) { 'ja' } else { 'nein' }); Signatur = $(if ($x.SignatureUrl) { 'ja' } else { 'nein' }); Aenderungen = "$first"
         }
     }
-    $sel = Show-Pick 'HUPilot - Version waehlen' ('Installiert: v' + $SetupVer + '. Version markieren, dann installieren. config.json, WLAN-Paket und logs bleiben erhalten.' + $(if ($c.RequireSignature) { ' Nur signierte Versionen sind installierbar.' })) @($rows) 'Diese Version installieren'
+    $sel = Show-Pick 'HUPilot - Version wählen' ('Installiert: v' + $SetupVer + '. Version markieren, dann installieren. config.json, WLAN-Paket und logs bleiben erhalten.' + $(if ($c.RequireSignature) { ' Nur signierte Versionen sind installierbar.' })) @($rows) 'Diese Version installieren'
     if (-not $sel) { return }
     if ($c.RequireSignature -and $sel.Signatur -ne 'ja') { [void][System.Windows.MessageBox]::Show($win, ('Version ' + $sel.Version + ' ist nicht signiert und kann nicht installiert werden.'), 'HUPilot - Update', 'OK', 'Warning'); return }
     Start-Pull -Version $sel.Version
@@ -518,7 +601,7 @@ function Read-SignToken {
 function Get-SignToken($Cfg) {
     $t = Read-SignToken
     if ($t) { return $t }
-    if (-not (Save-GhToken (Get-SignTokenFile) ('GitHub-Token mit Schreibrecht fuer ' + $Cfg.Owner + '/' + $Cfg.Repo + " (Fine-grained PAT, 'Contents: Read and write'). Wird verschluesselt nur fuer deinen Windows-Benutzer gespeichert."))) { return '' }
+    if (-not (Save-GhToken (Get-SignTokenFile) ('GitHub-Token mit Schreibrecht für ' + $Cfg.Owner + '/' + $Cfg.Repo + " (Fine-grained PAT, 'Contents: Read and write'). Wird verschlüsselt nur für deinen Windows-Benutzer gespeichert."))) { return '' }
     return (Read-SignToken)
 }
 function Test-CanSign {
@@ -532,16 +615,16 @@ function Start-ReleaseSigning {
     $c = Get-UpdCfg; if (-not $c) { return }
     Out-Log ('=== Release signieren (' + $c.Owner + '/' + $c.Repo + ') ===')
     $cert = Get-HMSigningCert $c.SignerThumbprint
-    if (-not $cert) { $m = 'Signatur-Zertifikat ' + $c.SignerThumbprint + ' mit privatem Schluessel ist auf diesem PC nicht vorhanden (oder abgelaufen).'; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
-    Out-Log ('Zertifikat: ' + $cert.Subject + ' - gueltig bis ' + $cert.NotAfter.ToString('dd.MM.yyyy'))
+    if (-not $cert) { $m = 'Signatur-Zertifikat ' + $c.SignerThumbprint + ' mit privatem Schlüssel ist auf diesem PC nicht vorhanden (oder abgelaufen).'; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
+    Out-Log ('Zertifikat: ' + $cert.Subject + ' - gültig bis ' + $cert.NotAfter.ToString('dd.MM.yyyy'))
     $tok = Get-SignToken $c
     if (-not $tok) { Out-Log 'Abgebrochen: kein GitHub-Token mit Schreibrecht.'; return }
     Step-Ui
     try { $all = @(Get-HMReleases $c.Owner $c.Repo $tok) } catch { $m = 'Releases nicht lesbar: ' + $_.Exception.Message; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
     $tags = @($all | Where-Object { $_.ManifestUrl -and -not $_.SignatureUrl } | ForEach-Object { "$($_.Tag)" })
     $noMan = @($all | Where-Object { -not $_.ManifestUrl } | Select-Object -First 5 | ForEach-Object { "$($_.Tag)" })
-    if ($noMan.Count) { Out-Log ('Ohne Pruefsummen-Datei (automatische Tests noch nicht fertig oder fehlgeschlagen): ' + ($noMan -join ', ')) }
-    if (-not $tags.Count) { Out-Log 'Nichts zu signieren - alle Releases mit Pruefsumme sind bereits signiert.'; Show-Msg ('Nichts zu signieren - alle Releases mit Pruefsumme sind bereits signiert.' + "`r`n`r`n" + 'Eine neue Version entsteht erst mit dem Merge nach main (danach ein paar Minuten warten, bis die automatischen Tests die Pruefsummen-Datei angehaengt haben).') 'Release signieren'; return }
+    if ($noMan.Count) { Out-Log ('Ohne Prüfsummen-Datei (automatische Tests noch nicht fertig oder fehlgeschlagen): ' + ($noMan -join ', ')) }
+    if (-not $tags.Count) { Out-Log 'Nichts zu signieren - alle Releases mit Prüfsumme sind bereits signiert.'; Show-Msg ('Nichts zu signieren - alle Releases mit Prüfsumme sind bereits signiert.' + "`r`n`r`n" + 'Eine neue Version entsteht erst mit dem Merge nach main (danach ein paar Minuten warten, bis die automatischen Tests die Prüfsummen-Datei angehängt haben).') 'Release signieren'; return }
     $q = [System.Windows.MessageBox]::Show($win, ('Diese Releases jetzt signieren?' + "`r`n`r`n" + ($tags -join ', ') + "`r`n`r`n" + 'Danach werden sie allen Installationen angeboten (je nach Kanal Stabil/Test).'), 'Release signieren', 'YesNo', 'Question')
     if ($q -ne 'Yes') { Out-Log 'Signieren abgebrochen.'; return }
     Out-Log ('Signiere ' + ($tags -join ', ') + ' ...'); Step-Ui
@@ -551,8 +634,8 @@ function Start-ReleaseSigning {
     $sum = ($res | ForEach-Object { $_.Tag + ': ' + $_.Text }) -join "`r`n"
     if (@($res | Where-Object { -not $_.Ok }).Count) {
         Show-Msg ('Signieren mit Fehlern:' + "`r`n`r`n" + $sum) 'Release signieren' 'Error'
-        if (@($res | Where-Object { -not $_.Ok -and "$($_.Text)" -match 'Schreibrecht' }).Count) { Remove-Item -LiteralPath (Get-SignTokenFile) -Force -ErrorAction SilentlyContinue; Out-Log 'Gespeicherter Schreib-Token geloescht - beim naechsten Signieren neu eingeben.' }
-    } else { Show-Msg ('Signiert:' + "`r`n`r`n" + $sum + "`r`n`r`n" + 'Naechster Schritt: Rechtsklick auf Update > Release freigeben.') 'Release signieren' }
+        if (@($res | Where-Object { -not $_.Ok -and "$($_.Text)" -match 'Schreibrecht' }).Count) { Remove-Item -LiteralPath (Get-SignTokenFile) -Force -ErrorAction SilentlyContinue; Out-Log 'Gespeicherter Schreib-Token gelöscht - beim nächsten Signieren neu eingeben.' }
+    } else { Show-Msg ('Signiert:' + "`r`n`r`n" + $sum + "`r`n`r`n" + 'Nächster Schritt: Rechtsklick auf Update > Release freigeben.') 'Release signieren' }
     Invoke-UpdateCheck -Quiet
 }
 
@@ -571,7 +654,7 @@ function Start-ReleasePublish {
     if (-not $cand) { $m = 'Kein signiertes Vorab-Release neuer als ' + $stTxt + '.' + $(if ($uns.Count) { ' Noch nicht signiert: ' + ($uns -join ', ') + " - zuerst 'Release signieren'." }); Out-Log $m; Show-Msg $m 'Release freigeben' 'Warning'; return }
     $q = [System.Windows.MessageBox]::Show($win, ($cand.Tag + ' jetzt freigeben?' + "`r`n`r`n" + 'Danach ist es im Kanal Stabil die neueste Version und wird ALLEN Installationen als Update angeboten.' + "`r`n" + 'Bisher freigegeben: ' + $stTxt), 'Release freigeben', 'YesNo', 'Question')
     if ($q -ne 'Yes') { Out-Log 'Freigabe abgebrochen.'; return }
-    Out-Log ('Gebe ' + $cand.Tag + ' frei ... (Signatur wird vorher erneut geprueft)'); Step-Ui
+    Out-Log ('Gebe ' + $cand.Tag + ' frei ... (Signatur wird vorher erneut geprüft)'); Step-Ui
     try {
         Publish-HMRelease $c.Owner $c.Repo $cand.Tag $c.SignerThumbprint $tok
         Out-Log ($cand.Tag + ': freigegeben (Kanal Stabil)')
@@ -579,7 +662,7 @@ function Start-ReleasePublish {
         Invoke-UpdateCheck -Quiet
     } catch {
         $code = Get-HttpCode $_
-        if ($code -in 401, 403, 404) { Remove-Item -LiteralPath (Get-SignTokenFile) -Force -ErrorAction SilentlyContinue; $m = 'Freigabe fehlgeschlagen: kein Schreibrecht (HTTP ' + $code + ') - gespeicherter Token wurde geloescht, beim naechsten Versuch neu eingeben.' }
+        if ($code -in 401, 403, 404) { Remove-Item -LiteralPath (Get-SignTokenFile) -Force -ErrorAction SilentlyContinue; $m = 'Freigabe fehlgeschlagen: kein Schreibrecht (HTTP ' + $code + ') - gespeicherter Token wurde gelöscht, beim nächsten Versuch neu eingeben.' }
         else { $m = 'Freigabe fehlgeschlagen: ' + $_.Exception.Message }
         Out-Log $m; Show-Msg $m 'Release freigeben' 'Error'
     }
@@ -595,9 +678,9 @@ $script:miStable = & $addU 'Kanal Stabil (nur freigegebene Versionen)' { Set-Upd
 $script:miTest   = & $addU 'Kanal Test (auch Vorab-Versionen)' { Set-UpdSetting 'Channel' 'Test'; Out-Log 'Update-Kanal: Test'; Invoke-UpdateCheck }
 [void](& $addU 'GitHub-Token (nur privates Repo) ...' {
     $f = Get-GhTokenFile; $has = Test-Path -LiteralPath $f
-    $a = [System.Windows.MessageBox]::Show($win, ('Gespeicherter GitHub-Token: ' + $(if ($has) { 'vorhanden' } else { 'keiner' }) + "`r`n`r`n" + "Nur fuer PRIVATE Repos noetig (Fine-grained PAT, nur 'Contents: Read')." + "`r`n`r`n" + 'Ja = Token eingeben/ersetzen' + "`r`n" + 'Nein = gespeicherten Token loeschen'), 'GitHub-Token', 'YesNoCancel', 'Question')
-    if ($a -eq 'Yes') { if (Save-GhToken $f 'GitHub-Token (Nur-Lese) als Kennwort eingeben (DPAPI, nur fuer deinen Benutzer lesbar)') { Out-Log 'GitHub-Token gespeichert'; Invoke-UpdateCheck } }
-    elseif ($a -eq 'No' -and $has) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue; Out-Log 'GitHub-Token geloescht' }
+    $a = [System.Windows.MessageBox]::Show($win, ('Gespeicherter GitHub-Token: ' + $(if ($has) { 'vorhanden' } else { 'keiner' }) + "`r`n`r`n" + "Nur für PRIVATE Repos nötig (Fine-grained PAT, nur 'Contents: Read')." + "`r`n`r`n" + 'Ja = Token eingeben/ersetzen' + "`r`n" + 'Nein = gespeicherten Token löschen'), 'GitHub-Token', 'YesNoCancel', 'Question')
+    if ($a -eq 'Yes') { if (Save-GhToken $f 'GitHub-Token (Nur-Lese) als Kennwort eingeben (DPAPI, nur für deinen Benutzer lesbar)') { Out-Log 'GitHub-Token gespeichert'; Invoke-UpdateCheck } }
+    elseif ($a -eq 'No' -and $has) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue; Out-Log 'GitHub-Token gelöscht' }
 })
 $sepU = New-Object System.Windows.Controls.Separator
 [void]$cmU.Items.Add($sepU)
@@ -615,9 +698,9 @@ $ui.bReload.Add_Click({ Update-Drives })
 
 $ui.bLoad.Add_Click({
     $p = $srcCfg
-    if (-not (Test-Path $p)) { Out-Log ('Noch keine config.json in der Quelle: ' + $p + ' - Felder ausfuellen, dann 3. Speichern'); return }
+    if (-not (Test-Path $p)) { Out-Log ('Noch keine config.json in der Quelle: ' + $p + ' - Felder ausfüllen, dann 3. Speichern'); return }
     try {
-        $c = Get-Content $p -Raw | ConvertFrom-Json
+        $c = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
         $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
@@ -664,16 +747,16 @@ function Show-SecretExpiry([string]$Token) {
             $span = $end - (Get-Date)
             $days = $span.TotalDays
             if ($null -eq $minDays -or $days -lt $minDays) { $minDays = $days; $minEnd = $end }
-            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gueltig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + '  -> ' + (Format-Rest $span)
+            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + '  -> ' + (Format-Rest $span)
             if ($days -lt 0) { $txt = 'ACHTUNG ABGELAUFEN: ' + $txt } elseif ($days -lt 1) { $txt = 'ACHTUNG BALD ABGELAUFEN: ' + $txt }
             Out-Log $txt
         }
         if (-not $mine.Count) { Out-Log '  (verwendetes Secret nicht eindeutig erkannt - alle Secrets der App angezeigt)' }
         if ($mine.Count -and $null -ne $minDays) {
-            Set-SubSecret ('Secret gueltig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (' + (Format-Rest ($minEnd - (Get-Date))) + ')') ($minDays -lt 1)
+            Set-SubSecret ('Secret gültig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (' + (Format-Rest ($minEnd - (Get-Date))) + ')') ($minDays -lt 1)
         }
     } catch {
-        Out-Log 'Secret-Ablauf nicht lesbar (optional: Anwendungsberechtigung Application.Read.All fuer HUPilot-Upload)'
+        Out-Log 'Secret-Ablauf nicht lesbar (optional: Anwendungsberechtigung Application.Read.All für HUPilot-Upload)'
     }
 }
 function Set-SubSecret([string]$Text, [bool]$Warn) {
@@ -720,7 +803,7 @@ function Copy-ToStick([string]$dr) {
     } catch { Out-Log ('FEHLER kopieren ' + $dr + ': ' + $_.Exception.Message); return $false }
 }
 $ui.bCopy.Add_Click({
-    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewaehlt'; return }
+    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewählt'; return }
     if (-not (Save-Cfg)) { return }
     if (-not (Test-Path $srcPkg)) { Out-Log 'ACHTUNG: kein HUPilot-WLAN.ppkg in der Quelle - erst 4. WLAN-Paket bauen (oder "WlanPackage": "")' }
     [void](Copy-ToStick $dr)
@@ -728,7 +811,7 @@ $ui.bCopy.Add_Click({
 
 $ui.bPkg.Add_Click({
     if (-not (Test-Fields @('WlanSsid', 'WlanKey'))) { return }
-    if (-not (Test-Path $icd)) { Out-Log ('ICD.exe nicht gefunden: ' + $icd); Out-Log '  -> Windows ADK installieren, Feature "Imaging and Configuration Designer (ICD)". Die Store-App WCD hat keine Kommandozeile.'; Out-Log '  -> ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberflaeche (INSTALL.md)'; return }
+    if (-not (Test-Path $icd)) { Out-Log ('ICD.exe nicht gefunden: ' + $icd); Out-Log '  -> Windows ADK installieren, Feature "Imaging and Configuration Designer (ICD)". Die Store-App WCD hat keine Kommandozeile.'; Out-Log '  -> ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberfläche (INSTALL.md)'; return }
     $c = Get-Cfg
     $work = Join-Path $env:TEMP ('HUPilot-WCD-' + [guid]::NewGuid().ToString('N'))
     try {
@@ -742,7 +825,7 @@ $ui.bPkg.Add_Click({
             # Optional: lokale Admins per ProvisioningCommands (Geraetekontext, laeuft als SYSTEM - auch nach jedem Zuruecksetzen)
             $q = { param($v) "'" + ([string]$v).Replace("'", "''") + "'" }
             $body = @(
-                '# HUPilot: lokale Admins (aus dem WLAN-Paket, laeuft als SYSTEM)',
+                '# HUPilot: lokale Admins (aus dem WLAN-Paket, läuft als SYSTEM)',
                 ('$list = @(); ' + (($adm | ForEach-Object { '$list += ,@(' + (& $q $_[0]) + ', ' + (& $q $_[1]) + ')' }) -join '; ')),
                 '$log = Join-Path $env:SystemRoot ''Temp\HUPilot-Admin.log''',
                 'function L([string]$m) { try { Add-Content -Path $log -Value ((Get-Date -Format ''yyyy-MM-dd HH:mm:ss'') + ''  '' + $m) -Encoding UTF8 } catch { } }',
@@ -754,7 +837,7 @@ $ui.bPkg.Add_Click({
                 '    if ($u) { Set-LocalUser -Name $n -Password $sec -PasswordNeverExpires $true -AccountNeverExpires -ErrorAction Stop; Enable-LocalUser -Name $n -ErrorAction Stop; L (''Konto aktualisiert: '' + $n) }',
                 '    else { New-LocalUser -Name $n -Password $sec -PasswordNeverExpires -AccountNeverExpires -Description ''HUPilot lokaler Admin'' -ErrorAction Stop | Out-Null; L (''Konto angelegt: '' + $n) }',
                 '    $sid = (Get-LocalUser -Name $n).SID.Value',
-                '    try { Add-LocalGroupMember -SID ''S-1-5-32-544'' -Member $sid -ErrorAction Stop; L (''zu Administratoren hinzugefuegt: '' + $n) }',
+                '    try { Add-LocalGroupMember -SID ''S-1-5-32-544'' -Member $sid -ErrorAction Stop; L (''zu Administratoren hinzugefügt: '' + $n) }',
                 '    catch { if ($_.FullyQualifiedErrorId -like ''*MemberExists*'') { L (''bereits Administrator: '' + $n) } else { throw } }',
                 '  } catch { L (''FEHLER '' + $n + '': '' + $_.Exception.Message) }',
                 '}'
@@ -764,8 +847,8 @@ $ui.bPkg.Add_Click({
             $cl = 'cmd /c "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $b64
             $pc = '<ProvisioningCommands><DeviceContext><CommandLine>' + $cl + '</CommandLine></DeviceContext></ProvisioningCommands>'
             $x = $x.Replace('</Common>', $pc + '</Common>')
-            $x = [regex]::Replace($x, '<Notes>.*?</Notes>', '<Notes>HUPilot: WLAN + lokale Admins. KEIN Zuruecksetzen-Befehl im Paket.</Notes>')
-            Out-Log ('Paket enthaelt lokale(n) Admin(s): ' + (($adm | ForEach-Object { $_[0] }) -join ', '))
+            $x = [regex]::Replace($x, '<Notes>.*?</Notes>', '<Notes>HUPilot: WLAN + lokale Admins. KEIN Zurücksetzen-Befehl im Paket.</Notes>')
+            Out-Log ('Paket enthält lokale(n) Admin(s): ' + (($adm | ForEach-Object { $_[0] }) -join ', '))
         }
         $xmlPath = Join-Path $work 'customizations.xml'
         [System.IO.File]::WriteAllText($xmlPath, $x.TrimStart([char]0xFEFF), $enc)   # ohne BOM
@@ -775,7 +858,7 @@ $ui.bPkg.Add_Click({
         if ($adm.Count) {
             # ProvisioningCommands gibt es nur im Desktop-Speicher (Common kennt sie nicht)
             $dstore = Join-Path (Split-Path $icd -Parent) 'Microsoft-Desktop-Provisioning.dat'
-            if (-not (Test-Path $dstore)) { Out-Log ('FEHLER: ' + $dstore + ' fehlt - ADK-Feature "Imaging and Configuration Designer" vollstaendig installieren'); return }
+            if (-not (Test-Path $dstore)) { Out-Log ('FEHLER: ' + $dstore + ' fehlt - ADK-Feature "Imaging and Configuration Designer" vollständig installieren'); return }
             $stores = @(($cstore + ',' + $dstore), $dstore)
         }
         $okBuild = $false
@@ -794,7 +877,7 @@ $ui.bPkg.Add_Click({
             }
             if (-not $lines.Count) { Out-Log '  (ICD.exe hat keine Ausgabe geliefert)' }
         }
-        if (-not $okBuild) { Out-Log 'WLAN-Paket NICHT gebaut - das bisherige Paket (falls vorhanden) bleibt unveraendert.' }
+        if (-not $okBuild) { Out-Log 'WLAN-Paket NICHT gebaut - das bisherige Paket (falls vorhanden) bleibt unverändert.' }
     } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
     finally { Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue }   # enthaelt das WLAN-Kennwort
 })
@@ -821,20 +904,47 @@ function Show-Status {
     [xml]$sx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot - Status" Width="1100" Height="640" WindowStartupLocation="CenterOwner" FontSize="12">
+        Title="HUPilot - Status" Width="1100" Height="640" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
+  <Window.Resources>
+    <Style x:Key="HuThumb" TargetType="Thumb">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+        <Border CornerRadius="3" Background="#FF6A6A6A"/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
+          <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
+        </Track></Border>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
+          <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
+          <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
+              <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
+            </Track></Border>
+          </ControlTemplate></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
   <DockPanel Margin="10">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
       <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,0"/>
       <ComboBox x:Name="cTag" Width="140"/>
-      <CheckBox x:Name="cProto" Content="nur Geraete aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,0"/>
-      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,0" ToolTip="Suche in Seriennummer / Geraetename / Benutzer"/>
+      <CheckBox x:Name="cProto" Content="nur Geräte aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,0"/>
+      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,0" ToolTip="Suche in Seriennummer / Gerätename / Benutzer"/>
       <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold"/>
       <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" Margin="14,0,0,0" ToolTip="Alle Daten neu aus Autopilot/Intune laden"/>
     </StackPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
       <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4"/>
       <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bClose" Content="Schliessen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details (Profil live nachladen)" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
   </DockPanel>
@@ -883,7 +993,7 @@ function Show-Status {
         $script:StatusView = $v
         $g.dGrid.ItemsSource = $v
         $ok = @($v | Where-Object { $_.Intune -eq 'registriert' }).Count
-        $g.tCount.Text = ('' + $v.Count + ' Geraete  |  ' + $ok + ' in Intune registriert  |  ' + ($v.Count - $ok) + ' offen')
+        $g.tCount.Text = ('' + $v.Count + ' Geräte  |  ' + $ok + ' in Intune registriert  |  ' + ($v.Count - $ok) + ' offen')
     }
     $g.cTag.Add_SelectionChanged($refresh)
     $g.cProto.Add_Click($refresh)
@@ -967,7 +1077,7 @@ function Show-Status {
 function Get-StatusData {
     $tok = Get-ApiToken; if (-not $tok) { return $null }
     $h = @{ Authorization = 'Bearer ' + $tok }
-    Out-Log 'Lade Autopilot-Geraete ...'
+    Out-Log 'Lade Autopilot-Geräte ...'
     $all = @()
     try {
         $uri = 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=500'
@@ -986,8 +1096,8 @@ function Get-StatusData {
             foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $md['SN:' + [string]$m.serialNumber] = $m } }
             $uri = $r.'@odata.nextLink'
         }
-        Out-Log ('Intune-Geraete gelesen: ' + @($md.Keys | Where-Object { $_ -like 'SN:*' }).Count)
-    } catch { Out-Log 'Primaerer Benutzer nicht lesbar (optional: Anwendungsberechtigung DeviceManagementManagedDevices.Read.All fuer HUPilot-Upload)' }
+        Out-Log ('Intune-Geräte gelesen: ' + @($md.Keys | Where-Object { $_ -like 'SN:*' }).Count)
+    } catch { Out-Log 'Primärer Benutzer nicht lesbar (optional: Anwendungsberechtigung DeviceManagementManagedDevices.Read.All für HUPilot-Upload)' }
     $proto = Read-Protokoll
     $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
     $script:ApIds = @{}
@@ -1020,8 +1130,9 @@ function Get-StatusData {
         }
     }
     # Neueste Intune-Registrierung oben, Geraete ohne Datum unten
-    $rows = @(@($rows | Where-Object { $_.RegDatum } | Sort-Object RegDatum -Descending) + @($rows | Where-Object { -not $_.RegDatum }))
-    Out-Log ('' + @($rows).Count + ' Autopilot-Geraete, ' + $proto.Count + ' aus protokoll.csv')
+    # noch nicht registrierte Geraete (gerade in Arbeit) OBEN, danach die registrierten, neueste zuerst
+    $rows = @(@($rows | Where-Object { -not $_.RegDatum }) + @($rows | Where-Object { $_.RegDatum } | Sort-Object RegDatum -Descending))
+    Out-Log ('' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus protokoll.csv')
     return @{ Rows = $rows; Proto = $proto }
 }
 $ui.bStatus.Add_Click({
@@ -1049,24 +1160,24 @@ $ui.bLnk.Add_Click({
         $sc.Description = 'HUPilot-Setup - ' + $srcStick
         $sc.WindowStyle = 7
         $sc.Save()
-        Out-Log ('Desktop-Verknuepfung angelegt: ' + $lnk)
-    } catch { Out-Log ('FEHLER Verknuepfung: ' + $_.Exception.Message) }
+        Out-Log ('Desktop-Verknüpfung angelegt: ' + $lnk)
+    } catch { Out-Log ('FEHLER Verknüpfung: ' + $_.Exception.Message) }
 })
 
 Update-Drives
 Out-Log ('Quelle: '  + $srcStick)
 $ui.tSub.ToolTip = 'Quelle: ' + $srcStick
 if (Test-Path $srcCfg) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
-Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - fuer 4. WLAN-Paket: Windows ADK mit Imaging and Configuration Designer installieren (Store-WCD reicht nicht)' }))
+Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - für 4. WLAN-Paket: Windows ADK mit Imaging and Configuration Designer installieren (Store-WCD reicht nicht)' }))
 Start-Log 'Fenster wird angezeigt'
 # Beim Start automatisch Secret-Ablauf anzeigen (nur wenn echte Werte eingetragen sind)
 $win.Add_ContentRendered({
     $c = Get-Cfg
     if ($c.TenantId -notmatch '^[0-9a-fA-F-]{36}$' -or $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$' -or -not $c.ClientSecret -or $c.ClientSecret.StartsWith('<')) { return }
-    Out-Log 'Pruefe Secret ...'
+    Out-Log 'Prüfe Secret ...'
     $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
     $tok = Get-ApiToken
-    if (-not $tok) { Set-SubSecret 'Secret UNGUELTIG - siehe Protokoll' $true; return }
+    if (-not $tok) { Set-SubSecret 'Secret UNGÜLTIG - siehe Protokoll' $true; return }
     Show-SecretExpiry -Token $tok
 })
 
@@ -1098,10 +1209,37 @@ function Show-Grid {
     [xml]$gx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Width="1000" Height="520" WindowStartupLocation="CenterOwner" FontSize="12">
+        Width="1000" Height="520" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
+  <Window.Resources>
+    <Style x:Key="HuThumb" TargetType="Thumb">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+        <Border CornerRadius="3" Background="#FF6A6A6A"/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
+          <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
+        </Track></Border>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
+          <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
+          <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
+              <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
+            </Track></Border>
+          </ControlTemplate></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
   <DockPanel Margin="10">
     <TextBlock x:Name="tInfo" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
-    <Button x:Name="bClose" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Content="Schliessen" Padding="10,4" Margin="0,8,0,0"/>
+    <Button x:Name="bClose" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Content="Schließen" Padding="10,4" Margin="0,8,0,0"/>
     <DataGrid x:Name="dGrid" AutoGenerateColumns="True" IsReadOnly="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
@@ -1119,7 +1257,7 @@ function Show-Grid {
 $ui.bTags.Add_Click({
     $tok = Get-ApiToken; if (-not $tok) { return }
     $h = @{ Authorization = 'Bearer ' + $tok }
-    Out-Log 'Lade Profile, Gruppen und Geraete ...'
+    Out-Log 'Lade Profile, Gruppen und Geräte ...'
     $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
     try { $profs = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments' -Headers $h).value) }
     catch { Out-Log ('FEHLER Profile lesen: ' + $_.Exception.Message); return }
@@ -1127,7 +1265,7 @@ $ui.bTags.Add_Click({
     foreach ($p in $profs) {
         foreach ($a in @($p.assignments)) {
             $ty = [string]$a.target.'@odata.type'
-            if ($ty -like '*allDevicesAssignmentTarget') { $targets += [pscustomobject]@{ Profil = [string]$p.displayName; Gruppe = 'Alle Geraete'; Rule = '*' }; continue }
+            if ($ty -like '*allDevicesAssignmentTarget') { $targets += [pscustomobject]@{ Profil = [string]$p.displayName; Gruppe = 'Alle Geräte'; Rule = '*' }; continue }
             if ($ty -notlike '*.groupAssignmentTarget') { continue }
             $gid = [string]$a.target.groupId
             if (-not $gcache.ContainsKey($gid)) {
@@ -1135,7 +1273,7 @@ $ui.bTags.Add_Click({
                 catch {
                     $em = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $em = $_.ErrorDetails.Message }
                     if ($em -match 'Authorization_RequestDenied|Forbidden|403|Insufficient privileges') { $gErr = $true; $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' } }
-                    else { Out-Log ('Profil "' + $p.displayName + '" ist einer nicht mehr vorhandenen Gruppe zugewiesen: ' + $gid); $gcache[$gid] = [pscustomobject]@{ displayName = ('(geloescht) ' + $gid); membershipRule = '' } }
+                    else { Out-Log ('Profil "' + $p.displayName + '" ist einer nicht mehr vorhandenen Gruppe zugewiesen: ' + $gid); $gcache[$gid] = [pscustomobject]@{ displayName = ('(gelöscht) ' + $gid); membershipRule = '' } }
                 }
             }
             $targets += [pscustomobject]@{ Profil = [string]$p.displayName; Gruppe = [string]$gcache[$gid].displayName; Rule = [string]$gcache[$gid].membershipRule }
@@ -1157,10 +1295,10 @@ $ui.bTags.Add_Click({
         }
     }
     $bad = @($rows | Where-Object { $_.Status -eq 'KEIN PROFIL' -and $_.AmStick })
-    Out-Log ('Tags: ' + @($rows).Count + ', ohne Profil (am Stick waehlbar): ' + $bad.Count + $(if ($gErr) { '  - Gruppen nicht lesbar: Group.Read.All fuer HUPilot-Upload ergaenzen' } else { '' }))
-    $info = 'Je Tag: Geraete in Autopilot, passende dynamische Gruppe ([OrderID]-Regel) und daran zugewiesenes Autopilot-Profil.'
-    if ($bad.Count) { $info += '  ACHTUNG: ' + (($bad | ForEach-Object { $_.Tag }) -join ', ') + ' am Stick waehlbar, aber ohne Profil.' }
-    if ($gErr) { $info += '  Gruppen nicht lesbar - Anwendungsberechtigung Group.Read.All ergaenzen.' }
+    Out-Log ('Tags: ' + @($rows).Count + ', ohne Profil (am Stick wählbar): ' + $bad.Count + $(if ($gErr) { '  - Gruppen nicht lesbar: Group.Read.All für HUPilot-Upload ergänzen' } else { '' }))
+    $info = 'Je Tag: Geräte in Autopilot, passende dynamische Gruppe ([OrderID]-Regel) und daran zugewiesenes Autopilot-Profil.'
+    if ($bad.Count) { $info += '  ACHTUNG: ' + (($bad | ForEach-Object { $_.Tag }) -join ', ') + ' am Stick wählbar, aber ohne Profil.' }
+    if ($gErr) { $info += '  Gruppen nicht lesbar - Anwendungsberechtigung Group.Read.All ergänzen.' }
     Show-Grid -Title ('HUPilot - Tags  (' + $c.Tenant + ')') -Rows $rows -Info $info
 })
 
@@ -1180,13 +1318,40 @@ function Show-HashImport {
     [xml]$hx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot - Hashes importieren" Width="1000" Height="560" WindowStartupLocation="CenterOwner" FontSize="12">
+        Title="HUPilot - Hashes importieren" Width="1000" Height="560" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
+  <Window.Resources>
+    <Style x:Key="HuThumb" TargetType="Thumb">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+        <Border CornerRadius="3" Background="#FF6A6A6A"/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
+          <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
+        </Track></Border>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
+          <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
+          <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+            <Border Background="Transparent"><Track x:Name="PART_Track">
+              <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
+            </Track></Border>
+          </ControlTemplate></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
   <DockPanel Margin="10">
-    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Text="Offline gespeicherte Hashes (HUPilot\logs\hashes.csv aus Quelle und Ziel-Stick). Schon vorhandene Geraete bekommen nur den Tag. Erledigte Zeilen wandern nach hashes-erledigt.csv."/>
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Text="Offline gespeicherte Hashes (HUPilot\logs\hashes.csv aus Quelle und Ziel-Stick). Schon vorhandene Geräte bekommen nur den Tag. Erledigte Zeilen wandern nach hashes-erledigt.csv."/>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button x:Name="bAdd" Content="CSV hinzufuegen ..." Padding="10,4"/>
+      <Button x:Name="bAdd" Content="CSV hinzufügen ..." Padding="10,4"/>
       <Button x:Name="bImp" Content="Importieren" FontWeight="SemiBold" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bClose" Content="Schliessen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <TextBox x:Name="tHLog" DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
     <DataGrid x:Name="dGrid" AutoGenerateColumns="False" IsReadOnly="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column">
@@ -1250,7 +1415,7 @@ function Show-HashImport {
                     }
                     if ($r.Benutzer) { $body.assignedUserPrincipalName = $r.Benutzer }
                     $imp = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities') -Headers $hj -Body ($body | ConvertTo-Json -Depth 4)
-                    $r.ImpId = [string]$imp.id; $r.Status = 'Import laeuft ...'
+                    $r.ImpId = [string]$imp.id; $r.Status = 'Import läuft ...'
                 }
             } catch { $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }; $r.Status = 'FEHLER: ' + $m }
             & $hlog ($r.Seriennr + ': ' + $r.Status)
@@ -1273,7 +1438,7 @@ function Show-HashImport {
             }
             & $refresh
         }
-        foreach ($r in @($script:HRows | Where-Object { -not $_.Done -and $_.Status -like 'Import*' })) { $r.Status = 'Import nach 15 Min nicht fertig - spaeter nochmal' }
+        foreach ($r in @($script:HRows | Where-Object { -not $_.Done -and $_.Status -like 'Import*' })) { $r.Status = 'Import nach 15 Min nicht fertig - später nochmal' }
         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/windowsAutopilotSettings/sync') -Headers $h | Out-Null } catch { }
         # Erledigte Zeilen aus den Dateien nehmen und nach hashes-erledigt.csv verschieben
         foreach ($f in @($script:HRows | ForEach-Object { $_.Datei } | Select-Object -Unique)) {

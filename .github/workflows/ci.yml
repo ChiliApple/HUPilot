@@ -143,7 +143,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Pull.ps1 Exitcode $LASTEXITCODE" }
           $i = Get-Content (Join-Path $t 'HUPilot\Config\installed.json') -Raw | ConvertFrom-Json
           if ("$($i.Version)" -ne $v) { throw "installiert: $($i.Version), erwartet $v" }
-          if ("$($i.Check)" -notlike 'Pruefsumme*') { throw "nicht geprueft: $($i.Check)" }
+          if ("$($i.Check)" -notmatch '^Pr.{1,2}fsumme') { throw "nicht geprueft: $($i.Check)" }
           foreach ($x in 'go.cmd', 'diag.cmd', 'HUPilot\go.ps1', 'HUPilot\Setup\HUPilot-Setup.ps1', 'HUPilot\Config\version.json') { if (-not (Test-Path -LiteralPath (Join-Path $t $x))) { throw "fehlt nach Pull: $x" } }
           if (Test-Path -LiteralPath (Join-Path $t 'README.md')) { throw 'Datei ausserhalb von Stick/ geladen (README.md)' }
           "Pull OK: $($i.Version) - $($i.Check) - $($i.Files) Dateien"
@@ -171,7 +171,7 @@ jobs:
           $out
           if ($c -ne 0) { throw "Pull.ps1 (Update) Exitcode $c" }
           if ($out -notmatch 'abgebrochen') { throw 'Journal wurde nicht ausgewertet' }
-          if ($out -notmatch [regex]::Escape("zurueckgestellt: $lib")) { throw 'Journal: Core-Update.ps1 nicht zurueckgestellt (Array-Auswertung PS 5.1?)' }
+          if ($out -notmatch ('zur.{1,2}ckgestellt: ' + [regex]::Escape($lib))) { throw 'Journal: Core-Update.ps1 nicht zurueckgestellt (Array-Auswertung PS 5.1?)' }
           if ((Get-Content -LiteralPath $main -Raw) -match 'kaputt') { throw 'go.ps1 nicht erneuert' }
           if (-not (Test-Path -LiteralPath $lib) -or (Get-FileHash -LiteralPath $lib -Algorithm SHA256).Hash -ne $libHash) { throw 'Core-Update.ps1 fehlt oder falsch' }
           if (Test-Path -LiteralPath $old) { throw 'veraltete Datei nicht entfernt' }

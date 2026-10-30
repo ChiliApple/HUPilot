@@ -6,7 +6,7 @@
     <Version>1.0</Version>
     <OwnerType>OEM</OwnerType>
     <Rank>0</Rank>
-    <Notes>HUPilot: NUR WLAN. Wird von go.ps1 vor dem Zuruecksetzen angewendet und bleibt dabei erhalten (doWipePersistProvisionedData). KEIN Zuruecksetzen-Befehl im Paket (Schleife!), KEIN Script, KEIN BPRT, KEIN HideOobe, KEIN Geraetename, KEINE lokalen Konten.</Notes>
+    <Notes>HUPilot: WLAN + lokale Admins. Wird von go.ps1 installiert (beim Zurücksetzen und bei nur hochladen) und bleibt erhalten (doWipePersistProvisionedData). KEIN Zurücksetzen-Befehl im Paket (Schleife!).</Notes>
   </PackageConfig>
   <Settings xmlns="urn:schemas-microsoft-com:windows-provisioning">
     <Customizations>

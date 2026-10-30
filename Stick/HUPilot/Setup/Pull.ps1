@@ -113,7 +113,13 @@ function Get-HMReleases([string]$Owner, [string]$Repo, [string]$Token) {
     # GitHub liefert die Liste mit "Cache-Control: max-age=60" - Proxys/Zwischenspeicher wuerden z.B. eine gerade
     # angehaengte Signatur bis zu 1 Minute nicht zeigen. Darum: no-cache + eindeutige Adresse je Abfrage
     $h['Cache-Control'] = 'no-cache'
-    $raw = Invoke-RestMethod "https://api.github.com/repos/$Owner/$Repo/releases?per_page=100&nocache=$([DateTime]::UtcNow.Ticks)" -Headers $h -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+    try { $raw = Invoke-RestMethod "https://api.github.com/repos/$Owner/$Repo/releases?per_page=100&nocache=$([DateTime]::UtcNow.Ticks)" -Headers $h -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop }
+    catch {
+        # ohne Token erlaubt GitHub 60 Abfragen pro Stunde je Internet-Adresse (mehrere PCs hinter einer Schul-Adresse teilen sich das)
+        $m = "$($_.Exception.Message) $($_.ErrorDetails.Message)"
+        if ($m -match 'rate limit|403') { throw 'GitHub-Abfragegrenze erreicht (ohne Token 60 pro Stunde je Internet-Adresse) - in einer Stunde nochmal versuchen.' }
+        throw
+    }
     return @(ConvertTo-HMReleaseList $raw)
 }
 # Kanal Stabil = nur freigegebene Releases, Test = auch Vorab-Releases; jeweils die hoechste Version
@@ -173,7 +179,7 @@ function Test-HMManifestSignature([byte[]]$Manifest, [byte[]]$Signature, [string
         if (-not $tps.Count) { return 'Signatur ohne Zertifikat' }
         if ($tps -notcontains $want) { return "signiert mit einem anderen Zertifikat ($($tps -join ', '))" }
         return ''
-    } catch { return "Signatur ungueltig: $($_.Exception.Message)" }
+    } catch { return "Signatur ungültig: $($_.Exception.Message)" }
 }
 #endregion HMUpdateLib
 
@@ -203,19 +209,19 @@ if (Test-Path -LiteralPath $jr) {
     # "foreach ($x in @(... | ConvertFrom-Json))" liefe nur einmal mit allen Pfaden zusammen und stellte nichts zurueck
     $jl = $null
     try { $jl = Get-Content -LiteralPath $jr -Raw -Encoding UTF8 | ConvertFrom-Json }
-    catch { Stop-HMPull "Journal $jr nicht lesbar ($($_.Exception.Message)) - bitte *.pullold im Programmordner pruefen." }
+    catch { Stop-HMPull "Journal $jr nicht lesbar ($($_.Exception.Message)) - bitte *.pullold im Programmordner prüfen." }
     $jbad = 0
     foreach ($jp in @($jl)) {
         if (-not "$jp") { continue }
         $jo = "$jp.pullold"
         if (Test-Path -LiteralPath $jo) {
-            try { Move-Item -LiteralPath $jo -Destination "$jp" -Force -ErrorAction Stop; Write-Host "  zurueckgestellt: $jp" -ForegroundColor DarkGray }
+            try { Move-Item -LiteralPath $jo -Destination "$jp" -Force -ErrorAction Stop; Write-Host "  zurückgestellt: $jp" -ForegroundColor DarkGray }
             catch { $jbad++; Write-Host "  [WARN] $($jp): $($_.Exception.Message)" -ForegroundColor Yellow }
         }
         Remove-Item -LiteralPath "$jp.pulltmp" -Force -ErrorAction SilentlyContinue
     }
     # Journal nur loeschen, wenn alles zurueckgestellt ist (sonst bleibt die Start-Sperre bestehen)
-    if ($jbad) { Stop-HMPull "$jbad Datei(en) konnten nicht zurueckgestellt werden (gesperrt?) - Programm schliessen und Pull erneut ausfuehren." }
+    if ($jbad) { Stop-HMPull "$jbad Datei(en) konnten nicht zurückgestellt werden (gesperrt?) - Programm schließen und Pull erneut ausführen." }
     Remove-Item -LiteralPath $jr -Force -ErrorAction SilentlyContinue
 }
 $cfg = Get-HMUpdateConfig $cfgDir
@@ -226,7 +232,7 @@ if ($cfg.DefaultSigner -and ($Owner -ne $cfg.Owner -or $Repo -ne $cfg.Repo)) {
     $cfg.SignerThumbprint = Get-HMDefaultSigner $Owner $Repo
     $cfg.RequireSignature = ([bool]$cfg.SignerThumbprint -and -not $cfg.AllowUnsigned)
 }
-if ($Branch -and $cfg.RequireSignature) { Stop-HMPull "Branch-Stand ist nicht signiert - nur moeglich, wenn 'Nur signierte Updates' ausgeschaltet ist (Einstellungen > Update)." }
+if ($Branch -and $cfg.RequireSignature) { Stop-HMPull "Branch-Stand ist nicht signiert - nur möglich, wenn 'Nur signierte Updates' ausgeschaltet ist (Einstellungen > Update)." }
 if (-not $Channel) { $Channel = $cfg.Channel }
 $useBranch = [bool]$Branch -or ($cfg.UseBranch -and -not $Version)
 if (-not $Branch) { $Branch = $cfg.Branch }
@@ -268,7 +274,7 @@ function New-GHHeaders([string]$Accept) {
 $ProgressPreference = 'SilentlyContinue'
 
 # --- 1. Version waehlen (Release) bzw. Branch
-$ref = $null; $rel = $null; $manifest = $null; $verified = 'ohne Pruefsumme'; $newCred = $null; $triedNoToken = $false
+$ref = $null; $rel = $null; $manifest = $null; $verified = 'ohne Prüfsumme'; $newCred = $null; $triedNoToken = $false
 for ($attempt = 1; $attempt -le 3 -and -not $ref; $attempt++) {
     try {
         if ($useBranch) {
@@ -321,28 +327,28 @@ else { Write-Host "Version:    $($rel.Tag)  ($(if ($rel.Prerelease) { 'Test' } e
 if (-not $useBranch) {
     $manBytes = $null
     if ($rel.ManifestUrl) {
-        try { $manBytes = Get-HMReleaseAsset $rel.ManifestUrl $rel.ManifestApi $Token } catch { Stop-HMPull "Pruefsummen-Datei nicht ladbar: $($_.Exception.Message)" }
+        try { $manBytes = Get-HMReleaseAsset $rel.ManifestUrl $rel.ManifestApi $Token } catch { Stop-HMPull "Prüfsummen-Datei nicht ladbar: $($_.Exception.Message)" }
         $manifest = ConvertFrom-HMManifest ([System.Text.Encoding]::UTF8.GetString($manBytes))
-        if (-not $manifest.Count) { Stop-HMPull 'Pruefsummen-Datei ist leer oder beschaedigt.' }
-        $verified = 'Pruefsumme (SHA256)'
+        if (-not $manifest.Count) { Stop-HMPull 'Prüfsummen-Datei ist leer oder beschädigt.' }
+        $verified = 'Prüfsumme (SHA256)'
     }
     if ($cfg.RequireSignature) {
-        if (-not $manBytes) { Stop-HMPull "Nur signierte Updates erlaubt - $($rel.Tag) hat keine Pruefsummen-Datei." }
+        if (-not $manBytes) { Stop-HMPull "Nur signierte Updates erlaubt - $($rel.Tag) hat keine Prüfsummen-Datei." }
         $sigBytes = $null
         if ($rel.SignatureUrl) { try { $sigBytes = Get-HMReleaseAsset $rel.SignatureUrl $rel.SignatureApi $Token } catch { Stop-HMPull "Signatur nicht ladbar: $($_.Exception.Message)" } }
         $why = Test-HMManifestSignature $manBytes $sigBytes $cfg.SignerThumbprint
         if ($why) { Stop-HMPull "Nur signierte Updates erlaubt - $($rel.Tag): $why" }
-        $verified = "Pruefsumme + Signatur ($($cfg.SignerThumbprint.Substring(0, [Math]::Min(8, $cfg.SignerThumbprint.Length)))...)"
-        Write-Host 'Signatur:   gueltig' -ForegroundColor Green
+        $verified = "Prüfsumme + Signatur ($($cfg.SignerThumbprint.Substring(0, [Math]::Min(8, $cfg.SignerThumbprint.Length)))...)"
+        Write-Host 'Signatur:   gültig' -ForegroundColor Green
     }
     if (-not $manifest) {
-        Write-Host "[WARN] $($rel.Tag) hat keine Pruefsummen-Datei (Versionen bis 2.1 oder die automatischen Tests sind noch nicht fertig/fehlgeschlagen)." -ForegroundColor Yellow
-        if ($NonInteractive) { Stop-HMPull 'ohne Pruefsumme nicht erlaubt (-NonInteractive)' }
-        $a = Read-Host 'Trotzdem ohne Pruefung laden? (j/N)'
+        Write-Host "[WARN] $($rel.Tag) hat keine Prüfsummen-Datei (Versionen bis 2.1 oder die automatischen Tests sind noch nicht fertig/fehlgeschlagen)." -ForegroundColor Yellow
+        if ($NonInteractive) { Stop-HMPull 'ohne Prüfsumme nicht erlaubt (-NonInteractive)' }
+        $a = Read-Host 'Trotzdem ohne Prüfung laden? (j/N)'
         if ("$a".Trim() -notmatch '^[jJyY]') { Stop-HMPull 'abgebrochen' }
     }
 }
-Write-Host "Pruefung:   $verified" -ForegroundColor Gray
+Write-Host "Prüfung:   $verified" -ForegroundColor Gray
 
 # --- 3. Dateiliste
 try { $tree = Invoke-RestMethod "https://api.github.com/repos/$Owner/$Repo/git/trees/${ref}?recursive=1" -Headers (New-GHHeaders 'application/vnd.github.v3+json') -UseBasicParsing }
@@ -373,15 +379,15 @@ foreach ($f in $files) {
     if ($manifest) {
         $want = $manifest[$f.path]
         $have = Get-HMFileSha256 $tmp
-        if (-not $want) { Write-Host 'FEHLER: nicht in der Pruefsummen-Datei' -ForegroundColor Red; $fail++; $staged.Add(@($tmp, $local)); continue }
-        if ($have -ne $want) { Write-Host 'FEHLER: Pruefsumme stimmt nicht' -ForegroundColor Red; $fail++; $staged.Add(@($tmp, $local)); continue }
-        Write-Host 'OK (geprueft)' -ForegroundColor Green
+        if (-not $want) { Write-Host 'FEHLER: nicht in der Prüfsummen-Datei' -ForegroundColor Red; $fail++; $staged.Add(@($tmp, $local)); continue }
+        if ($have -ne $want) { Write-Host 'FEHLER: Prüfsumme stimmt nicht' -ForegroundColor Red; $fail++; $staged.Add(@($tmp, $local)); continue }
+        Write-Host 'OK (geprüft)' -ForegroundColor Green
     } else { Write-Host "OK ($((Get-Item -LiteralPath $tmp -Force).Length) bytes)" -ForegroundColor Green }
     $staged.Add(@($tmp, $local))
 }
 if ($fail) {
     foreach ($s in $staged) { Remove-Item -LiteralPath $s[0] -Force -ErrorAction SilentlyContinue }
-    Stop-HMPull "$fail Datei(en) nicht geladen oder Pruefsumme falsch - es wurde NICHTS veraendert, HUPilot bleibt auf der bisherigen Version."
+    Stop-HMPull "$fail Datei(en) nicht geladen oder Prüfsumme falsch - es wurde NICHTS verändert, HUPilot bleibt auf der bisherigen Version."
 }
 
 # --- 5. ersetzen - mit Ruecksicherung: jede bisherige Datei wird erst zu *.pullold umbenannt;
@@ -394,7 +400,7 @@ try { if (-not (Test-Path -LiteralPath $cfgDir)) { New-Item -ItemType Directory 
 try { ConvertTo-Json -InputObject @($staged | ForEach-Object { "$($_[1])" }) | Set-Content -LiteralPath $journal -Encoding UTF8 -ErrorAction Stop }
 catch {
     foreach ($s in $staged) { Remove-Item -LiteralPath $s[0] -Force -ErrorAction SilentlyContinue }
-    Stop-HMPull "Journal nicht schreibbar ($($_.Exception.Message)) - es wurde NICHTS veraendert."
+    Stop-HMPull "Journal nicht schreibbar ($($_.Exception.Message)) - es wurde NICHTS verändert."
 }
 foreach ($s in $staged) {
     $old = "$($s[1]).pullold"
@@ -411,7 +417,7 @@ foreach ($s in $staged) {
         } catch { $lastErr = $_.Exception.Message; Start-Sleep -Seconds 1 }
     }
     if (-not $done) {
-        if ($backedUp) { try { Move-Item -LiteralPath $old -Destination $s[1] -Force } catch { Write-Host "  [WARN] $($s[1]): Sicherung nicht zurueckgestellt ($($_.Exception.Message))" -ForegroundColor Yellow } }
+        if ($backedUp) { try { Move-Item -LiteralPath $old -Destination $s[1] -Force } catch { Write-Host "  [WARN] $($s[1]): Sicherung nicht zurückgestellt ($($_.Exception.Message))" -ForegroundColor Yellow } }
         Write-Host "  $($s[1]): nicht ersetzbar ($lastErr)" -ForegroundColor Red; $repl++; break
     }
 }
@@ -420,11 +426,11 @@ if ($repl) {
     for ($k = $moved.Count - 1; $k -ge 0; $k--) {
         $m = $moved[$k]
         try { if ($m[1]) { Move-Item -LiteralPath $m[1] -Destination $m[0] -Force } else { Remove-Item -LiteralPath $m[0] -Force } }
-        catch { Write-Host "  [WARN] $($m[0]): nicht zurueckgestellt ($($_.Exception.Message))" -ForegroundColor Yellow }
+        catch { Write-Host "  [WARN] $($m[0]): nicht zurückgestellt ($($_.Exception.Message))" -ForegroundColor Yellow }
     }
     foreach ($s in $staged) { Remove-Item -LiteralPath $s[0] -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $journal -Force -ErrorAction SilentlyContinue
-    Stop-HMPull "Eine Datei war gesperrt ($lastErr) - alles wurde zurueckgestellt, HUPilot bleibt auf der bisherigen Version. HUPilot-Setup und offene Dateien auf dem Stick schliessen, dann erneut versuchen."
+    Stop-HMPull "Eine Datei war gesperrt ($lastErr) - alles wurde zurückgestellt, HUPilot bleibt auf der bisherigen Version. HUPilot-Setup und offene Dateien auf dem Stick schließen, dann erneut versuchen."
 }
 # Abschluss: zuerst das Journal loeschen (ab hier gilt der neue Stand), dann die Sicherungen.
 # Umgekehrt koennte ein Abbruch beim Aufraeumen einen Mischstand aus alt und neu herstellen.
@@ -464,4 +470,4 @@ if ($repl -eq 0) {
     if (Test-Path -LiteralPath $setup) { Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$setup`"" -WorkingDirectory $Target }
     exit 0
 }
-Stop-HMPull 'Einzelne Dateien konnten nicht ersetzt werden (gesperrt?) - HUPilot-Setup wird NICHT automatisch gestartet. Pull erneut ausfuehren.'
+Stop-HMPull 'Einzelne Dateien konnten nicht ersetzt werden (gesperrt?) - HUPilot-Setup wird NICHT automatisch gestartet. Pull erneut ausführen.'
