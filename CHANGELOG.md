@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.7.6 - 2026-10-30
+- go.ps1: Ist das Profil zugewiesen, aber das Zuweisungsdatum noch leer, zeigt go „Profil: zugewiesen – Datum fehlt noch“ statt „Zuweisung fehlt – warten“ (passt zum Portal, das dann schon „Zugewiesen“ zeigt). Entscheidung unverändert: laut Microsoft erst ausrollen, wenn das Datum gesetzt ist.
+
 ## v2.7.5 - 2026-10-30
 - go.ps1: **Anzeige beim Warten auf das Profil vereinfacht** – eine kurze Zeile pro Abfrage: „noch nicht sichtbar – warten“, „Zuweisung fehlt – warten“, „falsches Profil – warten“, „zugewiesen (Profil) – Kontrolle in 30 s“, „zugewiesen (Profil)“. Keine zweite Erklärungszeile mehr. Die Entscheidung, wann zurückgesetzt bzw. neu gestartet wird, ist unverändert; der genaue Grund steht weiter im Log.
 

@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.5'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.6'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -829,10 +829,10 @@ function Wait-ApProfile {
         # Entscheidung (unveraendert) - Grund nur fuers Log
         $ready = $false
         $why = ''
-        $wrong = $false
+        $wrong = $false; $noDate = $false
         if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
             if (-not $pi) { $why = 'Profil nicht lesbar' }
-            elseif (-not $pd) { $why = 'Zuweisungsdatum leer' }
+            elseif (-not $pd) { $why = 'Zuweisungsdatum leer'; $noDate = $true }
             elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { $why = ConvertTo-DetailText ([string]$ap.deploymentProfileAssignmentDetailedStatus) }
             elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { $why = 'fuer den Tag ist kein Profil zugewiesen'; $wrong = $true }
             elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { $why = 'anderes Profil als fuer den Tag erwartet'; $wrong = $true }
@@ -846,6 +846,7 @@ function Wait-ApProfile {
         elseif ($ready)        { $txt = 'zugewiesen' + $pnTxt + $(if ($okCount -ge 2) { '' } else { ' - Kontrolle in 30 s' }) }
         elseif ($wrong)        { $txt = 'falsches Profil' + $pnTxt + ' - warten' }
         elseif ($ps -eq 'failed') { $txt = 'Zuweisung fehlgeschlagen - warten' }
+        elseif ($noDate)       { $txt = 'zugewiesen - Datum fehlt noch' }
         else                   { $txt = 'Zuweisung fehlt - warten' }
         $lastTxt = ($txt -replace ' - (warten|Kontrolle in 30 s)$', '')
         Write-Host ('  {0}  Profil: {1}' -f (Get-Date -Format 'HH:mm:ss'), $txt)
