@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.2'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.3'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -123,8 +123,24 @@ function Test-Net {
     param([string]$TenantId)
     try {
         $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri ('https://login.microsoftonline.com/' + $TenantId + '/v2.0/.well-known/openid-configuration') -UseBasicParsing -TimeoutSec 8
-        return ($r.StatusCode -eq 200)
-    } catch { return $false }
+        if ($r.StatusCode -eq 200) { return $true }
+        Log ('Internet-Test: HTTP ' + $r.StatusCode)
+        return $false
+    } catch { Log ('Internet-Test: ' + $_.Exception.Message); return $false }
+}
+# Steckt ein LAN-Kabel (physischer Ethernet-Adapter mit Verbindung)? Get-NetAdapter, Rueckfall .NET.
+function Test-LanLink {
+    try {
+        $a = @(Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' -and $_.MediaType -eq '802.3' })
+        if ($a.Count) { return [string]$a[0].InterfaceDescription }
+        return ''
+    } catch { }
+    try {
+        foreach ($n in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+            if ($n.NetworkInterfaceType -eq 'Ethernet' -and $n.OperationalStatus -eq 'Up' -and $n.Description -notmatch 'Virtual|Hyper-V|VPN|Loopback|Bluetooth') { return [string]$n.Description }
+        }
+    } catch { }
+    return ''
 }
 
 $script:ClockOk = $false
@@ -339,7 +355,24 @@ Say ('Hash gelesen (' + $hash.Length + ' Zeichen)') 'Green'
 Write-Host ''
 Say 'Pruefe Internet ...'
 Sync-Clock
-if (-not (Test-Net $cfg.TenantId)) {
+$netOk = Test-Net $cfg.TenantId
+if (-not $netOk) {
+    # LAN-Kabel steckt: erst bis 60 s auf eine Adresse/Internet warten, bevor das WLAN versucht wird
+    $lan = Test-LanLink
+    if ($lan) {
+        Log ('LAN-Verbindung erkannt: ' + $lan)
+        Say 'LAN verbunden - warte auf Internet (bis 60 s) ...' 'Yellow'
+        for ($i = 0; $i -lt 6 -and -not $netOk; $i++) {
+            Start-Sleep -Seconds 10
+            Write-Host '.' -NoNewline
+            Sync-Clock
+            $netOk = Test-Net $cfg.TenantId
+        }
+        Write-Host ''
+        if (-not $netOk) { Say 'Ueber LAN kein Internet - versuche zusaetzlich WLAN' 'Yellow' }
+    }
+}
+if (-not $netOk) {
     Say ('Kein Internet - verbinde WLAN "' + $cfg.WlanSsid + '" ...') 'Yellow'
     $ssidX = [System.Security.SecurityElement]::Escape([string]$cfg.WlanSsid)
     $keyX  = [System.Security.SecurityElement]::Escape([string]$cfg.WlanKey)

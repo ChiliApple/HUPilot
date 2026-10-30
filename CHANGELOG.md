@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.7.3 - 2026-10-30
+- go.ps1: **LAN wird abgewartet.** Schlägt der erste Internet-Test fehl und steckt ein LAN-Kabel (physischer Ethernet-Adapter verbunden), zeigt go „LAN verbunden – warte auf Internet“ und testet bis zu 60 s lang alle 10 s erneut, bevor das Konfigurations-WLAN versucht wird. Vorher ging go sofort zum WLAN, auch wenn das LAN nur noch keine Adresse hatte.
+- go.ps1: Jeder fehlgeschlagene Internet-Test schreibt den Grund ins Log (`C:\Windows\Temp\HUPilot.log`); vorher wurde der Fehler verschluckt.
+
 ## v2.7.2 - 2026-10-26
 - go.ps1: **Vorab importierte Geräte (Händler-CSV) behalten ihren Tag.** Ist das Gerät schon in Autopilot und weicht der am Stick gewählte Tag ab, fragt go jetzt: [Enter] vorhandenen Tag behalten (Standard, auch nach 10 s ohne Eingabe) oder [J] ändern. Vorher wurde der Tag ohne Rückfrage überschrieben, auch wenn nach 10 s nur der Standard-Tag gegriffen hatte. Beim Behalten wird das erwartete Profil für den vorhandenen Tag neu bestimmt.
 - go.ps1: **Fehler behoben: Tag ohne Profil.** Gibt es für den Tag nachweislich kein Autopilot-Profil, hat `Wait-ApProfile` bisher jedes noch zugewiesene Altprofil akzeptiert und zurückgesetzt. Jetzt wartet go und fragt am Ende J/N. Behält go den vorhandenen Tag und hat dieser kein Profil (z. B. Tippfehler in der CSV), gibt es dieselbe Abbruchfrage [A] wie bei der ersten Tag-Prüfung.
