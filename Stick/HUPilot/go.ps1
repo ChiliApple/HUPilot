@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.3'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.4'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -776,6 +776,29 @@ function Test-ApDate {
     if ($null -eq $v -or "$v" -eq '') { return $false }
     try { return (([datetime]$v).Year -gt 2000) } catch { return $false }
 }
+# Graph-Werte fuer die Anzeige auf Deutsch (ins Log kommt weiter der Originalwert)
+function ConvertTo-PsText {
+    param([string]$Ps)
+    switch ($Ps) {
+        ''                        { return 'noch nicht sichtbar' }
+        'notAssigned'             { return 'kein Profil zugewiesen' }
+        'pending'                 { return 'Zuweisung laeuft' }
+        'assignedInSync'          { return 'zugewiesen' }
+        'assignedUnkownSyncState' { return 'zugewiesen' }
+        'assignedOutOfSync'       { return 'zugewiesen, nicht synchron' }
+        'failed'                  { return 'Zuweisung fehlgeschlagen' }
+        'unknown'                 { return 'unbekannt' }
+        default                   { return $Ps }
+    }
+}
+function ConvertTo-DetailText {
+    param([string]$D)
+    switch ($D) {
+        'hardwareRequirementsNotMet'  { return 'Hardware erfuellt die Voraussetzungen nicht' }
+        'windowsPcProfileNotSupported' { return 'Profil fuer Windows-PC nicht unterstuetzt' }
+        default                       { return $D }
+    }
+}
 function Wait-ApProfile {
     # Rueckgabe: Assigned ($true = Bedingungen erfuellt), LastTxt (letzter Status), Profil (Name)
     $assigned = $false
@@ -804,17 +827,17 @@ function Wait-ApProfile {
                 if ($pr) { $pn = [string]$pr.displayName; $pi = [string]$pr.id }
             }
         }
-        $txt = $(if ($ps) { $ps } else { 'noch nicht sichtbar' })
+        $txt = ConvertTo-PsText $ps
         if ($pn) { $txt = $txt + '  (' + $pn + ')' }
-        if ($ps -like 'assigned*' -and -not $pd) { $txt = $txt + '  [Datum fehlt]' }
+        if ($ps -like 'assigned*' -and -not $pd) { $txt = $txt + '  [Zuweisungsdatum fehlt]' }
         $lastTxt = $txt
         Write-Host ('  {0}  Profil: {1}' -f (Get-Date -Format 'HH:mm:ss'), $txt)
-        Log ('Profilstatus: ' + $txt + ' | ProfilId ' + $pi + ' | Datum ' + [string]$ap.deploymentProfileAssignedDateTime)
+        Log ('Profilstatus: ' + $txt + ' | Graph ' + $ps + ' | ProfilId ' + $pi + ' | Datum ' + [string]$ap.deploymentProfileAssignedDateTime)
         $ready = $false
         if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
             if (-not $pi) { Write-Host '            (Profil nicht lesbar - warte)' }
             elseif (-not $pd) { Write-Host '            (Zuweisungsdatum noch leer - warte)' }
-            elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { Write-Host ('            (Detailstatus ' + $ap.deploymentProfileAssignmentDetailedStatus + ' - warte)') }
+            elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { Write-Host ('            (' + (ConvertTo-DetailText ([string]$ap.deploymentProfileAssignmentDetailedStatus)) + ' - warte)') }
             elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { Write-Host '            (fuer den Tag ist kein Profil zugewiesen - warte)' }
             elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { Write-Host '            (anderes Profil als fuer den Tag erwartet - warte)' }
             elseif ($TagChanged -and $null -eq $TagProfIds) { Write-Host '            (Tag geaendert, erwartetes Profil unbekannt - Entscheidung am Ende)' }
@@ -839,12 +862,58 @@ if (-not $DoReset) {
         ('Pruefe jetzt die Autopilot-Profilzuweisung (bis ' + $ProfileWaitMin + ' Min).'),
         'Das Fenster darf jederzeit geschlossen werden - der Upload ist fertig.')
     $wr = Wait-ApProfile
+    # Im Einrichtungsbildschirm (OOBE) reicht ein Neustart: Windows holt das Autopilot-Profil bei jedem Neustart neu
+    # (MS Doku: learn.microsoft.com/autopilot/troubleshooting-faq "How are Windows Autopilot device profiles downloaded?").
+    $inOobe = $false
+    try {
+        $realProf = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | Where-Object { -not $_.Special -and $_.LocalPath -match '\\Users\\' -and $_.LocalPath -notmatch '\\defaultuser\d*$' })
+        $inOobe = ([Environment]::UserName -match '^defaultuser\d*$') -and -not $realProf.Count
+    } catch { Log ('OOBE-Erkennung: ' + $_.Exception.Message) }
+    if ($wr.Assigned -and $inOobe) {
+        Log ('Nur Upload im OOBE: Profil zugewiesen (' + $wr.Profil + ') - Neustart')
+        # Stick muss weg, sonst bootet das Geraet evtl. vom Stick (Ventoy)
+        $stickRoot = Split-Path -Qualifier $PSScriptRoot
+        $wait = (Get-Date).AddMinutes(5)
+        $shown = $false
+        while ((Test-Path -LiteralPath ($stickRoot + '\')) -and (Get-Date) -lt $wait) {
+            if (-not $shown) {
+                Banner 'PROFIL ZUGEWIESEN  -  STICK STECKT NOCH' 'DarkYellow' @(
+                    '',
+                    ('Profil: ' + $wr.Profil + '   Group Tag: ' + $cfg.GroupTag),
+                    'Der Stick steckt noch - bitte abziehen (sonst bootet das Geraet evtl. vom Stick).',
+                    'Danach startet das Geraet automatisch neu und laedt das Autopilot-Profil.')
+                $shown = $true
+            }
+            Start-Sleep -Seconds 2
+        }
+        if (Test-Path -LiteralPath ($stickRoot + '\')) {
+            Log 'Stick nach 5 Min noch gesteckt - kein automatischer Neustart'
+            Banner 'PROFIL ZUGEWIESEN  -  NEUSTART VON HAND' 'DarkYellow' @(
+                '',
+                ('Profil: ' + $wr.Profil + '   Group Tag: ' + $cfg.GroupTag),
+                'Der Stick steckt noch. Stick abziehen, dann neu starten:',
+                'shutdown /r /t 0')
+            Read-Host '  Enter = Fenster schliessen' | Out-Null
+            exit 0
+        }
+        Banner 'OK  -  PROFIL ZUGEWIESEN  -  NEUSTART' 'DarkGreen' @(
+            '',
+            ('Profil: ' + $wr.Profil + '   Group Tag: ' + $cfg.GroupTag),
+            'Neustart in 15 s - danach kommt die Autopilot-Anmeldung.',
+            '[A] = nicht neu starten')
+        try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }
+        $k = Read-KeyTimeout 15
+        if ($k -eq 'A') { Log 'Neustart abgebrochen'; Read-Host '  Enter = Fenster schliessen' | Out-Null; exit 0 }
+        Log 'Neustart (shutdown /r /t 0)'
+        Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\shutdown.exe') -ArgumentList '/r', '/t', '0' -WindowStyle Hidden
+        exit 0
+    }
     if ($wr.Assigned) {
         Log ('Nur Upload: Profil zugewiesen: ' + $wr.Profil)
         Banner 'OK  -  AUTOPILOT-PROFIL ZUGEWIESEN' 'DarkGreen' @(
             '',
             ('Profil: ' + $wr.Profil + '   Group Tag: ' + $cfg.GroupTag),
-            'Geraet wurde NICHT zurueckgesetzt.',
+            'Geraet wurde NICHT zurueckgesetzt (Windows ist schon eingerichtet).',
             'Fuer Autopilot: Geraet jetzt zuruecksetzen (Einstellungen > System >',
             'Wiederherstellung) oder per Intune "Zuruecksetzen".')
     } else {
