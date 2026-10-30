@@ -1,6 +1,7 @@
 # Changelog
 
 ## v2.7.8 - 2026-10-30
+- Setup Status: Geräte, die noch nicht in Intune registriert sind (gerade in Arbeit), stehen jetzt **oben** statt ganz unten.
 - go.ps1: **Neustart im Einrichtungsbildschirm erzwungen** (`shutdown /r /f /t 0`). Vorher konnte „Program Manager – diese App verhindert den Neustart“ den automatischen Neustart blockieren.
 - Alle Anzeigen (go, diag, Setup, Update) einheitlich mit echten Umlauten und ß statt ae/oe/ue/ss. `protokoll.csv` und `hashes.csv` bleiben ASCII (Umlaute werden dort umgeschrieben). Bei der Warnung „Gerät ist schon eingerichtet“ wird `LÖSCHEN` und `LOESCHEN` akzeptiert (Tastatur im OOBE evtl. englisch).
 - Setup: Hauptfenster scrollt, wenn es kleiner gezogen wird; schmale dunkle Scrollbalken in allen Fenstern; Anfasser rechts unten zum Größerziehen.

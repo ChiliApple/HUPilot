@@ -1130,7 +1130,8 @@ function Get-StatusData {
         }
     }
     # Neueste Intune-Registrierung oben, Geraete ohne Datum unten
-    $rows = @(@($rows | Where-Object { $_.RegDatum } | Sort-Object RegDatum -Descending) + @($rows | Where-Object { -not $_.RegDatum }))
+    # noch nicht registrierte Geraete (gerade in Arbeit) OBEN, danach die registrierten, neueste zuerst
+    $rows = @(@($rows | Where-Object { -not $_.RegDatum }) + @($rows | Where-Object { $_.RegDatum } | Sort-Object RegDatum -Descending))
     Out-Log ('' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus protokoll.csv')
     return @{ Rows = $rows; Proto = $proto }
 }
