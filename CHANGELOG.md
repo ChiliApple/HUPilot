@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.7.7 - 2026-10-30
+- go.ps1: **WLAN-Paket auch bei „nur hochladen“ (ohne Zurücksetzen).** Bisher wurde das Paket (WLAN + ggf. lokaler Admin) nur beim Zurücksetzen installiert. Jetzt installiert go es auch ohne Zurücksetzen per provtool, bevor auf das Profil gewartet wird; ist es schon identisch installiert, wird es übersprungen. Schlägt es fehl, gelbe Meldung, go macht weiter.
+
 ## v2.7.6 - 2026-10-30
 - go.ps1: Ist das Profil zugewiesen, aber das Zuweisungsdatum noch leer, zeigt go „Profil: zugewiesen – Datum fehlt noch“ statt „Zuweisung fehlt – warten“ (passt zum Portal, das dann schon „Zugewiesen“ zeigt). Entscheidung unverändert: laut Microsoft erst ausrollen, wenn das Datum gesetzt ist.
 

@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.6'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.7'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -334,7 +334,7 @@ if ($DoReset) {
 }
 
 if ($null -ne $cfg.WlanPackage) { $WlanPkgName = [string]$cfg.WlanPackage }
-if ($WlanPkgName -and $DoReset) {
+if ($WlanPkgName) {
     $StickPkg = Join-Path $CfgDir $WlanPkgName
     if (-not (Test-Path $StickPkg)) { Fail ('WLAN-Paket fehlt am Stick: ' + $StickPkg + '  (ohne WLAN-Paket: "WlanPackage": "" in config.json)') }
 }
@@ -860,6 +860,20 @@ function Wait-ApProfile {
 
 if (-not $DoReset) {
     Log 'Nur Upload gewaehlt - kein Zuruecksetzen, pruefe Profilzuweisung'
+    # WLAN-Paket (WLAN + ggf. lokaler Admin) auch ohne Zuruecksetzen installieren
+    if ($StickPkg) {
+        $persist = Join-Path $env:ProgramData ('Microsoft\Provisioning\' + $WlanPkgName)
+        $same = $false
+        if (Test-Path $persist) { try { $same = ((Get-FileHash -Path $persist -Algorithm SHA256).Hash -eq (Get-FileHash -Path $TmpPkg -Algorithm SHA256).Hash) } catch { Log ('Hash-Vergleich: ' + $_.Exception.Message) } }
+        if ($same) { Log 'WLAN-Paket ist bereits installiert (identisch)' }
+        else {
+            $pr = $null
+            Log ('provtool.exe ' + $TmpPkg + ' /quiet (ohne Zuruecksetzen)')
+            try { $pr = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\provtool.exe') -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden } catch { Log ('provtool: ' + $_.Exception.Message) }
+            if ($pr -and $pr.ExitCode -eq 0) { Log 'WLAN-Paket installiert (ohne Zuruecksetzen)'; Say 'WLAN-Paket installiert' 'Green' }
+            else { Log ('WLAN-Paket NICHT installiert, provtool Exitcode ' + $(if ($pr) { $pr.ExitCode } else { '-' })); Say 'WLAN-Paket konnte nicht installiert werden' 'Yellow' }
+        }
+    }
     Banner 'OK  -  HOCHGELADEN  -  STICK ABZIEHEN' 'DarkGreen' @(
         '',
         ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
