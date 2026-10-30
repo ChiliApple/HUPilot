@@ -18,7 +18,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.5'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.7'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -73,11 +73,13 @@ function Log {
 }
 function Say {
     param([string]$Msg, [string]$Color = 'Gray')
+    Complete-Live
     Write-Host ('  ' + $Msg) -ForegroundColor $Color
     Log $Msg
 }
 function Banner {
     param([string]$Text, [string]$Bg, [string[]]$Lines)
+    Complete-Live
     try { $Host.UI.RawUI.BackgroundColor = $Bg; $Host.UI.RawUI.ForegroundColor = 'White'; Clear-Host } catch { }
     Write-Host ''
     Write-Host ('  ' + ('#' * 56))
@@ -186,6 +188,33 @@ function Save-Offline {
 
 $AssignUpn = ''
 try { $Host.UI.RawUI.WindowTitle = 'HUPilot v' + $Ver } catch { }
+# Schrift etwas groesser (Konsole, auch im OOBE) - Fehler egal
+try {
+    Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class HuFont {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct CFI { public uint cbSize; public uint nFont; public short X; public short Y; public int Family; public int Weight;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string Face; }
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr GetStdHandle(int h);
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool GetCurrentConsoleFontEx(IntPtr h, bool max, ref CFI f);
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool SetCurrentConsoleFontEx(IntPtr h, bool max, ref CFI f);
+    public static string AtLeast(short height) {
+        IntPtr h = GetStdHandle(-11);
+        CFI f = new CFI(); f.cbSize = (uint)Marshal.SizeOf(typeof(CFI));
+        if (!GetCurrentConsoleFontEx(h, false, ref f)) return "get " + Marshal.GetLastWin32Error();
+        short old = f.Y;
+        if (f.Y >= height) return f.Face + " " + old + " (bleibt)";
+        f.Y = height; f.X = 0;
+        if (!SetCurrentConsoleFontEx(h, false, ref f)) return "set " + Marshal.GetLastWin32Error();
+        return f.Face + " " + old + " -> " + f.Y;
+    }
+}
+'@
+    $FontInfo = [HuFont]::AtLeast(20)   # Standard ist meist 16 - mind. 20 (wiederholter Start vergroessert nicht weiter)
+} catch { $FontInfo = $_.Exception.Message }
+Log ('Schrift: ' + $FontInfo)
 # Farben zuruecksetzen (nach einem frueheren Lauf im selben Fenster bleibt sonst gruen/gelb/rot stehen)
 try { $Host.UI.RawUI.BackgroundColor = 'Black'; $Host.UI.RawUI.ForegroundColor = 'Gray' } catch { }
 Clear-Host
@@ -212,20 +241,63 @@ try {
     $StickLog = Join-Path $CfgDir ('logs\{0}_{1}.log' -f $Serial, (Get-Date -Format 'yyyyMMdd_HHmm'))
 } catch { $StickLog = $null }
 
+# ---------- Live-Anzeige beim Warten: EINE Zeile, die sich jede Sekunde selbst aktualisiert ----------
+# Zeit laeuft mit, Countdown bis zur naechsten Abfrage, drehendes Zeichen = Programm lebt.
+# Aendert sich der Status, bleibt die alte Zeile stehen (Verlauf) und eine neue beginnt.
+$script:LiveOn = $false
+$script:SpinI = 0
+function Format-Dauer {
+    param([double]$Sec)
+    $s = [int][math]::Max(0, [math]::Floor($Sec))
+    return ('{0}:{1:00}' -f [int][math]::Floor($s / 60), ($s % 60))
+}
+function Show-Live {
+    param([string]$Text)
+    $c = '|/-\'[$script:SpinI % 4]
+    $script:SpinI++
+    $line = '  ' + $Text + '   ' + $c
+    try {
+        $w = [Console]::WindowWidth - 1
+        if ($line.Length -gt $w) { $line = $line.Substring(0, $w) }
+        Write-Host ("`r" + $line.PadRight($w)) -NoNewline
+    } catch { Write-Host ("`r" + $line) -NoNewline }
+    $script:LiveOn = $true
+}
+function Complete-Live {
+    if ($script:LiveOn) { Write-Host ''; $script:LiveOn = $false }
+}
+function Wait-Live {
+    # wartet $Seconds; Anzeige: Text | gelaufen / hoechstens | <Next> in x s
+    param([int]$Seconds, [string]$Text, [datetime]$Since = (Get-Date), [int]$MaxSec = 0, [string]$Next = 'naechste Abfrage')
+    $end = (Get-Date).AddSeconds($Seconds)
+    do {
+        $now = Get-Date
+        $l = $Text + '  |  ' + (Format-Dauer ($now - $Since).TotalSeconds) + $(if ($MaxSec -gt 0) { ' / ' + (Format-Dauer $MaxSec) } else { '' })
+        if ($Next) { $l += '  |  ' + $Next + ' in ' + [int][math]::Max(0, [math]::Ceiling(($end - $now).TotalSeconds)) + ' s' }
+        Show-Live $l
+        $ms = [int][math]::Min(1000, [math]::Max(0, ($end - (Get-Date)).TotalMilliseconds))
+        if ($ms -gt 0) { Start-Sleep -Milliseconds $ms }
+    } while ((Get-Date) -lt $end)
+}
+
 function Read-KeyTimeout {
-    param([int]$Seconds = 10)
+    # Tastendruck mit Zeitlimit; zeigt live "<Label> in x s"
+    param([int]$Seconds = 10, [string]$Label = 'ohne Eingabe weiter')
     $until = (Get-Date).AddSeconds($Seconds)
+    $res = ''
     try {
         while ((Get-Date) -lt $until) {
             if ([Console]::KeyAvailable) {
                 $key = [Console]::ReadKey($true)
-                if ($key.Key -eq 'Enter') { return 'ENTER' }
-                return ([string]$key.KeyChar).ToUpper()
+                if ($key.Key -eq 'Enter') { $res = 'ENTER' } else { $res = ([string]$key.KeyChar).ToUpper() }
+                break
             }
+            if ($Label) { Show-Live ($Label + ' in ' + [int][math]::Ceiling(($until - (Get-Date)).TotalSeconds) + ' s') }
             Start-Sleep -Milliseconds 200
         }
     } catch { Log ('Tastatur-Abfrage: ' + $_.Exception.Message) }
-    return ''
+    Complete-Live
+    return $res
 }
 
 function Get-PowerInfo {
@@ -241,14 +313,14 @@ function Wait-Power {
     $p = Get-PowerInfo
     Log ('Strom: ' + $p.Text)
     if ($p.Ok) { return }
+    Banner 'NETZTEIL ANSTECKEN' 'DarkYellow' @(
+        '',
+        ('Mindestens ' + $MinBattery + ' % Akku oder Netzteil.'),
+        'Zuruecksetzen ohne Strom kann das Geraet unbrauchbar machen.',
+        '',
+        'Wartet, bis das Netzteil steckt.   J = trotzdem weiter')
     while (-not $p.Ok) {
-        Banner 'NETZTEIL ANSTECKEN' 'DarkYellow' @(
-            '',
-            ('Strom: ' + $p.Text + '  (mind. ' + $MinBattery + ' % oder Netzteil)'),
-            'Zuruecksetzen ohne Strom kann das Geraet unbrauchbar machen.',
-            '',
-            'Wartet automatisch, bis das Netzteil steckt.   J = trotzdem weiter')
-        $k = Read-KeyTimeout 5
+        $k = Read-KeyTimeout 5 ('Strom: ' + $p.Text + '  |  naechste Pruefung')
         if ($k -eq 'J' -or $k -eq 'Y') { Log ('Strom-Warnung uebergangen: ' + $p.Text); break }
         $p = Get-PowerInfo
     }
@@ -264,8 +336,7 @@ if ($choices.Count -gt 9) { $choices = $choices[0..8] }
 Write-Host '  Group Tag waehlen:' -ForegroundColor Cyan
 Write-Host ('    [Enter]  ' + $cfg.GroupTag + '   (Standard)') -ForegroundColor White
 for ($i = 0; $i -lt $choices.Count; $i++) { Write-Host ('    [' + ($i + 1) + ']      ' + $choices[$i]) }
-Write-Host '  Ohne Eingabe nach 10 s automatisch Standard ...'
-$sel = Read-KeyTimeout 10
+$sel = Read-KeyTimeout 10 ('ohne Eingabe: ' + $cfg.GroupTag)
 if ($sel -match '^[1-9]$' -and [int]$sel -le $choices.Count) { $cfg.GroupTag = $choices[[int]$sel - 1] }
 if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungueltig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
 Write-Host ''
@@ -288,8 +359,7 @@ if ($null -ne $cfg.Reset) { $DoReset = [bool]$cfg.Reset }
 Write-Host '  Nach dem Upload zuruecksetzen?' -ForegroundColor Cyan
 if ($DoReset) { Write-Host '    [Enter]  JA, zuruecksetzen   (Standard)' -ForegroundColor White; Write-Host '    [N]      nein, nur hochladen' }
 else          { Write-Host '    [Enter]  NEIN, nur hochladen (Standard)' -ForegroundColor White; Write-Host '    [J]      ja, zuruecksetzen' }
-Write-Host '  Ohne Eingabe nach 10 s automatisch Standard ...'
-$k = Read-KeyTimeout 10
+$k = Read-KeyTimeout 10 ('ohne Eingabe: ' + $(if ($DoReset) { 'zuruecksetzen' } else { 'nur hochladen' }))
 if ($k -eq 'N') { $DoReset = $false } elseif ($k -eq 'J' -or $k -eq 'Y') { $DoReset = $true }
 Write-Host ''
 
@@ -334,7 +404,7 @@ if ($DoReset) {
 }
 
 if ($null -ne $cfg.WlanPackage) { $WlanPkgName = [string]$cfg.WlanPackage }
-if ($WlanPkgName -and $DoReset) {
+if ($WlanPkgName) {
     $StickPkg = Join-Path $CfgDir $WlanPkgName
     if (-not (Test-Path $StickPkg)) { Fail ('WLAN-Paket fehlt am Stick: ' + $StickPkg + '  (ohne WLAN-Paket: "WlanPackage": "" in config.json)') }
 }
@@ -361,13 +431,14 @@ if (-not $netOk) {
     if ($lan) {
         Log ('LAN-Verbindung erkannt: ' + $lan)
         Say 'LAN verbunden - warte auf Internet (bis 60 s) ...' 'Yellow'
+        $t0 = Get-Date
         for ($i = 0; $i -lt 6 -and -not $netOk; $i++) {
-            Start-Sleep -Seconds 10
-            Write-Host '.' -NoNewline
+            Wait-Live 10 'LAN: warte auf Internet' $t0 60 'naechster Test'
+            Show-Live 'LAN: teste Internet ...'
             Sync-Clock
             $netOk = Test-Net $cfg.TenantId
         }
-        Write-Host ''
+        Complete-Live
         if (-not $netOk) { Say 'Ueber LAN kein Internet - versuche zusaetzlich WLAN' 'Yellow' }
     }
 }
@@ -397,6 +468,7 @@ if (-not $netOk) {
     finally { Remove-Item $xmlPath -Force -ErrorAction SilentlyContinue }
 
     $ok = $false
+    $t0 = Get-Date
     for ($i = 0; $i -lt 12; $i++) {          # 12 x 10 s = 2 Min
         if ($i % 3 -eq 0) {
             try {
@@ -404,12 +476,12 @@ if (-not $netOk) {
                 Log ('netsh connect: ' + (($o | Out-String).Trim()))
             } catch { Log ('netsh connect: ' + $_.Exception.Message) }
         }
-        Start-Sleep -Seconds 10
-        Write-Host '.' -NoNewline
+        Wait-Live 10 'WLAN: verbinde' $t0 120 'naechster Test'
+        Show-Live 'WLAN: teste Internet ...'
         Sync-Clock
         if (Test-Net $cfg.TenantId) { $ok = $true; break }
     }
-    Write-Host ''
+    Complete-Live
     if (-not $ok) {
         $st = ''
         try { $st = ((netsh wlan show interfaces | Select-String 'SSID|Status|State|Signal') -join ' / ') } catch { }
@@ -432,7 +504,7 @@ for ($i = 1; $i -le 3 -and -not $tok; $i++) {
         Log ('Token-Versuch ' + $i + ': ' + $m)
         if ($m -match 'AADSTS7000222') { Save-Offline 'Secret ABGELAUFEN - neues Secret in config.json eintragen' }
         if ($m -match 'AADSTS7000215') { Save-Offline 'Secret FALSCH (Secret-ID statt Wert?)' }
-        Start-Sleep -Seconds 5
+        if ($i -lt 3) { Wait-Live 5 ('Anmeldung fehlgeschlagen - Versuch ' + ($i + 1) + '/3') (Get-Date) 0 'neuer Versuch'; Complete-Live }
     }
 }
 if (-not $tok) { Save-Offline 'Anmeldung am Tenant fehlgeschlagen (siehe Log)' }
@@ -536,8 +608,8 @@ else {
     Write-Host ''
     Write-Host ('  ACHTUNG: Fuer Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
     Write-Host '  Das Geraet wuerde nach dem Upload vergeblich auf ein Profil warten.' -ForegroundColor Yellow
-    Write-Host '  [A] Abbrechen   -   [Enter] oder 20 s: trotzdem hochladen' -ForegroundColor Yellow
-    $k = Read-KeyTimeout 20
+    Write-Host '  [A] Abbrechen   -   [Enter] trotzdem hochladen' -ForegroundColor Yellow
+    $k = Read-KeyTimeout 20 'ohne Eingabe: trotzdem hochladen'
     if ($k -eq 'A') { Log 'Abbruch: kein Profil fuer Tag'; Protokoll 'ABBRUCH: kein Profil fuer Tag'; exit 1 }
 }
 
@@ -586,7 +658,7 @@ $ap = $null
 for ($i = 1; $i -le 3; $i++) {
     $ap = Get-ApDevice
     if (-not $script:ApLookupFailed) { break }
-    if ($i -lt 3) { Say ('Autopilot-Abfrage fehlgeschlagen - neuer Versuch ' + ($i + 1) + '/3 in 15 s') 'Yellow'; Start-Sleep -Seconds 15 }
+    if ($i -lt 3) { Log ('Autopilot-Abfrage fehlgeschlagen - Versuch ' + ($i + 1) + '/3'); Wait-Live 15 ('Autopilot-Abfrage fehlgeschlagen - Versuch ' + ($i + 1) + '/3') (Get-Date) 0 'neuer Versuch'; Complete-Live }
 }
 if ($script:ApLookupFailed) { Fail 'Autopilot-Abfrage 3x fehlgeschlagen (Netz/Graph, siehe Log) - nochmal go' }
 # Hardware geaendert (z. B. Mainboardtausch beim Support): Autopilot zeigt "Fix ausstehend" / "Achtung erforderlich",
@@ -626,10 +698,11 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     Say 'Autopilot-Eintrag geloescht - warte, bis er verschwunden ist (bis 30 Min) ...'
     Invoke-ApSync 'nach Loeschen'
     $gone = $false
-    $lim = (Get-Date).AddMinutes(30)
+    $t0 = Get-Date
+    $lim = $t0.AddMinutes(30)
     while ((Get-Date) -lt $lim) {
-        Start-Sleep -Seconds 30
-        Write-Host '.' -NoNewline
+        Wait-Live 30 'Alter Eintrag wird geloescht' $t0 1800
+        Show-Live 'Alter Eintrag wird geloescht  |  frage ab ...'
         Update-Token
         try {
             $f = [uri]::EscapeDataString("contains(serialNumber,'" + $Serial.Replace("'", "''") + "')")
@@ -637,7 +710,7 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
             if (-not @($r.value | Where-Object { $_.serialNumber -eq $Serial }).Count) { $gone = $true; break }
         } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)) }
     }
-    Write-Host ''
+    Complete-Live
     if (-not $gone) { Fail 'Autopilot-Eintrag nach 30 Min noch vorhanden - spaeter nochmal go (das Geraet wird dann normal neu importiert)' }
     Say 'Alter Autopilot-Eintrag entfernt - importiere neu mit aktuellem Hash' 'Green'
     $ap = $null
@@ -652,9 +725,8 @@ if ($ap) {
         Write-Host ('  Geraet hat schon den Tag "' + $ap.groupTag + '", gewaehlt ist "' + $cfg.GroupTag + '".') -ForegroundColor Yellow
         Write-Host ('    [Enter]  Tag "' + $ap.groupTag + '" behalten   (Standard)') -ForegroundColor White
         Write-Host ('    [J]      auf "' + $cfg.GroupTag + '" aendern')
-        Write-Host '  Ohne Eingabe nach 10 s automatisch behalten ...'
         try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }   # alte Tastendruecke verwerfen
-        $k = Read-KeyTimeout 10
+        $k = Read-KeyTimeout 10 ('ohne Eingabe: Tag ' + $ap.groupTag + ' behalten')
         if ($k -eq 'J' -or $k -eq 'Y') { Log ('Tag-Aenderung bestaetigt: ' + $ap.groupTag + ' -> ' + $cfg.GroupTag) }
         else {
             Log ('Vorhandener Tag bleibt: ' + $ap.groupTag + ' (gewaehlt war ' + $cfg.GroupTag + ')')
@@ -668,9 +740,9 @@ if ($ap) {
                 Log ('Tag-Pruefung: KEIN Profil fuer behaltenen Tag ' + $cfg.GroupTag)
                 Write-Host ('  ACHTUNG: Fuer den vorhandenen Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
                 Write-Host '  Das Geraet wuerde vergeblich auf ein Profil warten (Tippfehler in der CSV?).' -ForegroundColor Yellow
-                Write-Host '  [A] Abbrechen   -   [Enter] oder 20 s: trotzdem weiter' -ForegroundColor Yellow
+                Write-Host '  [A] Abbrechen   -   [Enter] trotzdem weiter' -ForegroundColor Yellow
                 try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }
-                $k2 = Read-KeyTimeout 20
+                $k2 = Read-KeyTimeout 20 'ohne Eingabe: trotzdem weiter'
                 if ($k2 -eq 'A') { Log 'Abbruch: kein Profil fuer behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil fuer Tag'; exit 1 }
             }
         }
@@ -709,10 +781,11 @@ else {
     } catch { Fail ('Import abgelehnt: ' + (Get-ErrText $_)) }
 
     $state = ''
-    $limit = (Get-Date).AddMinutes(10)
+    $t0 = Get-Date
+    $limit = $t0.AddMinutes(10)
     while ((Get-Date) -lt $limit) {
-        Start-Sleep -Seconds 10
-        Write-Host '.' -NoNewline
+        Wait-Live 10 ('Import laeuft' + $(if ($state -and $state -notin 'unknown', 'pending') { ' (' + $state + ')' } else { '' })) $t0 600
+        Show-Live 'Import laeuft  |  frage ab ...'
         Update-Token
         $prev = $state
         try {
@@ -723,7 +796,7 @@ else {
             if ($state -eq 'error') { break }
         } catch { Log ('Import-Status: ' + (Get-ErrText $_)) }
     }
-    Write-Host ''
+    Complete-Live
     if ($state -eq 'error') {
         $en = [string]$st.state.deviceErrorName; $ec = [string]$st.state.deviceErrorCode
         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h | Out-Null } catch { }
@@ -738,7 +811,9 @@ else {
 
 if ($AssignUpn) {
     $apU = $null
-    for ($i = 0; $i -lt 6 -and -not $apU; $i++) { $apU = Get-ApDevice; if (-not $apU) { Start-Sleep -Seconds 10 } }
+    $t0 = Get-Date
+    for ($i = 0; $i -lt 6 -and -not $apU; $i++) { $apU = Get-ApDevice; if (-not $apU) { Wait-Live 10 'Warte auf Autopilot-Eintrag' $t0 60 } }
+    Complete-Live
     if ($apU) {
         try {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $apU.id + '/assignUserToDevice') -Headers $hj -Body (@{ userPrincipalName = $AssignUpn; addressableUserName = $AssignName } | ConvertTo-Json) | Out-Null
@@ -800,7 +875,13 @@ function ConvertTo-DetailText {
 }
 function Wait-ApProfile {
     # Rueckgabe: Assigned ($true = Bedingungen erfuellt), LastTxt (letzter Status), Profil (Name)
+    # -NoDateMin > 0: passt alles ausser dem Zuweisungsdatum, nach so vielen Minuten trotzdem freigeben
+    #   (nur fuer Neustart im OOBE - Test 30.10.2026: Profil kam ohne Datum an; ein Irrtum kostet nur einen Neustart)
+    param([int]$NoDateMin = 0)
     $assigned = $false
+    $noDateSince = $null
+    $shownTxt = ''
+    $t0 = Get-Date
     $pn = ''
     $okCount = 0
     $lastTxt = ''
@@ -813,6 +894,7 @@ function Wait-ApProfile {
         # wenn kurz vorher (< 10 Min, MS Doku) schon einer lief - z. B. vom vorigen Geraet. Dann kommt die Zuweisung sonst erst spaet.
         if ($okCount -eq 0 -and ((Get-Date) - $syncAt).TotalMinutes -ge 5) { Invoke-ApSync 'Warten auf Profil'; $syncAt = Get-Date }
         if ((Get-Date) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
+        Show-Live 'Profil: frage ab ...'
         $ap = Get-ApDevice
         $ps = ''
         $pn = ''
@@ -829,42 +911,70 @@ function Wait-ApProfile {
         # Entscheidung (unveraendert) - Grund nur fuers Log
         $ready = $false
         $why = ''
-        $wrong = $false
+        $wrong = $false; $noDate = $false
         if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
             if (-not $pi) { $why = 'Profil nicht lesbar' }
-            elseif (-not $pd) { $why = 'Zuweisungsdatum leer' }
             elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { $why = ConvertTo-DetailText ([string]$ap.deploymentProfileAssignmentDetailedStatus) }
             elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { $why = 'fuer den Tag ist kein Profil zugewiesen'; $wrong = $true }
             elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { $why = 'anderes Profil als fuer den Tag erwartet'; $wrong = $true }
             elseif ($TagChanged -and $null -eq $TagProfIds) { $why = 'Tag geaendert, erwartetes Profil unbekannt' }
+            elseif (-not $pd) {
+                $noDate = $true
+                if (-not $noDateSince) { $noDateSince = Get-Date }
+                if ($NoDateMin -gt 0 -and ((Get-Date) - $noDateSince).TotalMinutes -ge $NoDateMin) { $ready = $true; $why = 'ohne Zuweisungsdatum freigegeben (' + $NoDateMin + ' Min stabil, nur OOBE-Neustart)' }
+                else { $why = 'Zuweisungsdatum leer' }
+            }
             else { $ready = $true }
         } else { $why = 'Status ' + $(if ($ps) { $ps } else { 'leer' }) }
+        if (-not $noDate) { $noDateSince = $null }
         if ($ready) { $okCount++ } else { $okCount = 0 }
-        # Anzeige: EINE kurze Zeile
+        # Anzeige: EINE Live-Zeile; aendert sich der Status, bleibt die alte Zeile als Verlauf stehen
         $pnTxt = $(if ($pn) { ' (' + $pn + ')' } else { '' })
-        if (-not $ps)          { $txt = 'noch nicht sichtbar - warten' }
-        elseif ($ready)        { $txt = 'zugewiesen' + $pnTxt + $(if ($okCount -ge 2) { '' } else { ' - Kontrolle in 30 s' }) }
-        elseif ($wrong)        { $txt = 'falsches Profil' + $pnTxt + ' - warten' }
-        elseif ($ps -eq 'failed') { $txt = 'Zuweisung fehlgeschlagen - warten' }
-        else                   { $txt = 'Zuweisung fehlt - warten' }
-        $lastTxt = ($txt -replace ' - (warten|Kontrolle in 30 s)$', '')
-        Write-Host ('  {0}  Profil: {1}' -f (Get-Date -Format 'HH:mm:ss'), $txt)
+        if (-not $ps)          { $txt = 'noch nicht sichtbar' }
+        elseif ($ready)        { $txt = 'zugewiesen' + $pnTxt }
+        elseif ($wrong)        { $txt = 'falsches Profil' + $pnTxt }
+        elseif ($ps -eq 'failed') { $txt = 'Zuweisung fehlgeschlagen' }
+        elseif ($noDate)       { $txt = 'zugewiesen - Datum fehlt noch' }
+        else                   { $txt = 'Zuweisung fehlt' }
+        $lastTxt = $txt
         Log ('Profilstatus: ' + $txt + ' | Graph ' + $ps + ' | Grund ' + $why + ' | Profil ' + $pn + ' ' + $pi + ' | Datum ' + [string]$ap.deploymentProfileAssignedDateTime)
-        if ($okCount -ge 2) { $assigned = $true; break }
-        if ($extra) { break }
-        Start-Sleep -Seconds 30
+        if ($shownTxt -and $txt -ne $shownTxt) { Complete-Live }   # alte Zeile bleibt stehen
+        $shownTxt = $txt
+        if ($okCount -ge 2) {
+            Show-Live ('Profil: ' + $txt + '  |  ' + (Format-Dauer ((Get-Date) - $t0).TotalSeconds) + '  |  OK')
+            Complete-Live
+            $assigned = $true; break
+        }
+        if ($extra) { Complete-Live; break }
+        $lt = 'Profil: ' + $txt
+        if ($noDate -and $NoDateMin -gt 0) { $lt += ' (Neustart in ' + [int][math]::Max(1, [math]::Ceiling($NoDateMin - ((Get-Date) - $noDateSince).TotalMinutes)) + ' Min)' }
+        Wait-Live 30 $lt $t0 ($ProfileWaitMin * 60) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'naechste Abfrage' })
     }
+    Complete-Live
     return [pscustomobject]@{ Assigned = $assigned; LastTxt = $lastTxt; Profil = $pn }
 }
 
 if (-not $DoReset) {
     Log 'Nur Upload gewaehlt - kein Zuruecksetzen, pruefe Profilzuweisung'
+    # WLAN-Paket (WLAN + ggf. lokaler Admin) auch ohne Zuruecksetzen installieren
+    if ($StickPkg) {
+        $persist = Join-Path $env:ProgramData ('Microsoft\Provisioning\' + $WlanPkgName)
+        $same = $false
+        if (Test-Path $persist) { try { $same = ((Get-FileHash -Path $persist -Algorithm SHA256).Hash -eq (Get-FileHash -Path $TmpPkg -Algorithm SHA256).Hash) } catch { Log ('Hash-Vergleich: ' + $_.Exception.Message) } }
+        if ($same) { Log 'WLAN-Paket ist bereits installiert (identisch)' }
+        else {
+            $pr = $null
+            Log ('provtool.exe ' + $TmpPkg + ' /quiet (ohne Zuruecksetzen)')
+            try { $pr = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\provtool.exe') -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden } catch { Log ('provtool: ' + $_.Exception.Message) }
+            if ($pr -and $pr.ExitCode -eq 0) { Log 'WLAN-Paket installiert (ohne Zuruecksetzen)'; Say 'WLAN-Paket installiert' 'Green' }
+            else { Log ('WLAN-Paket NICHT installiert, provtool Exitcode ' + $(if ($pr) { $pr.ExitCode } else { '-' })); Say 'WLAN-Paket konnte nicht installiert werden' 'Yellow' }
+        }
+    }
     Banner 'OK  -  HOCHGELADEN  -  STICK ABZIEHEN' 'DarkGreen' @(
         '',
         ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
         ('Warte auf das Autopilot-Profil (max. ' + $ProfileWaitMin + ' Min).'),
         'Fenster offen lassen.')
-    $wr = Wait-ApProfile
     # Im Einrichtungsbildschirm (OOBE) reicht ein Neustart: Windows holt das Autopilot-Profil bei jedem Neustart neu
     # (MS Doku: learn.microsoft.com/autopilot/troubleshooting-faq "How are Windows Autopilot device profiles downloaded?").
     $inOobe = $false
@@ -872,11 +982,14 @@ if (-not $DoReset) {
         $realProf = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | Where-Object { -not $_.Special -and $_.LocalPath -match '\\Users\\' -and $_.LocalPath -notmatch '\\defaultuser\d*$' })
         $inOobe = ([Environment]::UserName -match '^defaultuser\d*$') -and -not $realProf.Count
     } catch { Log ('OOBE-Erkennung: ' + $_.Exception.Message) }
+    # Im OOBE nach 11 Min auch ohne Zuweisungsdatum neu starten (Datum kommt normal nach ~10 Min)
+    $wr = Wait-ApProfile -NoDateMin $(if ($inOobe) { 11 } else { 0 })
     if ($wr.Assigned -and $inOobe) {
         Log ('Nur Upload im OOBE: Profil zugewiesen (' + $wr.Profil + ') - Neustart')
         # Stick muss weg, sonst bootet das Geraet evtl. vom Stick (Ventoy)
         $stickRoot = Split-Path -Qualifier $PSScriptRoot
-        $wait = (Get-Date).AddMinutes(5)
+        $t0 = Get-Date
+        $wait = $t0.AddMinutes(5)
         $shown = $false
         while ((Test-Path -LiteralPath ($stickRoot + '\')) -and (Get-Date) -lt $wait) {
             if (-not $shown) {
@@ -885,8 +998,9 @@ if (-not $DoReset) {
                     'Stick abziehen - dann startet das Geraet von selbst neu.')
                 $shown = $true
             }
-            Start-Sleep -Seconds 2
+            Wait-Live 2 'Warte, bis der Stick abgezogen ist' $t0 300 ''
         }
+        Complete-Live
         if (Test-Path -LiteralPath ($stickRoot + '\')) {
             Log 'Stick nach 5 Min noch gesteckt - kein automatischer Neustart'
             Banner 'PROFIL DA  -  NEUSTART VON HAND' 'DarkYellow' @(
@@ -900,7 +1014,7 @@ if (-not $DoReset) {
             'Danach kommt die Schul-Anmeldung.',
             '[A] = nicht neu starten')
         try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }
-        $k = Read-KeyTimeout 15
+        $k = Read-KeyTimeout 15 'Neustart'
         if ($k -eq 'A') { Log 'Neustart abgebrochen'; Read-Host '  Enter = Fenster schliessen' | Out-Null; exit 0 }
         Log 'Neustart (shutdown /r /t 0)'
         Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\shutdown.exe') -ArgumentList '/r', '/t', '0' -WindowStyle Hidden
@@ -949,7 +1063,7 @@ if (-not $assigned) {
 
 # Gruenen Hinweis mind. 60 s stehen lassen (damit man ihn sieht und den Stick abzieht)
 $rest = 60 - [int]((Get-Date) - $GreenAt).TotalSeconds
-if ($rest -gt 0) { Log ('Gruen bleibt noch ' + $rest + ' s stehen'); Start-Sleep -Seconds $rest }
+if ($rest -gt 0) { Log ('Gruen bleibt noch ' + $rest + ' s stehen'); Wait-Live $rest 'Profil da' (Get-Date) 0 'Zuruecksetzen startet'; Complete-Live }
 # ---------- 6. WLAN-Paket + Zuruecksetzen ohne Hersteller-Anpassungen ----------
 Wait-Power
 $ErrorActionPreference = 'Continue'
@@ -984,8 +1098,7 @@ if ($StickPkg) {
         Write-Host ''
         Write-Host '  Hinweis: Intune sperrt neue Pakete auf diesem Geraet.' -ForegroundColor Yellow
         Write-Host '  Das vorhandene WLAN-Paket bleibt - Aenderungen (z. B. lokaler Admin) kommen NICHT mit.' -ForegroundColor Yellow
-        Write-Host '  (weiter mit beliebiger Taste oder in 30 s)' -ForegroundColor Yellow
-        [void](Read-KeyTimeout -Seconds 30)
+        [void](Read-KeyTimeout 30 'beliebige Taste oder weiter')
     }
     elseif ($ppBlocked) {
         Log 'Intune sperrt Bereitstellungspakete (AllowAddProvisioningPackage=0) und es ist kein WLAN-Paket installiert'
@@ -1202,14 +1315,16 @@ if (-not $started) {
     Log ('schtasks run: ' + (($o | Out-String).Trim()))
 }
 $res = ''
+$t0 = Get-Date
 for ($i = 0; $i -lt 60; $i++) {
-    Start-Sleep -Seconds 3
+    Wait-Live 3 'Zuruecksetzen wird vorbereitet' $t0 180 ''
     if (Test-Path $WipeResult) { $res = ([string](Get-Content -Path $WipeResult -Raw)).Trim(); break }
 }
+Complete-Live
 try { Get-Content -Path $WipeLog -ErrorAction Stop | ForEach-Object { Log ('[SYSTEM] ' + $_) } } catch { }
 if (-not $res) { Fail-Reset 'keine Rueckmeldung vom SYSTEM-Script (3 Min)' }
 if ($res -notlike 'OK*') { Fail-Reset $res }
 Log ('Zuruecksetzen angenommen: ' + $res)
 Write-Host ''
 Write-Host '  Zuruecksetzen angenommen - Neustart folgt in Kuerze.' -ForegroundColor White
-Start-Sleep -Seconds 900
+Wait-Live 900 'Warte auf Neustart' (Get-Date) 0 ''
