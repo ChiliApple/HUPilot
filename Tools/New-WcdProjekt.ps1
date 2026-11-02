@@ -29,7 +29,7 @@ if (-not $ConfigPath) {
     }
 }
 if ($ConfigPath -and (Test-Path $ConfigPath)) {
-    $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    $cfg = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $ssid = [string]$cfg.WlanSsid; $key = [string]$cfg.WlanKey
     Write-Host ('config.json: ' + $ConfigPath)
 }

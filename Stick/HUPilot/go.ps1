@@ -19,7 +19,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.8'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.9'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -1263,6 +1263,7 @@ try {
     $param = [Microsoft.Management.Infrastructure.CimMethodParameter]::Create('param', '', 'String', 'In')
     $params.Add($param)
     $inst = Get-CimInstance -Namespace $ns -ClassName 'MDM_RemoteWipe' -Filter "ParentID='./Vendor/MSFT' and InstanceID='RemoteWipe'" -ErrorAction Stop
+    L 'WIPE-AUFRUF doWipePersistProvisionedDataMethod'
     $r = $session.InvokeMethod($ns, $inst, 'doWipePersistProvisionedDataMethod', $params)
     $rv = [string]$r.ReturnValue.Value
     L ('doWipePersistProvisionedDataMethod ReturnValue: ' + $rv)
@@ -1351,13 +1352,28 @@ if (-not $started) {
 }
 $res = ''
 $t0 = Get-Date
-for ($i = 0; $i -lt 60; $i++) {
-    Wait-Live 3 'Zurücksetzen wird vorbereitet' $t0 180 ''
+for ($i = 0; $i -lt 100; $i++) {          # 100 x 3 s = 5 Min (Hersteller-Apps entfernen kann dauern)
+    Wait-Live 3 'Zurücksetzen wird vorbereitet' $t0 300 ''
     if (Test-Path $WipeResult) { $res = ([string](Get-Content -Path $WipeResult -Raw)).Trim(); break }
 }
 Complete-Live
+$wipeCalled = $false
+if (-not $res) {
+    # Keine Rueckmeldung: Aufgabe stoppen, sonst setzt das SYSTEM-Script nach dem roten Banner doch noch zurueck
+    try { Stop-ScheduledTask -TaskName $tn -ErrorAction Stop; Log 'Aufgabe gestoppt (keine Rückmeldung nach 5 Min)' }
+    catch {
+        Log ('Stop-ScheduledTask: ' + $_.Exception.Message)
+        $o = cmd.exe /c ('schtasks /End /TN "' + $tn + '" 2>&1')
+        Log ('schtasks end: ' + (($o | Out-String).Trim()))
+    }
+    Start-Sleep -Seconds 2
+    if (Test-Path $WipeResult) { $res = ([string](Get-Content -Path $WipeResult -Raw)).Trim() }
+    # Wurde der Wipe-Aufruf schon abgesetzt, ist das Zuruecksetzen evtl. unterwegs - dann NICHT rot melden
+    try { $wipeCalled = [bool](Select-String -Path $WipeLog -Pattern 'WIPE-AUFRUF' -SimpleMatch -Quiet -ErrorAction Stop) } catch { }
+}
 try { Get-Content -Path $WipeLog -ErrorAction Stop | ForEach-Object { Log ('[SYSTEM] ' + $_) } } catch { }
-if (-not $res) { Fail-Reset 'keine Rückmeldung vom SYSTEM-Script (3 Min)' }
+if (-not $res -and $wipeCalled) { Log 'Keine Rückmeldung, aber Wipe-Aufruf war schon abgesetzt - Zurücksetzen evtl. gestartet'; $res = 'OK (ohne Rückmeldung)' }
+if (-not $res) { Fail-Reset 'keine Rückmeldung vom SYSTEM-Script (5 Min) - Aufgabe gestoppt' }
 if ($res -notlike 'OK*') { Fail-Reset $res }
 Log ('Zurücksetzen angenommen: ' + $res)
 Write-Host ''
