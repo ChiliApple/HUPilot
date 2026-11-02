@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.8'
+$SetupVer = '2.7.9'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -1463,6 +1463,26 @@ function Show-HashImport {
     [void]$hw.ShowDialog()
 }
 $ui.bHash.Add_Click({ Show-HashImport })
+# Nach einem Update einmal erinnern: die USB-Sticks haben noch die alte Version -> "5. Auf Stick kopieren"
+#   Merker Config\stickhint.json = Update-Stand (Programmversion aus version.json + Datum aus installed.json), fuer den der Hinweis schon kam.
+#   Unabhaengig davon, welche Pull.ps1-Version das Update gemacht hat. Angezeigt wird die Version aus version.json (wie im Fenstertitel).
+function Show-UpdateStickHint {
+    $i = $null
+    try { $i = Get-Content -LiteralPath (Join-Path $CfgDirHU 'installed.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { return }
+    if (-not $i) { return }
+    $key = $SetupVer + ' ' + [string]$i.Date
+    $seen = Join-Path $CfgDirHU 'stickhint.json'
+    try { if (Test-Path -LiteralPath $seen) { $s = Get-Content -LiteralPath $seen -Raw -Encoding UTF8 | ConvertFrom-Json; if ([string]$s.Key -eq $key) { return } } } catch { }
+    try { [pscustomobject]@{ Key = $key } | ConvertTo-Json | Set-Content -LiteralPath $seen -Encoding UTF8 -ErrorAction Stop } catch { Out-Log ('Hinweis-Merker nicht schreibbar: ' + $_.Exception.Message) }
+    $ver = 'v' + $SetupVer
+    $nl = [Environment]::NewLine
+    $t = 'HUPilot ist jetzt auf ' + $ver + '.' + $nl + $nl
+    if ($srcDrive) { $t += 'Dieser Stick (' + $srcDrive + ') ist schon aktualisiert. Alle ANDEREN Sticks haben noch die alte Version.' + $nl + $nl }
+    else { $t += 'Die USB-Sticks haben noch die alte Version.' + $nl + $nl }
+    $t += 'Jeden Stick neu bespielen:' + $nl + '   1. Stick anstecken' + $nl + '   2. bei "Stick" auswählen (ggf. "Aktualisieren")' + $nl + '   3. "5. Auf Stick kopieren" klicken' + $nl + $nl + 'config.json und WLAN-Paket kommen dabei mit.'
+    Out-Log ('Update auf ' + $ver + ' - Sticks jetzt mit "5. Auf Stick kopieren" neu bespielen')
+    Show-Msg $t 'HUPilot - Update fertig: auf Stick kopieren'
+}
 if ($SmokeTest) {
     # Starttest (automatische Tests): Fenster oeffnen, 2 s laufen lassen, schliessen - kein Netzwerk
     $script:SmokeOk = $false
@@ -1471,7 +1491,7 @@ if ($SmokeTest) {
     $tm.Add_Tick({ $tm.Stop(); $script:SmokeOk = $win.IsLoaded; $win.Close() })
     $win.Add_ContentRendered({ $tm.Start() })
 } else {
-    $win.Add_ContentRendered({ Invoke-UpdateCheck -Quiet })
+    $win.Add_ContentRendered({ Show-UpdateStickHint; Invoke-UpdateCheck -Quiet })
 }
 [void]$win.ShowDialog()
 if ($SmokeTest) { try { Set-Content -LiteralPath $SmokeTest -Value $(if ($script:SmokeOk) { 'OK v' + $SetupVer } else { 'FEHLER: Fenster nicht geladen' }) -Encoding UTF8 } catch { } }

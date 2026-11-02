@@ -211,8 +211,12 @@ if (Test-Path -LiteralPath $jr) {
     try { $jl = Get-Content -LiteralPath $jr -Raw -Encoding UTF8 | ConvertFrom-Json }
     catch { Stop-HMPull "Journal $jr nicht lesbar ($($_.Exception.Message)) - bitte *.pullold im Programmordner prüfen." }
     $jbad = 0
-    foreach ($jp in @($jl)) {
-        if (-not "$jp") { continue }
+    foreach ($jx in @($jl)) {
+        if (-not "$jx") { continue }
+        # ab v2.7.9 relativ zu $Target; aeltere Journale absolut (E:\...) - bei anderem Laufwerksbuchstaben auf $Target umsetzen
+        $jp = "$jx"
+        if (-not [IO.Path]::IsPathRooted($jp)) { $jp = Join-Path $Target $jp }
+        elseif (-not (Test-Path -LiteralPath "$jp.pullold") -and $jp -match '^[A-Za-z]:\\(.+)$') { $alt = Join-Path $Target $Matches[1]; if (Test-Path -LiteralPath "$alt.pullold") { $jp = $alt } }
         $jo = "$jp.pullold"
         if (Test-Path -LiteralPath $jo) {
             try { Move-Item -LiteralPath $jo -Destination "$jp" -Force -ErrorAction Stop; Write-Host "  zurückgestellt: $jp" -ForegroundColor DarkGray }
@@ -397,7 +401,9 @@ $journal = Join-Path $cfgDir 'pull-journal.json'
 $moved = New-Object System.Collections.Generic.List[object]   # @(Ziel, Sicherung oder '')
 $repl = 0; $lastErr = ''
 try { if (-not (Test-Path -LiteralPath $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null } } catch { }
-try { ConvertTo-Json -InputObject @($staged | ForEach-Object { "$($_[1])" }) | Set-Content -LiteralPath $journal -Encoding UTF8 -ErrorAction Stop }
+# Pfade RELATIV zu $Target: der Stick kann beim naechsten Einstecken einen anderen Laufwerksbuchstaben haben
+$tBase = $Target.TrimEnd('\') + '\'
+try { ConvertTo-Json -InputObject @($staged | ForEach-Object { $p = "$($_[1])"; if ($p.StartsWith($tBase, [StringComparison]::OrdinalIgnoreCase)) { $p.Substring($tBase.Length) } else { $p } }) | Set-Content -LiteralPath $journal -Encoding UTF8 -ErrorAction Stop }
 catch {
     foreach ($s in $staged) { Remove-Item -LiteralPath $s[0] -Force -ErrorAction SilentlyContinue }
     Stop-HMPull "Journal nicht schreibbar ($($_.Exception.Message)) - es wurde NICHTS verändert."
