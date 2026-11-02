@@ -1464,17 +1464,17 @@ function Show-HashImport {
 }
 $ui.bHash.Add_Click({ Show-HashImport })
 # Nach einem Update einmal erinnern: die USB-Sticks haben noch die alte Version -> "5. Auf Stick kopieren"
-#   Merker Config\stickhint.json = Update-Stand (installed.json Version + Datum), fuer den der Hinweis schon kam.
-#   Unabhaengig davon, welche Pull.ps1-Version das Update gemacht hat.
+#   Merker Config\stickhint.json = Update-Stand (Programmversion aus version.json + Datum aus installed.json), fuer den der Hinweis schon kam.
+#   Unabhaengig davon, welche Pull.ps1-Version das Update gemacht hat. Angezeigt wird die Version aus version.json (wie im Fenstertitel).
 function Show-UpdateStickHint {
     $i = $null
     try { $i = Get-Content -LiteralPath (Join-Path $CfgDirHU 'installed.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { return }
-    if (-not $i -or -not [string]$i.Version) { return }
-    $key = [string]$i.Version + ' ' + [string]$i.Date
+    if (-not $i) { return }
+    $key = $SetupVer + ' ' + [string]$i.Date
     $seen = Join-Path $CfgDirHU 'stickhint.json'
     try { if (Test-Path -LiteralPath $seen) { $s = Get-Content -LiteralPath $seen -Raw -Encoding UTF8 | ConvertFrom-Json; if ([string]$s.Key -eq $key) { return } } } catch { }
     try { [pscustomobject]@{ Key = $key } | ConvertTo-Json | Set-Content -LiteralPath $seen -Encoding UTF8 -ErrorAction Stop } catch { Out-Log ('Hinweis-Merker nicht schreibbar: ' + $_.Exception.Message) }
-    $ver = [string]$i.Version; if ($ver -match '^\d') { $ver = 'v' + $ver }
+    $ver = 'v' + $SetupVer
     $nl = [Environment]::NewLine
     $t = 'HUPilot ist jetzt auf ' + $ver + '.' + $nl + $nl
     if ($srcDrive) { $t += 'Dieser Stick (' + $srcDrive + ') ist schon aktualisiert. Alle ANDEREN Sticks haben noch die alte Version.' + $nl + $nl }
