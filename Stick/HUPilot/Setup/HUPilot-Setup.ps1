@@ -1463,6 +1463,26 @@ function Show-HashImport {
     [void]$hw.ShowDialog()
 }
 $ui.bHash.Add_Click({ Show-HashImport })
+# Nach einem Update einmal erinnern: die USB-Sticks haben noch die alte Version -> "5. Auf Stick kopieren"
+#   Merker Config\stickhint.json = Update-Stand (installed.json Version + Datum), fuer den der Hinweis schon kam.
+#   Unabhaengig davon, welche Pull.ps1-Version das Update gemacht hat.
+function Show-UpdateStickHint {
+    $i = $null
+    try { $i = Get-Content -LiteralPath (Join-Path $CfgDirHU 'installed.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { return }
+    if (-not $i -or -not [string]$i.Version) { return }
+    $key = [string]$i.Version + ' ' + [string]$i.Date
+    $seen = Join-Path $CfgDirHU 'stickhint.json'
+    try { if (Test-Path -LiteralPath $seen) { $s = Get-Content -LiteralPath $seen -Raw -Encoding UTF8 | ConvertFrom-Json; if ([string]$s.Key -eq $key) { return } } } catch { }
+    try { [pscustomobject]@{ Key = $key } | ConvertTo-Json | Set-Content -LiteralPath $seen -Encoding UTF8 -ErrorAction Stop } catch { Out-Log ('Hinweis-Merker nicht schreibbar: ' + $_.Exception.Message) }
+    $ver = [string]$i.Version; if ($ver -match '^\d') { $ver = 'v' + $ver }
+    $nl = [Environment]::NewLine
+    $t = 'HUPilot ist jetzt auf ' + $ver + '.' + $nl + $nl
+    if ($srcDrive) { $t += 'Dieser Stick (' + $srcDrive + ') ist schon aktualisiert. Alle ANDEREN Sticks haben noch die alte Version.' + $nl + $nl }
+    else { $t += 'Die USB-Sticks haben noch die alte Version.' + $nl + $nl }
+    $t += 'Jeden Stick neu bespielen:' + $nl + '   1. Stick anstecken' + $nl + '   2. bei "Stick" auswählen (ggf. "Aktualisieren")' + $nl + '   3. "5. Auf Stick kopieren" klicken' + $nl + $nl + 'config.json und WLAN-Paket kommen dabei mit.'
+    Out-Log ('Update auf ' + $ver + ' - Sticks jetzt mit "5. Auf Stick kopieren" neu bespielen')
+    Show-Msg $t 'HUPilot - Update fertig: auf Stick kopieren'
+}
 if ($SmokeTest) {
     # Starttest (automatische Tests): Fenster oeffnen, 2 s laufen lassen, schliessen - kein Netzwerk
     $script:SmokeOk = $false
@@ -1471,7 +1491,7 @@ if ($SmokeTest) {
     $tm.Add_Tick({ $tm.Stop(); $script:SmokeOk = $win.IsLoaded; $win.Close() })
     $win.Add_ContentRendered({ $tm.Start() })
 } else {
-    $win.Add_ContentRendered({ Invoke-UpdateCheck -Quiet })
+    $win.Add_ContentRendered({ Show-UpdateStickHint; Invoke-UpdateCheck -Quiet })
 }
 [void]$win.ShowDialog()
 if ($SmokeTest) { try { Set-Content -LiteralPath $SmokeTest -Value $(if ($script:SmokeOk) { 'OK v' + $SetupVer } else { 'FEHLER: Fenster nicht geladen' }) -Encoding UTF8 } catch { } }

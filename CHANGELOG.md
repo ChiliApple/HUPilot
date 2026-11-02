@@ -2,6 +2,7 @@
 
 ## v2.7.9 - 2026-11-02
 - go.ps1: **Kein rotes Banner mehr, während das Zurücksetzen im Hintergrund weiterläuft.** Kommt vom SYSTEM-Script keine Rückmeldung, wird die geplante Aufgabe jetzt gestoppt, bevor „FEHLER beim Zurücksetzen“ erscheint. War der Aufruf zum Zurücksetzen schon abgesetzt, meldet go „angenommen“ statt Rot. Wartezeit 5 statt 3 Min (Entfernen der Hersteller-Apps kann dauern).
+- Setup: **Nach einem Update kommt einmal der Hinweis „Sticks neu bespielen: 5. Auf Stick kopieren“.** Läuft das Setup selbst vom Stick, steht dabei, dass dieser Stick schon aktuell ist und nur die anderen fehlen.
 - Update: **Abgebrochenes Update wird auch mit anderem Laufwerksbuchstaben wiederhergestellt.** Das Journal speichert die Pfade relativ zum Stick; alte Journale mit festem Buchstaben werden umgesetzt.
 - Tools: `New-WcdProjekt.ps1` liest config.json als UTF-8 (Umlaute in SSID/WLAN-Kennwort).
 
