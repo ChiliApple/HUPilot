@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.7.12 - 2026-11-05
+### 📊 Status
+- **Neu: Zeitfilter:** Häkchen „nur letzte“ mit 4 h, 24 h oder 48 h.
+  - Wahlweise nach Registrierung in Intune oder nach Autopilot-Import.
+  - Als Importzeit gilt die Zeit des Hochladens per Stick, sonst die Zeit der Profil-Zuweisung. Microsoft liefert keine eigene Importzeit.
+  - Wirkt auch auf Excel, CSV und Ausdruck, der Ausdruck nennt den Filter.
+
 ## v2.7.11 - 2026-11-05
 ### ⏱️ Wartezeiten am Gerät
 - **Kein stundenlanges Warten mehr, wenn Windows die Uhr umstellt:** Im Einrichtungsbildschirm stellt Windows die Uhr oder Zeitzone teils mitten im Lauf um. Bisher konnte go dann stundenlang warten (z. B. „nächster Test in 21642 s“ beim WLAN-Verbinden).
