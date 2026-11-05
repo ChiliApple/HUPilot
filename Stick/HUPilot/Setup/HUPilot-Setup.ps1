@@ -185,7 +185,7 @@ $script:Extra = @{}
     </StackPanel>
     <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
-      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV und Drucken möglich." ToolTipService.ShowDuration="30000" Content="6. Status" Padding="10,4" Margin="0,0,0,0"/>
+      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV oder Excel, Drucken (auch als PDF)." ToolTipService.ShowDuration="30000" Content="6. Status" Padding="10,4" Margin="0,0,0,0"/>
       <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Content="7. Hashes importieren" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <TextBox Grid.Row="7" x:Name="tLog" Height="160" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
@@ -899,6 +899,188 @@ function Read-Protokoll {
     return $map
 }
 
+# Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Excel und Druck
+$script:StatusCols = @('Seriennr', 'Tag', 'Profil', 'Intune', 'RegDatum', 'LetzterKontakt', 'Benutzer', 'Name', 'LetzterSync', 'Modell', 'HUPilot')
+
+# Excel-Datei (.xlsx) direkt schreiben, ohne installiertes Excel: Kopfzeile fett, fixiert, mit Filter,
+# Spaltenbreite nach Inhalt, Datumsspalten als echtes Datum, Spalte Profil eingefaerbt wie im Fenster
+function Export-StatusXlsx {
+    param($Rows, [string[]]$Cols, [string]$Path)
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $esc = { param($s) [System.Security.SecurityElement]::Escape(([string]$s -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', '')) }
+    $colName = { param([int]$i) $n = ''; $i++; while ($i -gt 0) { $m = ($i - 1) % 26; $n = [char](65 + $m) + $n; $i = [int][math]::Floor(($i - 1) / 26) }; $n }
+    $dateCols = @('RegDatum', 'LetzterKontakt', 'LetzterSync')
+    $fmts = [string[]]@('dd.MM.yyyy HH:mm', 'yyyy-MM-dd HH:mm')
+    $de = [Globalization.CultureInfo]::InvariantCulture
+    $Rows = @($Rows)
+    $width = @{}; foreach ($c in $Cols) { $width[$c] = $c.Length + 4 }
+    $sb = New-Object System.Text.StringBuilder
+    # Kopfzeile
+    [void]$sb.Append('<row r="1">')
+    for ($i = 0; $i -lt $Cols.Count; $i++) { [void]$sb.Append('<c r="' + (& $colName $i) + '1" s="1" t="inlineStr"><is><t>' + (& $esc $Cols[$i]) + '</t></is></c>') }
+    [void]$sb.Append('</row>')
+    $rn = 1
+    foreach ($r in $Rows) {
+        $rn++
+        [void]$sb.Append('<row r="' + $rn + '">')
+        for ($i = 0; $i -lt $Cols.Count; $i++) {
+            $c = $Cols[$i]; $v = [string]$r.$c; $ref = (& $colName $i) + $rn
+            if ($v.Length + 2 -gt $width[$c]) { $width[$c] = $v.Length + 2 }
+            if (-not $v) { continue }
+            $dt = [datetime]::MinValue
+            if ($dateCols -contains $c -and [datetime]::TryParseExact($v, $fmts, $de, [Globalization.DateTimeStyles]::None, [ref]$dt)) {
+                [void]$sb.Append('<c r="' + $ref + '" s="2"><v>' + $dt.ToOADate().ToString($de) + '</v></c>')
+                continue
+            }
+            $s = 0
+            if ($c -eq 'Profil') { if ($v -eq 'zugewiesen') { $s = 3 } elseif ($v -in 'ausstehend', 'zugew., Datum fehlt', 'zugew., nicht synchron') { $s = 4 } }
+            [void]$sb.Append('<c r="' + $ref + '"' + $(if ($s) { ' s="' + $s + '"' } else { '' }) + ' t="inlineStr"><is><t xml:space="preserve">' + (& $esc $v) + '</t></is></c>')
+        }
+        [void]$sb.Append('</row>')
+    }
+    $last = (& $colName ($Cols.Count - 1))
+    $colsXml = ''
+    for ($i = 0; $i -lt $Cols.Count; $i++) {
+        $w = [math]::Min(60, [math]::Max($width[$Cols[$i]], $(if ($dateCols -contains $Cols[$i]) { 18 } else { 6 })))
+        $colsXml += '<col min="' + ($i + 1) + '" max="' + ($i + 1) + '" width="' + $w + '" customWidth="1"/>'
+    }
+    $sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<dimension ref="A1:' + $last + $rn + '"/>' +
+        '<sheetViews><sheetView workbookViewId="0" tabSelected="1"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>' +
+        '<sheetFormatPr defaultRowHeight="15"/><cols>' + $colsXml + '</cols>' +
+        '<sheetData>' + $sb.ToString() + '</sheetData>' +
+        '<autoFilter ref="A1:' + $last + $rn + '"/>' +
+        '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>' +
+        '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>' +
+        '</worksheet>'
+    $styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+        '<numFmts count="1"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/></numFmts>' +
+        '<fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>' +
+        '<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/><bgColor indexed="64"/></patternFill></fill>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFDFF2E1"/><bgColor indexed="64"/></patternFill></fill>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4CE"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+        '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF808080"/></bottom><diagonal/></border></borders>' +
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+        '<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+        '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>' +
+        '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+        '<xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>' +
+        '<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/></cellXfs>' +
+        '<cellStyles count="1"><cellStyle name="Standard" xfId="0" builtinId="0"/></cellStyles>' +
+        '</styleSheet>'
+    $parts = [ordered]@{
+        '[Content_Types].xml' = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'
+        '_rels/.rels' = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
+        'xl/workbook.xml' = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Status" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">Status!$A$1:$' + $last + '$' + $rn + '</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">Status!$1:$1</definedName></definedNames></workbook>'
+        'xl/_rels/workbook.xml.rels' = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'
+        'xl/worksheets/sheet1.xml' = $sheet
+        'xl/styles.xml' = $styles
+    }
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force -ErrorAction Stop }
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $zip = [System.IO.Compression.ZipFile]::Open($Path, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($k in $parts.Keys) {
+            $st = $zip.CreateEntry($k).Open()
+            try { $b = $utf8.GetBytes([string]$parts[$k]); $st.Write($b, 0, $b.Length) } finally { $st.Dispose() }
+        }
+    } finally { $zip.Dispose() }
+}
+
+# Druckansicht der Status-Tabelle: Querformat, Spaltenbreite nach Inhalt (gemessen), Zeilen abwechselnd hinterlegt,
+# Profil eingefaerbt wie im Fenster. Passt die Tabelle nicht in die Breite, werden die Spalten anteilig verkleinert.
+function New-StatusPrintDoc {
+    param($Rows, [string[]]$Cols, [string]$Title, [string]$Sub, [double]$PageW, [double]$PageH)
+    $brush = { param($hex) $b = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex)); $b.Freeze(); $b }
+    $bHead = & $brush '#D9E1F2'; $bAlt = & $brush '#F3F3F3'; $bLine = & $brush '#C8C8C8'; $bGreen = & $brush '#DFF2E1'; $bYellow = & $brush '#FFF4CE'
+    $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
+    $size = 8.0 * 96 / 72
+    $pad = 36.0
+    $doc = New-Object System.Windows.Documents.FlowDocument
+    $doc.FontFamily = $font; $doc.FontSize = $size
+    $doc.TextAlignment = [System.Windows.TextAlignment]::Left
+    $doc.PagePadding = New-Object System.Windows.Thickness($pad)
+    $doc.PageWidth = $PageW; $doc.PageHeight = $PageH
+    $doc.ColumnWidth = $PageW; $doc.ColumnGap = 0
+    $h1 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($Title))
+    $h1.FontSize = 11.0 * 96 / 72; $h1.FontWeight = [System.Windows.FontWeights]::Bold; $h1.Margin = New-Object System.Windows.Thickness(0, 0, 0, 2)
+    $doc.Blocks.Add($h1)
+    $h2 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($Sub))
+    $h2.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
+    $doc.Blocks.Add($h2)
+    # Spaltenbreiten messen
+    $Rows = @($Rows)
+    $tfN = New-Object System.Windows.Media.Typeface($font, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
+    $tfB = New-Object System.Windows.Media.Typeface($font, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Bold, [System.Windows.FontStretches]::Normal)
+    $ci = [Globalization.CultureInfo]::CurrentCulture
+    $measure = { param($t, $tf) (New-Object System.Windows.Media.FormattedText([string]$t, $ci, [System.Windows.FlowDirection]::LeftToRight, $tf, $size, [System.Windows.Media.Brushes]::Black)).WidthIncludingTrailingWhitespace }
+    $cellPad = 10.0
+    $wid = @()
+    foreach ($c in $Cols) {
+        $m = & $measure $c $tfB
+        foreach ($r in $Rows) { $v = [string]$r.$c; if ($v) { $x = & $measure $v $tfN; if ($x -gt $m) { $m = $x } } }
+        $wid += ($m + $cellPad + 2)
+    }
+    $avail = $PageW - 2 * $pad - 2
+    $sum = ($wid | Measure-Object -Sum).Sum
+    $f = $(if ($sum -gt $avail) { $avail / $sum } else { 1.0 })
+    $mkCell = {
+        param($t, $bold, $bg, $bottom)
+        $p = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run([string]$t))
+        $p.Margin = New-Object System.Windows.Thickness(0)
+        $cell = New-Object System.Windows.Documents.TableCell($p)
+        $cell.Padding = New-Object System.Windows.Thickness(($cellPad / 2), 1.5, ($cellPad / 2), 1.5)
+        if ($bold) { $cell.FontWeight = [System.Windows.FontWeights]::Bold }
+        if ($bg) { $cell.Background = $bg }
+        $cell.BorderBrush = $bLine; $cell.BorderThickness = New-Object System.Windows.Thickness(0, 0, 0, $bottom)
+        $cell
+    }
+    # Kopfzeile auf jeder Seite: je Seite eine eigene Tabelle mit Kopf, Zeilen pro Seite aus der Zeilenhoehe berechnet
+    # (1 Zeile Reserve). Seite 1 hat zusaetzlich Titel und Untertitel.
+    $lineH = $font.LineSpacing * $size
+    $rowH = $lineH + 3.5
+    $bodyH = $PageH - 2 * $pad
+    $titleH = $font.LineSpacing * $h1.FontSize + 2 + $lineH + 8
+    $per1 = [math]::Max(5, [int][math]::Floor(($bodyH - $titleH - $rowH) / $rowH) - 1)
+    $perN = [math]::Max(5, [int][math]::Floor(($bodyH - $rowH) / $rowH) - 1)
+    $i = 0; $first = $true
+    do {
+        $n = $(if ($first) { $per1 } else { $perN })
+        $tbl = New-Object System.Windows.Documents.Table
+        $tbl.CellSpacing = 0
+        $tbl.Margin = New-Object System.Windows.Thickness(0)
+        foreach ($x in $wid) { $tc = New-Object System.Windows.Documents.TableColumn; $tc.Width = New-Object System.Windows.GridLength([math]::Floor($x * $f)); $tbl.Columns.Add($tc) }
+        $rg = New-Object System.Windows.Documents.TableRowGroup
+        $hr = New-Object System.Windows.Documents.TableRow
+        foreach ($c in $Cols) { $hr.Cells.Add((& $mkCell $c $true $bHead 1.0)) }
+        $rg.Rows.Add($hr)
+        $end = [math]::Min($Rows.Count, $i + $n)
+        for (; $i -lt $end; $i++) {
+            $r = $Rows[$i]
+            $tr = New-Object System.Windows.Documents.TableRow
+            if ($i % 2 -eq 1) { $tr.Background = $bAlt }
+            foreach ($c in $Cols) {
+                $v = [string]$r.$c; $bg = $null
+                if ($c -eq 'Profil') { if ($v -eq 'zugewiesen') { $bg = $bGreen } elseif ($v -in 'ausstehend', 'zugew., Datum fehlt', 'zugew., nicht synchron') { $bg = $bYellow } }
+                $tr.Cells.Add((& $mkCell $v $false $bg 0.5))
+            }
+            $rg.Rows.Add($tr)
+        }
+        $tbl.RowGroups.Add($rg)
+        # Seitenumbruch wirkt nur auf eine Section, nicht direkt auf die Tabelle
+        $sec = New-Object System.Windows.Documents.Section
+        if (-not $first) { $sec.BreakPageBefore = $true }
+        $sec.Blocks.Add($tbl)
+        $doc.Blocks.Add($sec)
+        $first = $false
+    } while ($i -lt $Rows.Count)
+    return $doc
+}
+
 function Show-Status {
     param($Rows, [hashtable]$Proto, [string]$Tenant)
     [xml]$sx = @'
@@ -942,9 +1124,10 @@ function Show-Status {
       <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" Margin="14,0,0,0" ToolTip="Alle Daten neu aus Autopilot/Intune laden"/>
     </StackPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4"/>
-      <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4" ToolTip="Angezeigte Zeilen als CSV (Strichpunkt getrennt) speichern"/>
+      <Button x:Name="bXlsx" Content="Excel speichern" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen als Excel-Datei (.xlsx) speichern:&#x0a;Kopfzeile fixiert mit Filter, Datum als echtes Datum, Profil eingefärbt.&#x0a;Excel muss dafür nicht installiert sein."/>
+      <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen drucken (Querformat, auch als PDF über „Microsoft Print to PDF“)"/>
+      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen"/>
     </StackPanel>
     <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details (Profil live nachladen)" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
   </DockPanel>
@@ -953,7 +1136,7 @@ function Show-Status {
     $sw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $sx))
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
-    $g = @{}; foreach ($n in 'cTag','cProto','tFind','tCount','bCsv','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
+    $g = @{}; foreach ($n in 'cTag','cProto','tFind','tCount','bCsv','bXlsx','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
     # Spalte Profil dezent einfaerben: zugewiesen = hellgruen, in Arbeit (ausstehend, Datum fehlt, nicht synchron) = hellgelb.
     # Auswahl bleibt erkennbar (eigener Trigger fuer IsSelected mit den Systemfarben).
     $profStyle = $null
@@ -1039,36 +1222,35 @@ function Show-Status {
             Out-Log ('Status gespeichert: ' + $dlg.FileName)
         }
     })
-    $g.bPrint.Add_Click({
-        $pd = New-Object System.Windows.Controls.PrintDialog
-        if (-not $pd.ShowDialog()) { return }
-        $doc = New-Object System.Windows.Documents.FlowDocument
-        $doc.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe UI')
-        $doc.FontSize = 9
-        $doc.PagePadding = New-Object System.Windows.Thickness(40)
-        $doc.ColumnWidth = $pd.PrintableAreaWidth
-        $doc.PageWidth = $pd.PrintableAreaWidth
-        $doc.PageHeight = $pd.PrintableAreaHeight
-        $h1 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run('HUPilot - Status ' + $Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm') + '   (' + $g.tCount.Text + ')'))
-        $h1.FontSize = 12; $h1.FontWeight = [System.Windows.FontWeights]::Bold
-        $doc.Blocks.Add($h1)
-        $tbl = New-Object System.Windows.Documents.Table
-        $tbl.CellSpacing = 0
-        $cols = @('Seriennr', 'Tag', 'Profil', 'Intune', 'Benutzer', 'Name', 'LetzterSync', 'HUPilot')
-        foreach ($c in $cols) { $tbl.Columns.Add((New-Object System.Windows.Documents.TableColumn)) }
-        $rg = New-Object System.Windows.Documents.TableRowGroup
-        $hr = New-Object System.Windows.Documents.TableRow
-        foreach ($c in $cols) { $cell = New-Object System.Windows.Documents.TableCell((New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($c)))); $cell.FontWeight = [System.Windows.FontWeights]::Bold; $cell.BorderBrush = [System.Windows.Media.Brushes]::Gray; $cell.BorderThickness = New-Object System.Windows.Thickness(0, 0, 0, 1); $hr.Cells.Add($cell) }
-        $rg.Rows.Add($hr)
-        foreach ($r in $script:StatusView) {
-            $tr = New-Object System.Windows.Documents.TableRow
-            foreach ($c in $cols) { $tr.Cells.Add((New-Object System.Windows.Documents.TableCell((New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run([string]$r.$c)))))) }
-            $rg.Rows.Add($tr)
+    $g.bXlsx.Add_Click({
+        $dlg = New-Object Microsoft.Win32.SaveFileDialog
+        $dlg.Filter = 'Excel (*.xlsx)|*.xlsx'
+        $dlg.FileName = 'HUPilot-Status_' + ($Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') + '.xlsx'
+        if ($dlg.ShowDialog()) {
+            try {
+                Export-StatusXlsx -Rows $script:StatusView -Cols $script:StatusCols -Path $dlg.FileName
+                Out-Log ('Status gespeichert: ' + $dlg.FileName)
+            } catch {
+                Out-Log ('FEHLER Excel speichern: ' + $_.Exception.Message)
+                [void][System.Windows.MessageBox]::Show($sw, ('Excel-Datei konnte nicht gespeichert werden (ist sie noch in Excel offen?)' + "`r`n`r`n" + $_.Exception.Message), 'HUPilot - Status', 'OK', 'Warning')
+            }
         }
-        $tbl.RowGroups.Add($rg)
-        $doc.Blocks.Add($tbl)
-        $pd.PrintDocument(([System.Windows.Documents.IDocumentPaginatorSource]$doc).DocumentPaginator, 'HUPilot-Status')
-        Out-Log 'Status gedruckt'
+    })
+    $g.bPrint.Add_Click({
+        try {
+            $pd = New-Object System.Windows.Controls.PrintDialog
+            # Querformat vorschlagen, im Druckdialog weiter aenderbar
+            try { Add-Type -AssemblyName System.Printing; $pd.PrintTicket.PageOrientation = [System.Printing.PageOrientation]::Landscape } catch { }
+            if (-not $pd.ShowDialog()) { return }
+            $flt = @()
+            if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $flt += ('Tag ' + [string]$g.cTag.SelectedItem) }
+            if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus protokoll.csv' }
+            if ($g.tFind.Text) { $flt += ('Suche „' + $g.tFind.Text + '“') }
+            $sub = $g.tCount.Text + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
+            $doc = New-StatusPrintDoc -Rows $script:StatusView -Cols $script:StatusCols -Title ('HUPilot - Status ' + $Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pd.PrintableAreaWidth -PageH $pd.PrintableAreaHeight
+            $pd.PrintDocument(([System.Windows.Documents.IDocumentPaginatorSource]$doc).DocumentPaginator, 'HUPilot-Status')
+            Out-Log 'Status gedruckt'
+        } catch { Out-Log ('FEHLER Drucken: ' + $_.Exception.Message) }
     })
     & $refresh
     [void]$sw.ShowDialog()

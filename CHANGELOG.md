@@ -7,6 +7,16 @@
   - Die Anzeige der gelaufenen Zeit springt nicht mehr.
 - **Uhrsprung im Log:** Stellt Windows die Uhr um mehr als 60 s um, steht das mit der Größe des Sprungs im Log.
 
+### 📊 Status
+- **Neu: Excel speichern:** Die angezeigten Zeilen als Excel-Datei, ohne dass Excel installiert sein muss.
+  - Kopfzeile fixiert und mit Filter, Spaltenbreite nach Inhalt.
+  - Datumsspalten als echtes Datum (sortier- und filterbar), Profil eingefärbt wie im Fenster.
+  - Druckt aus Excel im Querformat auf Seitenbreite, Kopfzeile auf jeder Seite.
+- **Drucken neu gestaltet:** Ausdruck und PDF sehen jetzt aus wie die Tabelle im Fenster.
+  - Querformat vorgeschlagen, alle Spalten wie im Fenster, Breite nach Inhalt statt gleich breit.
+  - Kopfzeile auf jeder Seite, Zeilen abwechselnd hinterlegt, Profil eingefärbt.
+  - Unter dem Titel stehen Anzahl und aktive Filter.
+
 ### ✅ Qualität
 - 11 automatische Tests.
 
