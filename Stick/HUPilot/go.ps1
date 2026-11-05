@@ -19,7 +19,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.10'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.11'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -52,6 +52,11 @@ if (-not $isAdmin) {
 try { Set-Location -LiteralPath (Join-Path $env:SystemRoot 'System32'); [Environment]::CurrentDirectory = (Join-Path $env:SystemRoot 'System32') } catch { }
 $MinBattery = 50     # % Akku ohne Netzteil, darunter wird vor dem Zuruecksetzen gewartet
 $Start      = Get-Date
+# Alle Wartezeiten laufen ueber eine Stoppuhr: unabhaengig von Uhrzeit und Zeitzone. Im Einrichtungsbildschirm stellt
+# Windows die Uhr oder Zeitzone teils mitten im Lauf um (Test 05.11.2026: -6 h beim WLAN-Verbinden -> Warten haette 6 h gedauert)
+$script:Mono = [Diagnostics.Stopwatch]::StartNew()
+$script:ClockOff = 0.0
+function Get-Mono { return $script:Mono.Elapsed.TotalSeconds }
 $CfgDir     = $PSScriptRoot
 $LocalLog   = 'C:\Windows\Temp\HUPilot.log'
 $StickLog   = $null
@@ -92,36 +97,39 @@ function Complete-Live {
 }
 function Wait-Live {
     # wartet $Seconds; Anzeige: Text | gelaufen / hoechstens | <Next> in x s
-    param([int]$Seconds, [string]$Text, [datetime]$Since = (Get-Date), [int]$MaxSec = 0, [string]$Next = 'nächste Abfrage')
-    $end = (Get-Date).AddSeconds($Seconds)
+    # $Since: Startpunkt der Anzeige (Get-Mono), -1 = jetzt
+    param([int]$Seconds, [string]$Text, [double]$Since = -1, [int]$MaxSec = 0, [string]$Next = 'nächste Abfrage')
+    if ($Since -lt 0) { $Since = Get-Mono }
+    $end = (Get-Mono) + $Seconds
     do {
-        $now = Get-Date
-        $el = Format-Dauer ($now - $Since).TotalSeconds
+        Test-ClockJump
+        $now = Get-Mono
+        $el = Format-Dauer ($now - $Since)
         $mx = $(if ($MaxSec -gt 0) { ' / ' + (Format-Dauer $MaxSec) } else { '' })
-        $cd = $(if ($Next) { [string][int][math]::Max(0, [math]::Ceiling(($end - $now).TotalSeconds)) + ' s' } else { '' })
+        $cd = $(if ($Next) { [string][int][math]::Max(0, [math]::Ceiling($end - $now)) + ' s' } else { '' })
         $l = $Text + '  |  ' + $el + $mx + $(if ($cd) { '  |  ' + $Next + ' in ' + $cd } else { '' })
         # schmales Fenster (grosse Schrift): kuerzer, damit Zeit und Countdown sichtbar bleiben
         $w = 120; try { $w = [Console]::WindowWidth - 6 } catch { }
         if ($l.Length -gt $w) { $l = $Text + ' | ' + $el + $(if ($cd) { ' | ' + $cd } else { '' }) }
         Show-Live $l
-        $ms = [int][math]::Min(1000, [math]::Max(0, ($end - (Get-Date)).TotalMilliseconds))
+        $ms = [int][math]::Min(1000, [math]::Max(0, ($end - (Get-Mono)) * 1000))
         if ($ms -gt 0) { Start-Sleep -Milliseconds $ms }
-    } while ((Get-Date) -lt $end)
+    } while ((Get-Mono) -lt $end)
 }
 
 function Read-KeyTimeout {
     # Tastendruck mit Zeitlimit; zeigt live "<Label> in x s"
     param([int]$Seconds = 10, [string]$Label = 'ohne Eingabe weiter')
-    $until = (Get-Date).AddSeconds($Seconds)
+    $until = (Get-Mono) + $Seconds
     $res = ''
     try {
-        while ((Get-Date) -lt $until) {
+        while ((Get-Mono) -lt $until) {
             if ([Console]::KeyAvailable) {
                 $key = [Console]::ReadKey($true)
                 if ($key.Key -eq 'Enter') { $res = 'ENTER' } else { $res = ([string]$key.KeyChar).ToUpper() }
                 break
             }
-            if ($Label) { Show-Live ($Label + ' in ' + [int][math]::Ceiling(($until - (Get-Date)).TotalSeconds) + ' s') }
+            if ($Label) { Show-Live ($Label + ' in ' + [int][math]::Ceiling($until - (Get-Mono)) + ' s') }
             Start-Sleep -Milliseconds 200
         }
     } catch { Log ('Tastatur-Abfrage: ' + $_.Exception.Message) }
@@ -131,9 +139,17 @@ function Read-KeyTimeout {
 
 function Log {
     param([string]$Msg)
-    $line = '{0}  [{1,5:N0}s]  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), ((Get-Date) - $Start).TotalSeconds, $Msg
+    $line = '{0}  [{1,5:N0}s]  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), (Get-Mono), $Msg
     try { Add-Content -Path $LocalLog -Value $line -Encoding UTF8 } catch { }
     if ($StickLog) { try { Add-Content -Path $StickLog -Value $line -Encoding UTF8 } catch { } }
+}
+# Uhrsprung erkennen: Abstand Uhrzeit zu Stoppuhr aendert sich um mehr als 60 s -> einmal ins Log
+function Test-ClockJump {
+    try {
+        $off = ((Get-Date) - $Start).TotalSeconds - (Get-Mono)
+        $d = $off - $script:ClockOff
+        if ([math]::Abs($d) -gt 60) { $script:ClockOff = $off; Log ('Hinweis: Uhr am Gerät um ' + [int]$d + ' s verstellt (Windows/Zeitzone) - Wartezeiten laufen unabhängig weiter') }
+    } catch { }
 }
 function Say {
     param([string]$Msg, [string]$Color = 'Gray')
@@ -223,6 +239,7 @@ function Sync-Clock {
         $script:ClockOk = $true
         if ([Math]::Abs($diff) -gt 120) {
             Set-Date -Date $srv.LocalDateTime | Out-Null
+            $script:ClockOff = ((Get-Date) - $Start).TotalSeconds - (Get-Mono)   # eigene Korrektur nicht als Uhrsprung melden
             Log ('Uhr korrigiert um ' + (-$diff) + ' s (war ' + $diff + ' s daneben)')
         } else { Log ('Uhr OK (Abweichung ' + $diff + ' s)') }
     } catch { Log ('Uhrzeit-Prüfung: ' + $_.Exception.Message) }
@@ -438,7 +455,7 @@ if (-not $netOk) {
     if ($lan) {
         Log ('LAN-Verbindung erkannt: ' + $lan)
         Say 'LAN verbunden - warte auf Internet (bis 60 s) ...' 'Yellow'
-        $t0 = Get-Date
+        $t0 = Get-Mono
         for ($i = 0; $i -lt 6 -and -not $netOk; $i++) {
             Wait-Live 10 'LAN: warte auf Internet' $t0 60 'nächster Test'
             Show-Live 'LAN: teste Internet ...'
@@ -475,7 +492,7 @@ if (-not $netOk) {
     finally { Remove-Item $xmlPath -Force -ErrorAction SilentlyContinue }
 
     $ok = $false
-    $t0 = Get-Date
+    $t0 = Get-Mono
     for ($i = 0; $i -lt 12; $i++) {          # 12 x 10 s = 2 Min
         if ($i % 3 -eq 0) {
             try {
@@ -501,7 +518,7 @@ Sync-Clock
 
 # ---------- 3a. Token ----------
 $tok = $null
-$TokAt = Get-Date
+$TokAt = Get-Mono
 for ($i = 1; $i -le 3 -and -not $tok; $i++) {
     try {
         $body = @{ grant_type = 'client_credentials'; client_id = $cfg.ClientId; client_secret = $cfg.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
@@ -511,7 +528,7 @@ for ($i = 1; $i -le 3 -and -not $tok; $i++) {
         Log ('Token-Versuch ' + $i + ': ' + $m)
         if ($m -match 'AADSTS7000222') { Save-Offline 'Secret ABGELAUFEN - neues Secret in config.json eintragen' }
         if ($m -match 'AADSTS7000215') { Save-Offline 'Secret FALSCH (Secret-ID statt Wert?)' }
-        if ($i -lt 3) { Wait-Live 5 ('Anmeldung fehlgeschlagen - Versuch ' + ($i + 1) + '/3') (Get-Date) 0 'neuer Versuch'; Complete-Live }
+        if ($i -lt 3) { Wait-Live 5 ('Anmeldung fehlgeschlagen - Versuch ' + ($i + 1) + '/3') -1 0 'neuer Versuch'; Complete-Live }
     }
 }
 if (-not $tok) { Save-Offline 'Anmeldung am Tenant fehlgeschlagen (siehe Log)' }
@@ -520,13 +537,13 @@ $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
 # Access-Token gilt laut MS Doku zufaellig 60-90 Min (learn.microsoft.com/entra/identity-platform/access-tokens#token-lifetime).
 # Lange Laeufe (Hardwaretausch bis 30 Min + Import 10 + Profil 20) koennen das ueberschreiten -> ab 45 Min neu holen.
 function Update-Token {
-    if (((Get-Date) - $script:TokAt).TotalMinutes -lt 45) { return }
+    if (((Get-Mono) - $script:TokAt) / 60 -lt 45) { return }
     try {
         $b = @{ grant_type = 'client_credentials'; client_id = $cfg.ClientId; client_secret = $cfg.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
         $t = (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $cfg.TenantId + '/oauth2/v2.0/token') -Body $b -ContentType 'application/x-www-form-urlencoded').access_token
         if ($t) {
             $script:tok = $t
-            $script:TokAt = Get-Date
+            $script:TokAt = Get-Mono
             $script:h  = @{ Authorization = 'Bearer ' + $t }
             $script:hj = @{ Authorization = 'Bearer ' + $t; 'Content-Type' = 'application/json' }
             Log 'Token erneuert'
@@ -682,7 +699,7 @@ $ap = $null
 for ($i = 1; $i -le 3; $i++) {
     $ap = Get-ApDevice
     if (-not $script:ApLookupFailed) { break }
-    if ($i -lt 3) { Log ('Autopilot-Abfrage fehlgeschlagen - Versuch ' + ($i + 1) + '/3'); Wait-Live 15 ('Autopilot-Abfrage fehlgeschlagen - Versuch ' + ($i + 1) + '/3') (Get-Date) 0 'neuer Versuch'; Complete-Live }
+    if ($i -lt 3) { Log ('Autopilot-Abfrage fehlgeschlagen - Versuch ' + ($i + 1) + '/3'); Wait-Live 15 ('Autopilot-Abfrage fehlgeschlagen - Versuch ' + ($i + 1) + '/3') -1 0 'neuer Versuch'; Complete-Live }
 }
 if ($script:ApLookupFailed) { Fail 'Autopilot-Abfrage 3x fehlgeschlagen (Netz/Graph, siehe Log) - nochmal go' }
 # Hardware geaendert (z. B. Mainboardtausch beim Support): Autopilot zeigt "Fix ausstehend" / "Achtung erforderlich",
@@ -722,9 +739,9 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     Say 'Autopilot-Eintrag gelöscht - warte, bis er verschwunden ist (bis 30 Min) ...'
     Invoke-ApSync 'nach Löschen'
     $gone = $false
-    $t0 = Get-Date
-    $lim = $t0.AddMinutes(30)
-    while ((Get-Date) -lt $lim) {
+    $t0 = Get-Mono
+    $lim = $t0 + 1800
+    while ((Get-Mono) -lt $lim) {
         Wait-Live 30 'Alter Eintrag wird gelöscht' $t0 1800
         Show-Live 'Alter Eintrag wird gelöscht  |  frage ab ...'
         Update-Token
@@ -805,9 +822,9 @@ else {
     } catch { Fail ('Import abgelehnt: ' + (Get-ErrText $_)) }
 
     $state = ''
-    $t0 = Get-Date
-    $limit = $t0.AddMinutes(10)
-    while ((Get-Date) -lt $limit) {
+    $t0 = Get-Mono
+    $limit = $t0 + 600
+    while ((Get-Mono) -lt $limit) {
         Wait-Live 10 ('Import läuft' + $(if ($state -and $state -notin 'unknown', 'pending') { ' (' + $state + ')' } else { '' })) $t0 600
         Show-Live 'Import läuft  |  frage ab ...'
         Update-Token
@@ -835,7 +852,7 @@ else {
 
 if ($AssignUpn) {
     $apU = $null
-    $t0 = Get-Date
+    $t0 = Get-Mono
     for ($i = 0; $i -lt 6 -and -not $apU; $i++) { $apU = Get-ApDevice; if (-not $apU) { Wait-Live 10 'Warte auf Autopilot-Eintrag' $t0 60 } }
     Complete-Live
     if ($apU) {
@@ -905,21 +922,21 @@ function Wait-ApProfile {
     $assigned = $false
     $noDateSince = $null
     $shownTxt = ''
-    $t0 = Get-Date
+    $t0 = Get-Mono
     $pn = ''
     $okCount = 0
     $lastTxt = ''
     $extra = $false
     if ($TagChanged -and $null -eq $TagProfIds) { Log 'Tag geändert, Tag-Prüfung nicht möglich - keine automatische Freigabe' }
-    $limit = (Get-Date).AddMinutes($ProfileWaitMin)
-    $syncAt = Get-Date
-    while ((Get-Date) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
+    $limit = (Get-Mono) + $ProfileWaitMin * 60
+    $syncAt = Get-Mono
+    while ((Get-Mono) -lt $limit -or ($okCount -eq 1 -and -not $extra)) {
         # Noch nicht zugewiesen: Autopilot-Sync alle 5 Min wiederholen. Der Sync nach dem Import kann mit 429 abgewiesen werden,
         # wenn kurz vorher (< 10 Min, MS Doku) schon einer lief - z. B. vom vorigen Geraet. Dann kommt die Zuweisung sonst erst spaet.
-        if ($okCount -eq 0 -and ((Get-Date) - $syncAt).TotalMinutes -ge 5) { Invoke-ApSync 'Warten auf Profil'; $syncAt = Get-Date }
-        if ((Get-Date) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
+        if ($okCount -eq 0 -and ((Get-Mono) - $syncAt) / 60 -ge 5) { Invoke-ApSync 'Warten auf Profil'; $syncAt = Get-Mono }
+        if ((Get-Mono) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
         # Abfrage-Hinweis an die aktuelle Zeile anhaengen, damit bei Statuswechsel der ALTE Status als Verlauf stehen bleibt
-        if ($shownTxt) { Show-Live ('Profil: ' + $shownTxt + '  |  ' + (Format-Dauer ((Get-Date) - $t0).TotalSeconds) + '  |  frage ab ...') } else { Show-Live 'Profil: frage ab ...' }
+        if ($shownTxt) { Show-Live ('Profil: ' + $shownTxt + '  |  ' + (Format-Dauer ((Get-Mono) - $t0)) + '  |  frage ab ...') } else { Show-Live 'Profil: frage ab ...' }
         $ap = Get-ApDevice
         $ps = ''
         $pn = ''
@@ -945,15 +962,15 @@ function Wait-ApProfile {
             elseif ($TagChanged -and $null -eq $TagProfIds) { $why = 'Tag geändert, erwartetes Profil unbekannt' }
             elseif (-not $pd) {
                 $noDate = $true
-                if (-not $noDateSince) { $noDateSince = Get-Date }
-                if ($NoDateMin -gt 0 -and ((Get-Date) - $noDateSince).TotalMinutes -ge $NoDateMin) { $ready = $true; $why = 'ohne Zuweisungsdatum freigegeben (' + $NoDateMin + ' Min stabil, nur OOBE-Neustart)' }
+                if ($null -eq $noDateSince) { $noDateSince = Get-Mono }
+                if ($NoDateMin -gt 0 -and ((Get-Mono) - $noDateSince) / 60 -ge $NoDateMin) { $ready = $true; $why = 'ohne Zuweisungsdatum freigegeben (' + $NoDateMin + ' Min stabil, nur OOBE-Neustart)' }
                 else { $why = 'Zuweisungsdatum leer' }
             }
             else { $ready = $true }
         } else { $why = 'Status ' + $(if ($ps) { $ps } else { 'leer' }) }
         if (-not $noDate) { $noDateSince = $null }
         # Ohne Datum (nur OOBE): Wartezeit so verlaengern, dass die NoDateMin-Frist sicher ablaufen kann (nur nach oben)
-        if ($noDateSince -and $NoDateMin -gt 0) { $lim2 = $noDateSince.AddMinutes($NoDateMin + 1.5); if ($lim2 -gt $limit) { $limit = $lim2 } }
+        if ($null -ne $noDateSince -and $NoDateMin -gt 0) { $lim2 = $noDateSince + ($NoDateMin + 1.5) * 60; if ($lim2 -gt $limit) { $limit = $lim2 } }
         if ($ready) { $okCount++ } else { $okCount = 0 }
         # Anzeige: EINE Live-Zeile; aendert sich der Status, bleibt die alte Zeile als Verlauf stehen
         $pnTxt = $(if ($pn) { ' (' + $pn + ')' } else { '' })
@@ -968,14 +985,14 @@ function Wait-ApProfile {
         if ($shownTxt -and $txt -ne $shownTxt) { Complete-Live }   # alte Zeile bleibt stehen
         $shownTxt = $txt
         if ($okCount -ge 2) {
-            Show-Live ('Profil: ' + $txt + '  |  ' + (Format-Dauer ((Get-Date) - $t0).TotalSeconds) + '  |  OK')
+            Show-Live ('Profil: ' + $txt + '  |  ' + (Format-Dauer ((Get-Mono) - $t0)) + '  |  OK')
             Complete-Live
             $assigned = $true; break
         }
         if ($extra) { Complete-Live; break }
         $lt = 'Profil: ' + $txt
-        if ($noDate -and $NoDateMin -gt 0) { $lt += ' (Neustart in ' + [int][math]::Max(1, [math]::Ceiling($NoDateMin - ((Get-Date) - $noDateSince).TotalMinutes)) + ' Min)' }
-        Wait-Live (Get-Random -Minimum 26 -Maximum 35) $lt $t0 ([int]($limit - $t0).TotalSeconds) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'nächste Abfrage' })
+        if ($noDate -and $NoDateMin -gt 0) { $lt += ' (Neustart in ' + [int][math]::Max(1, [math]::Ceiling($NoDateMin - ((Get-Mono) - $noDateSince) / 60)) + ' Min)' }
+        Wait-Live (Get-Random -Minimum 26 -Maximum 35) $lt $t0 ([int]($limit - $t0)) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'nächste Abfrage' })
     }
     Complete-Live
     return [pscustomobject]@{ Assigned = $assigned; LastTxt = $lastTxt; Profil = $pn }
@@ -1022,10 +1039,10 @@ if (-not $DoReset) {
         $stickRoot = ''
         try { $stickRoot = Split-Path -Qualifier $PSScriptRoot } catch { Log ('Stick-Laufwerk: ' + $_.Exception.Message) }
         if (-not $stickRoot) { $stickRoot = 'Z:\HUPilot-kein-Stick' }   # Pfad gibt es nicht -> nicht warten
-        $t0 = Get-Date
-        $wait = $t0.AddMinutes(5)
+        $t0 = Get-Mono
+        $wait = $t0 + 300
         $shown = $false
-        while ((Test-Path -LiteralPath ($stickRoot + '\')) -and (Get-Date) -lt $wait) {
+        while ((Test-Path -LiteralPath ($stickRoot + '\')) -and (Get-Mono) -lt $wait) {
             if (-not $shown) {
                 Banner 'PROFIL DA  -  JETZT STICK ABZIEHEN' 'DarkYellow' @(
                     '',
@@ -1077,7 +1094,7 @@ Banner 'OK  -  STICK ABZIEHEN  -  nächstes Gerät' 'DarkGreen' @(
     ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
     'Gerät NICHT ausschalten.',
     'Es setzt sich selbst zurück, sobald das Profil da ist.')
-$GreenAt = Get-Date
+$GreenAt = Get-Mono
 
 # ---------- 5. Auf Profil warten ----------
 $wr = Wait-ApProfile
@@ -1097,8 +1114,8 @@ if (-not $assigned) {
 }
 
 # Gruenen Hinweis mind. 60 s stehen lassen (damit man ihn sieht und den Stick abzieht)
-$rest = 60 - [int]((Get-Date) - $GreenAt).TotalSeconds
-if ($rest -gt 0) { Log ('Grün bleibt noch ' + $rest + ' s stehen'); Wait-Live $rest 'Profil da' (Get-Date) 0 'Zurücksetzen startet'; Complete-Live }
+$rest = 60 - [int]((Get-Mono) - $GreenAt)
+if ($rest -gt 0) { Log ('Grün bleibt noch ' + $rest + ' s stehen'); Wait-Live $rest 'Profil da' -1 0 'Zurücksetzen startet'; Complete-Live }
 # ---------- 6. WLAN-Paket + Zuruecksetzen ohne Hersteller-Anpassungen ----------
 Wait-Power
 $ErrorActionPreference = 'Continue'
@@ -1351,7 +1368,7 @@ if (-not $started) {
     Log ('schtasks run: ' + (($o | Out-String).Trim()))
 }
 $res = ''
-$t0 = Get-Date
+$t0 = Get-Mono
 for ($i = 0; $i -lt 100; $i++) {          # 100 x 3 s = 5 Min (Hersteller-Apps entfernen kann dauern)
     Wait-Live 3 'Zurücksetzen wird vorbereitet' $t0 300 ''
     if (Test-Path $WipeResult) { $res = ([string](Get-Content -Path $WipeResult -Raw)).Trim(); break }
@@ -1378,7 +1395,7 @@ if ($res -notlike 'OK*') { Fail-Reset $res }
 Log ('Zurücksetzen angenommen: ' + $res)
 Write-Host ''
 Write-Host '  Zurücksetzen angenommen - Neustart folgt in Kürze.' -ForegroundColor White
-Wait-Live 900 'Warte auf Neustart' (Get-Date) 0 ''
+Wait-Live 900 'Warte auf Neustart' -1 0 ''
 Log 'Nach 15 Min kein Neustart - Zuruecksetzen hat nicht begonnen'
 Protokoll 'FEHLER: Zuruecksetzen nach 15 Min nicht begonnen'
 Banner 'ZURÜCKSETZEN NICHT GESTARTET' 'DarkRed' @(

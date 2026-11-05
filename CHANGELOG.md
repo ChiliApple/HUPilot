@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.7.11 - 2026-11-05
+### ⏱️ Wartezeiten am Gerät
+- **Kein stundenlanges Warten mehr, wenn Windows die Uhr umstellt:** Im Einrichtungsbildschirm stellt Windows die Uhr oder Zeitzone teils mitten im Lauf um. Bisher konnte go dann stundenlang warten (z. B. „nächster Test in 21642 s“ beim WLAN-Verbinden).
+  - Alle Wartezeiten laufen jetzt über eine Stoppuhr, unabhängig von Uhrzeit und Zeitzone: WLAN, LAN, Anmeldung, Import, Profil, Stick abziehen, Auswahlen mit Zeitlimit, Zurücksetzen.
+  - Die Anzeige der gelaufenen Zeit springt nicht mehr.
+- **Uhrsprung im Log:** Stellt Windows die Uhr um mehr als 60 s um, steht das mit der Größe des Sprungs im Log.
+
+### ✅ Qualität
+- 11 automatische Tests.
+
 ## v2.7.10 - 2026-11-02
 - Anleitung: **„Nur hochladen“** beschrieben (WLAN-Paket, Neustart im Einrichtungsbildschirm, 11-Min-Regel), **Rückfrage bei anderem Tag**, empfohlenes Recht **Group.Read.All** und optional **User.Read.All**, Häkchen „Fremde Bereitstellungspakete entfernen“, Entfernen von Hersteller-Apps (`RemoveApps`), Profile nur über Tag-Gruppen zuweisen.
 - Anleitung: Farben und Fehlersuche ergänzt (Windows Home, „Profil kann nicht geprüft werden“, „ZURÜCKSETZEN NICHT GESTARTET“); Bildschirmtexte mit Umlaut (`LÖSCHEN`, „HARDWARE-ÄNDERUNG“).
