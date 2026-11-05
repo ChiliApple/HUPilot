@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.11'
+$SetupVer = '2.7.12'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -1086,7 +1086,7 @@ function Show-Status {
     [xml]$sx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot - Status" Width="1100" Height="640" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
+        Title="HUPilot - Status" Width="1260" Height="640" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
   <Window.Resources>
     <Style x:Key="HuThumb" TargetType="Thumb">
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
@@ -1115,14 +1115,17 @@ function Show-Status {
     </Style>
   </Window.Resources>
   <DockPanel Margin="10">
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-      <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-      <ComboBox x:Name="cTag" Width="140"/>
-      <CheckBox x:Name="cProto" Content="nur Geräte aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,0"/>
-      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,0" ToolTip="Suche in Seriennummer / Gerätename / Benutzer"/>
-      <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold"/>
-      <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" Margin="14,0,0,0" ToolTip="Alle Daten neu aus Autopilot/Intune laden"/>
-    </StackPanel>
+    <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+      <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,4"/>
+      <ComboBox x:Name="cTag" Width="140" Margin="0,0,0,4" ToolTip="Nur Geräte mit diesem Group Tag"/>
+      <CheckBox x:Name="cProto" Content="nur Geräte aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
+      <CheckBox x:Name="cZeit" Content="nur letzte" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Zeitfilter: nur Geräte, die im gewählten Zeitraum registriert bzw. importiert wurden"/>
+      <ComboBox x:Name="cZeitSpan" Width="60" Margin="6,0,0,4" ToolTip="Zeitraum bis jetzt"/>
+      <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte RegDatum).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
+      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,4" VerticalAlignment="Center" ToolTip="Suche in Seriennummer / Gerätename / Benutzer"/>
+      <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,4" FontWeight="SemiBold" ToolTip="Anzahl der angezeigten Geräte"/>
+      <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" Margin="14,0,0,4" ToolTip="Alle Daten neu aus Autopilot/Intune laden"/>
+    </WrapPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
       <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4" ToolTip="Angezeigte Zeilen als CSV (Strichpunkt getrennt) speichern"/>
       <Button x:Name="bXlsx" Content="Excel speichern" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen als Excel-Datei (.xlsx) speichern:&#x0a;Kopfzeile fixiert mit Filter, Datum als echtes Datum, Profil eingefärbt.&#x0a;Excel muss dafür nicht installiert sein."/>
@@ -1136,7 +1139,7 @@ function Show-Status {
     $sw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $sx))
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
-    $g = @{}; foreach ($n in 'cTag','cProto','tFind','tCount','bCsv','bXlsx','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
+    $g = @{}; foreach ($n in 'cTag','cProto','cZeit','cZeitSpan','cZeitBasis','tFind','tCount','bCsv','bXlsx','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
     # Spalte Profil dezent einfaerben: zugewiesen = hellgruen, in Arbeit (ausstehend, Datum fehlt, nicht synchron) = hellgelb.
     # Auswahl bleibt erkennbar (eigener Trigger fuer IsSelected mit den Systemfarben).
     $profStyle = $null
@@ -1167,11 +1170,23 @@ function Show-Status {
     & $fillTags
     $g.cProto.IsChecked = ($Proto.Count -gt 0)
     $g.cProto.IsEnabled = ($Proto.Count -gt 0)
+    # Zeitfilter: Zeitraum und Grundlage, Standard 24 h nach Registrierung (Haekchen aus)
+    $script:ZeitStd = @(4, 24, 48)
+    foreach ($h in $script:ZeitStd) { [void]$g.cZeitSpan.Items.Add(('' + $h + ' h')) }
+    $g.cZeitSpan.SelectedIndex = 1
+    [void]$g.cZeitBasis.Items.Add('nach Registrierung')
+    [void]$g.cZeitBasis.Items.Add('nach Autopilot-Import')
+    $g.cZeitBasis.SelectedIndex = 0
     $script:StatusView = @()
     $refresh = {
         $v = @($script:SRows)
         if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
         if ($g.cProto.IsChecked) { $v = @($v | Where-Object { $_.HUPilot }) }
+        if ($g.cZeit.IsChecked) {
+            $since = (Get-Date).AddHours(-1 * $script:ZeitStd[[math]::Max(0, $g.cZeitSpan.SelectedIndex)])
+            $key = $(if ($g.cZeitBasis.SelectedIndex -eq 1) { 'Imp' } else { 'Reg' })
+            $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and $t[$key] -and $t[$key] -ge $since })
+        }
         if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
         $script:StatusView = $v
         $g.dGrid.ItemsSource = $v
@@ -1180,6 +1195,9 @@ function Show-Status {
     }
     $g.cTag.Add_SelectionChanged($refresh)
     $g.cProto.Add_Click($refresh)
+    $g.cZeit.Add_Click($refresh)
+    $g.cZeitSpan.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
+    $g.cZeitBasis.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
     $g.tFind.Add_TextChanged($refresh)
     $g.bClose.Add_Click({ $sw.Close() })
     $g.bReload.Add_Click({
@@ -1245,6 +1263,7 @@ function Show-Status {
             $flt = @()
             if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $flt += ('Tag ' + [string]$g.cTag.SelectedItem) }
             if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus protokoll.csv' }
+            if ($g.cZeit.IsChecked) { $flt += ('letzte ' + [string]$g.cZeitSpan.SelectedItem + ' ' + [string]$g.cZeitBasis.SelectedItem) }
             if ($g.tFind.Text) { $flt += ('Suche „' + $g.tFind.Text + '“') }
             $sub = $g.tCount.Text + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
             $doc = New-StatusPrintDoc -Rows $script:StatusView -Cols $script:StatusCols -Title ('HUPilot - Status ' + $Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pd.PrintableAreaWidth -PageH $pd.PrintableAreaHeight
@@ -1284,6 +1303,10 @@ function Get-StatusData {
     $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
     $script:ApIds = @{}
     foreach ($d in $all) { if ($d.serialNumber) { $script:ApIds[[string]$d.serialNumber] = [string]$d.id } }
+    # Zeiten fuer den Zeitfilter (nicht als Spalte): Reg = Intune-Registrierung, Imp = Autopilot-Import.
+    # Graph liefert keine Importzeit: genommen wird die HUPilot-Zeit aus protokoll.csv, sonst die Profil-Zuweisung
+    # (kommt meist wenige Minuten nach dem Import).
+    $script:StatusTimes = @{}
     $rows = foreach ($d in $all) {
         $ps = [string]$d.deploymentProfileAssignmentStatus
         $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($(try { ([datetime]$d.deploymentProfileAssignedDateTime).Year -gt 2000 } catch { $false })) { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
@@ -1296,7 +1319,12 @@ function Get-StatusData {
         elseif ($md.ContainsKey('SN:' + [string]$d.serialNumber)) { $im = $md['SN:' + [string]$d.serialNumber] }
         $sync = ''; $reg = ''
         if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { } }
-        if ($im) { try { $rd = [datetime]$im.enrolledDateTime; if ($rd.Year -gt 2000) { $reg = $rd.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { } }
+        $tReg = $null; $tImp = $null
+        if ($im) { try { $rd = [datetime]$im.enrolledDateTime; if ($rd.Year -gt 2000) { $tReg = $rd.ToLocalTime(); $reg = $tReg.ToString('yyyy-MM-dd HH:mm') } } catch { } }
+        $pt = [datetime]::MinValue
+        if ($pr -and [datetime]::TryParseExact([string]$pr.Zeit, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$pt)) { $tImp = $pt }
+        if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
+        if ($d.serialNumber) { $script:StatusTimes[[string]$d.serialNumber] = @{ Reg = $tReg; Imp = $tImp } }
         [pscustomobject]@{
             Seriennr       = [string]$d.serialNumber
             Tag            = [string]$d.groupTag
