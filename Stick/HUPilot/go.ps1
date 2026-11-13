@@ -25,8 +25,14 @@ try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.js
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
     Write-Host ''
-    Write-Host '  HUPilot: Das letzte Update dieses Sticks wurde abgebrochen.' -ForegroundColor Red
-    Write-Host '  Stick am PC anstecken und HUPilot-Setup.cmd starten - es stellt den Stand wieder her.' -ForegroundColor Red
+    # Abschlussbild wie ueberall (drei Saetze); die Funktionen dafuer sind hier noch nicht geladen
+    Write-Host '  Was ist passiert:' -ForegroundColor Red
+    Write-Host '    Das letzte Update dieses Sticks wurde abgebrochen.' -ForegroundColor Red
+    Write-Host '  Was passiert jetzt:' -ForegroundColor Red
+    Write-Host '    Nichts, das Gerät wurde nicht verändert.' -ForegroundColor Red
+    Write-Host '  Was musst du tun:' -ForegroundColor Red
+    Write-Host '    Stick am PC anstecken und HUPilot-Setup.cmd starten,' -ForegroundColor Red
+    Write-Host '    es stellt den Stand wieder her.' -ForegroundColor Red
     exit 1
 }
 # Ohne Administratorrechte (z. B. go.cmd per Doppelklick im Explorer) ist der Hardware-Hash nicht lesbar
@@ -42,7 +48,14 @@ if (-not $isAdmin) {
         Write-Host '  Weiter im neuen Fenster.' -ForegroundColor Green
         Start-Sleep -Seconds 3
     } catch {
-        Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausführen" öffnen, dann:  D:  und  go' -ForegroundColor Red
+        Write-Host '  Was ist passiert:' -ForegroundColor Red
+        Write-Host '    Der Start mit Adminrechten wurde abgebrochen.' -ForegroundColor Red
+        Write-Host '  Was passiert jetzt:' -ForegroundColor Red
+        Write-Host '    Nichts, das Gerät wurde nicht verändert.' -ForegroundColor Red
+        Write-Host '  Was musst du tun:' -ForegroundColor Red
+        Write-Host '    Eingabeaufforderung mit Rechtsklick >' -ForegroundColor Red
+        Write-Host '    "Als Administrator ausführen" öffnen,' -ForegroundColor Red
+        Write-Host '    dann  D:  und  go' -ForegroundColor Red
         try { Read-Host '  Enter = Fenster schließen' | Out-Null } catch { }
     }
     exit 1
@@ -211,12 +224,13 @@ function Banner {
     param([string]$Text, [string]$Bg, [string[]]$Lines)
     Complete-Live
     try { $Host.UI.RawUI.BackgroundColor = $Bg; $Host.UI.RawUI.ForegroundColor = 'White'; Clear-Host } catch { }
+    $hw = 56; try { $hw = [math]::Max(20, [math]::Min(56, [Console]::WindowWidth - 3)) } catch { }   # schmale Konsole: Rahmen nicht umbrechen
     Write-Host ''
-    Write-Host ('  ' + ('#' * 56))
+    Write-Host ('  ' + ('#' * $hw))
     Write-Host ''
     Write-Host ('      ' + $Text)
     Write-Host ''
-    Write-Host ('  ' + ('#' * 56))
+    Write-Host ('  ' + ('#' * $hw))
     Write-Host ''
     Write-Host ('  Seriennummer: ' + $Serial)
     foreach ($l in $Lines) { Write-Host ('  ' + $l) }
@@ -232,19 +246,91 @@ function Protokoll {
         Add-Content -Path $p -Value ('{0};{1};{2};{3};{4}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Serial, $cfg.Tenant, ([string]$cfg.GroupTag -replace ';', ','), $Result) -Encoding ASCII
     } catch { }
 }
-function Fail {
+# ---------- Einheitliches Abschlussbild: jeder Endzustand zeigt dieselben drei Saetze ----------
+# "Was ist passiert", "Was passiert jetzt", "Was musst du tun" - kurz umbrochen fuer schmale Konsole mit grosser Schrift.
+# Rot heisst immer: nichts wurde zurueckgesetzt.
+function Split-NextStep {
+    # Trennt "Ursache. Naechster Schritt." in @(Ursache, Schritt); ohne erkennbaren Schritt: @(Text, '')
     param([string]$Msg)
+    $m = [regex]::Match([string]$Msg, '^(.*?\.)\s+((?:Am PC|Gerät neu starten|Einige Minuten|Nochmal|Zum |Admin:|Foto|Später|Stick neu|Für die Umstellung).*)$', 'Singleline')
+    if ($m.Success) { return @($m.Groups[1].Value.Trim(), $m.Groups[2].Value.Trim()) }
+    return @(([string]$Msg).Trim(), '')
+}
+function Get-EndText {
+    # Drei Saetze je Endzustand; -Was / -Tun ersetzen den Standard (Fehlertext, Grund)
+    param([string]$State, [string]$Was = '', [string]$Tun = '')
+    $min = 20; if ($ProfileWaitMin) { $min = [int]$ProfileWaitMin }
+    $nr = 'Nichts, das Gerät wurde nicht zurückgesetzt.'
+    $t = switch ($State) {
+        'Fehler'                    { 'Ein Fehler ist aufgetreten.', $nr, 'Nochmal D:\go, klappt es wieder nicht: Foto von diesem Bild an den Admin.' }
+        'FehlerReset'               { 'Der Upload ist fertig, aber das Zurücksetzen ist nicht gestartet.', $nr, 'Stick rein, Shift+F10, D:\go (Upload wird übersprungen), klappt es wieder nicht: D:\diag fotografieren und an den Admin.' }
+        'ResetNichtGestartet'       { 'Das Zurücksetzen ist nach 15 Minuten nicht gestartet.', $nr, 'Foto von diesem Bild an den Admin.' }
+        'Offline'                   { 'Der Hash ist nur am Stick gespeichert, nicht hochgeladen.', $nr, 'Stick abziehen und am PC im Setup "Hashes importieren".' }
+        'Abbruch'                   { 'Der Vorgang wurde abgebrochen.', $nr, 'Zum Fortsetzen nochmal D:\go starten.' }
+        'NeustartAbgebrochen'       { 'Der Neustart wurde mit A abgebrochen.', 'Nichts, das Gerät startet nicht von selbst neu.', 'Stick abziehen und das Gerät von Hand neu starten.' }
+        'ResetWarten'               { 'Das Gerät ist in Autopilot hochgeladen.', ('Es wartet bis zu ' + $min + ' Minuten auf das Profil und setzt sich dann selbst zurück.'), 'Stick abziehen und zum nächsten Gerät, dieses Gerät nicht ausschalten.' }
+        'ResetStart'                { 'Upload und Autopilot-Profil sind fertig.', 'Das Gerät setzt sich in wenigen Minuten selbst zurück und startet neu.', 'Nichts, Gerät nicht ausschalten und zum nächsten Gerät.' }
+        'ResetStartOhneProfil'      { 'Der Upload ist fertig, zurückgesetzt wird ohne Profil (Taste J).', 'Das Gerät setzt sich in wenigen Minuten selbst zurück, danach kommt das normale Windows-Setup.', 'Nichts, Gerät nicht ausschalten.' }
+        'KeinProfilEnde'            { 'Es ist noch kein Autopilot-Profil da.', 'Nichts, das Gerät wurde nicht zurückgesetzt und bleibt im Einrichtungsbildschirm.', 'Später Stick rein, Shift+F10, D:\go, kommt das Profil nie: den Admin fragen.' }
+        'UploadWarten'              { 'Das Gerät ist in Autopilot hochgeladen, ohne Zurücksetzen.', ('HUPilot wartet bis zu ' + $min + ' Minuten auf das Autopilot-Profil.'), 'Stick abziehen und das Fenster offen lassen.' }
+        'UploadStickAbziehen'       { 'Das Autopilot-Profil ist da.', 'Sobald der Stick abgezogen ist, startet das Gerät neu.', 'Stick jetzt abziehen.' }
+        'UploadNeustart'            { 'Upload und Autopilot-Profil sind fertig.', 'Das Gerät startet in 15 Sekunden neu, danach kommt die Schul-Anmeldung.', 'Nichts, zum nächsten Gerät (A = nicht neu starten).' }
+        'UploadNeustartVonHand'     { 'Das Profil ist da, aber der Stick steckt nach 5 Minuten noch.', 'Nichts, das Gerät startet nicht von selbst neu.', 'Stick abziehen und das Gerät von Hand neu starten.' }
+        'UploadFertig'              { 'Upload und Autopilot-Profil sind fertig.', $nr, 'Gerät zurücksetzen: Einstellungen > System > Wiederherstellung > PC zurücksetzen.' }
+        'UploadKeinProfil'          { 'Der Upload ist fertig, das Autopilot-Profil fehlt aber noch.', $nr, 'Später nochmal D:\go starten.' }
+        'ProUmstellung'             { 'Windows Home wird gerade auf Pro umgestellt.', 'Das Gerät startet von selbst neu, auch mehrmals (sonst nach 10 Minuten Rot).', 'Nicht ausschalten, Rückfragen von Windows bestätigen, nach dem Neustart Shift+F10 und D:\go.' }
+        'ProNeustart'               { 'Windows ist auf Pro umgestellt.', 'Das Gerät startet in 10 Sekunden neu.', 'Danach Shift+F10 und D:\go, die Antworten von eben werden angeboten.' }
+        default                     { '', '', '' }
+    }
+    $r = @{ Was = [string]$t[0]; Jetzt = [string]$t[1]; Tun = [string]$t[2] }
+    if ($Was) { $r.Was = $Was }
+    if ($Tun) { $r.Tun = $Tun }
+    return $r
+}
+$EndStates = @('Fehler', 'FehlerReset', 'ResetNichtGestartet', 'Offline', 'Abbruch', 'NeustartAbgebrochen', 'ResetWarten', 'ResetStart', 'ResetStartOhneProfil', 'KeinProfilEnde', 'UploadWarten', 'UploadStickAbziehen', 'UploadNeustart', 'UploadNeustartVonHand', 'UploadFertig', 'UploadKeinProfil', 'ProUmstellung', 'ProNeustart')
+function Format-EndLines {
+    # Drei Ueberschriften, darunter der Satz eingerueckt und auf die Fensterbreite umbrochen (Banner rueckt 2 Zeichen ein)
+    param([hashtable]$E, [int]$Width = 0)
+    if ($Width -le 0) { $Width = 80; try { $Width = [Console]::WindowWidth - 1 } catch { } }
+    $max = [math]::Max(24, $Width - 6)
+    $out = New-Object System.Collections.Generic.List[string]
+    $labels = 'Was ist passiert:', 'Was passiert jetzt:', 'Was musst du tun:'
+    $texts = [string]$E.Was, [string]$E.Jetzt, [string]$E.Tun
+    for ($i = 0; $i -lt 3; $i++) {
+        $out.Add($labels[$i])
+        $line = ''
+        foreach ($w in @($texts[$i] -split '\s+' | Where-Object { $_ })) {
+            while ($w.Length -gt $max) { if ($line) { $out.Add('  ' + $line); $line = '' }; $out.Add('  ' + $w.Substring(0, $max)); $w = $w.Substring($max) }
+            if (-not $line) { $line = $w }
+            elseif (($line.Length + 1 + $w.Length) -le $max) { $line += ' ' + $w }
+            else { $out.Add('  ' + $line); $line = $w }
+        }
+        if ($line) { $out.Add('  ' + $line) }
+    }
+    return $out.ToArray()
+}
+function Get-EndLines {
+    param([string]$State, [string]$Was = '', [string]$Tun = '')
+    return (Format-EndLines (Get-EndText $State $Was $Tun))
+}
+function Fail {
+    # Rot: nichts wurde zurueckgesetzt. "Ursache. Naechster Schritt." wird auf "Was ist passiert" und "Was musst du tun" verteilt.
+    param([string]$Msg, [string]$Tun = '')
     Log ('FEHLER: ' + $Msg)
     Protokoll ('FEHLER: ' + $Msg)
-    Banner 'FEHLER  -  NICHT ZURÜCKGESETZT' 'DarkRed' @(
-        '',
-        ('Grund: ' + $Msg),
-        '',
-        'Nochmal versuchen: D:\go',
-        'Klappt es wieder nicht: Foto von diesem Bild an den Admin.',
-        ('Log: ' + $LocalLog))
+    $sp = Split-NextStep $Msg
+    if (-not $Tun) { $Tun = $sp[1] }
+    Banner 'FEHLER  -  NICHT ZURÜCKGESETZT' 'DarkRed' (@('') + (Get-EndLines 'Fehler' $sp[0] $Tun) + @('', ('Log: ' + $LocalLog)))
     Wait-Close
     exit 1
+}
+function Stop-ByUser {
+    # Abbruch durch den Benutzer: gelb, nichts zurueckgesetzt
+    param([string]$Was, [string]$State = 'Abbruch', [int]$Code = 1)
+    Log ('Abbruch durch Benutzer: ' + $Was)
+    Banner 'ABGEBROCHEN  -  NICHT ZURÜCKGESETZT' 'DarkYellow' (@('') + (Get-EndLines $State $Was))
+    Wait-Close
+    exit $Code
 }
 function Get-ErrText {
     param($Err)
@@ -307,14 +393,11 @@ function Save-Offline {
         $rows += ($Serial + ',,' + $hash + ',' + $cfg.GroupTag + ',' + $AssignUpn)
         Set-Content -Path $f -Value (@($OfflineHdr) + $rows) -Encoding ASCII -ErrorAction Stop
         Protokoll ('OFFLINE: Hash gespeichert (' + $Why + ')')
-    } catch { Fail ($Why + '  (Hash konnte auch nicht am Stick gespeichert werden: ' + $_.Exception.Message + ')') }
-    Banner 'HASH GESPEICHERT  -  SPÄTER HOCHLADEN' 'DarkYellow' @(
-        '',
-        ('Grund: ' + $Why),
-        '',
-        ('Hash + Tag ' + $cfg.GroupTag + ' liegen am Stick: HUPilot\logs\hashes.csv'),
-        'Am PC: HUPilot-Setup > "Hashes importieren".',
-        'Gerät wurde NICHT zurückgesetzt - Stick kann abgezogen werden.')
+    } catch { Fail ('Kein Upload möglich (' + (Split-NextStep $Why)[0] + ') und der Hash ließ sich auch nicht am Stick speichern (' + $_.Exception.Message + ').') 'Stick neu anstecken und nochmal D:\go, klappt es wieder nicht: Foto von diesem Bild an den Admin.' }
+    # Grund mit eigenem naechsten Schritt (z. B. Secret erneuern): erst das, dann Hashes importieren
+    $sp = Split-NextStep $Why
+    $tun = $(if ($sp[1]) { $sp[1].TrimEnd('.') + ', danach am PC "Hashes importieren".' } else { '' })
+    Banner 'HASH GESPEICHERT  -  SPÄTER HOCHLADEN' 'DarkYellow' (@('') + (Get-EndLines 'Offline' ('Der Hash ist nur am Stick gespeichert, nicht hochgeladen: ' + $sp[0]) $tun) + @('', ('Am Stick: HUPilot\logs\hashes.csv (Tag ' + $cfg.GroupTag + ')')))
     Wait-Close
     exit 2
 }
@@ -667,14 +750,7 @@ if ($IsHome) {
     # Antworten fuer den Start nach dem Neustart mitschreiben (keine Schluessel)
     Save-EdMark @{ Seriennr = $Serial; Zeit = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); Von = $EdId; Ziel = $target; Aktiviert = $false; Antworten = @{ Tag = [string]$cfg.GroupTag; Benutzer = [string]$AssignUpn; Zuruecksetzen = [bool]$DoReset } }
     Protokoll ('EDITION: Umstellung ' + $EdId + ' -> ' + $target + ' gestartet')
-    Banner 'WINDOWS WIRD AUF PRO UMGESTELLT' 'DarkBlue' @(
-        '',
-        'Gerät startet von selbst neu (auch mehrmals) - NICHT ausschalten.',
-        'Danach im Einrichtungsbildschirm: Shift+F10, dann  D:\go',
-        'Die Antworten von eben werden dann zum Übernehmen angeboten.',
-        '',
-        'Fragt Windows in einem Fenster nach: bestätigen.',
-        'Kommt nach 10 Minuten kein Neustart, wird abgebrochen (Rot).')
+    Banner 'WINDOWS WIRD AUF PRO UMGESTELLT' 'DarkBlue' (@('') + (Get-EndLines 'ProUmstellung'))
     # changepk kehrt meist sofort zurueck, Windows stellt im Hintergrund um und startet selbst neu.
     # Deshalb: sichtbar und ohne Warten starten (ein verstecktes Rueckfrage-Fenster wuerde sonst alles blockieren),
     # 10 Min ueberwachen, einmal wiederholen, und selbst neu starten, sobald die Registry die neue Edition zeigt.
@@ -708,7 +784,7 @@ if ($IsHome) {
         # Edition steht schon in der Registry, Windows hat aber nicht selbst neu gestartet -> selbst neu starten
         Log ('Edition jetzt ' + $nowId + ' - Neustart durch HUPilot (shutdown /r /f /t 10)')
         Protokoll ('EDITION: jetzt ' + $nowId + ', Neustart')
-        Write-Host '  Umgestellt - Neustart in 10 s. Danach Shift+F10 und D:\go' -ForegroundColor Green
+        Banner 'UMGESTELLT  -  NEUSTART IN 10 s' 'DarkBlue' (@('') + (Get-EndLines 'ProNeustart'))
         Start-Process -FilePath (Get-SysExe 'shutdown.exe') -ArgumentList '/r', '/f', '/t', '10' -WindowStyle Hidden
         Start-Sleep -Seconds 60
         exit 0
@@ -738,7 +814,7 @@ if ($DoReset) {
             'Beim Zurücksetzen gehen ALLE Daten auf dem Gerät verloren.',
             'Zum Fortfahren  LÖSCHEN  eintippen, sonst nur Enter (Abbruch).')
         $a = Read-Line '  Eingabe'
-        if ($a -cne 'LÖSCHEN' -and $a -cne 'LOESCHEN') { Log 'Abbruch: Gerät hat Benutzerdaten'; Protokoll 'ABBRUCH: Benutzerdaten vorhanden'; exit 1 }
+        if ($a -cne 'LÖSCHEN' -and $a -cne 'LOESCHEN') { Log 'Abbruch: Gerät hat Benutzerdaten'; Protokoll 'ABBRUCH: Benutzerdaten vorhanden'; Stop-ByUser 'Das Gerät ist schon eingerichtet, LÖSCHEN wurde nicht eingetippt.' }
         Log 'Benutzerdaten-Warnung mit LÖSCHEN bestätigt'
         try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
     }
@@ -999,7 +1075,7 @@ else {
     Write-Host '  Das Gerät würde nach dem Upload vergeblich auf ein Profil warten.' -ForegroundColor Yellow
     Write-Host '  [A] Abbrechen   -   [Enter] trotzdem hochladen' -ForegroundColor Yellow
     $k = Read-KeyTimeout 20 'ohne Eingabe: trotzdem hochladen' -Valid 'A'
-    if ($k -eq 'A') { Log 'Abbruch: kein Profil für Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; exit 1 }
+    if ($k -eq 'A') { Log 'Abbruch: kein Profil für Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; Stop-ByUser ('Für den Tag ' + $cfg.GroupTag + ' gibt es kein Autopilot-Profil, mit A abgebrochen.') }
 }
 
 # ---------- Benutzer pruefen (optional User.Read.All) ----------
@@ -1131,7 +1207,7 @@ if ($ap) {
                 Write-Host '  Das Gerät würde vergeblich auf ein Profil warten (Tippfehler in der CSV?).' -ForegroundColor Yellow
                 Write-Host '  [A] Abbrechen   -   [Enter] trotzdem weiter' -ForegroundColor Yellow
                 $k2 = Read-KeyTimeout 20 'ohne Eingabe: trotzdem weiter' -Valid 'A'
-                if ($k2 -eq 'A') { Log 'Abbruch: kein Profil für behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; exit 1 }
+                if ($k2 -eq 'A') { Log 'Abbruch: kein Profil für behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; Stop-ByUser ('Für den vorhandenen Tag ' + $cfg.GroupTag + ' gibt es kein Autopilot-Profil, mit A abgebrochen.') }
             }
         }
         Write-Host ''
@@ -1393,11 +1469,7 @@ if (-not $DoReset) {
             else { Log ('WLAN-Paket NICHT installiert, provtool Exitcode ' + $(if ($pr) { $pr.ExitCode } else { '-' })); Say 'WLAN-Paket konnte nicht installiert werden' 'Yellow' }
         }
     }
-    Banner 'OK  -  HOCHGELADEN  -  STICK ABZIEHEN' 'DarkGreen' @(
-        '',
-        ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
-        ('Warte auf das Autopilot-Profil (max. ' + $ProfileWaitMin + ' Min).'),
-        'Fenster offen lassen.')
+    Banner 'OK  -  HOCHGELADEN  -  STICK ABZIEHEN' 'DarkGreen' (@('', ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })), '') + (Get-EndLines 'UploadWarten'))
     Show-Step 5 'Profil'
     # Im Einrichtungsbildschirm (OOBE) reicht ein Neustart: Windows holt das Autopilot-Profil bei jedem Neustart neu
     # (MS Doku: learn.microsoft.com/autopilot/troubleshooting-faq "How are Windows Autopilot device profiles downloaded?").
@@ -1421,9 +1493,7 @@ if (-not $DoReset) {
         $shown = $false
         while ((Test-Path -LiteralPath ($stickRoot + '\')) -and (Get-Mono) -lt $wait) {
             if (-not $shown) {
-                Banner 'PROFIL DA  -  JETZT STICK ABZIEHEN' 'DarkYellow' @(
-                    '',
-                    'Stick abziehen - dann startet das Gerät von selbst neu.')
+                Banner 'PROFIL DA  -  JETZT STICK ABZIEHEN' 'DarkYellow' (@('') + (Get-EndLines 'UploadStickAbziehen'))
                 $shown = $true
             }
             Wait-Live 2 'Warte, bis der Stick abgezogen ist' $t0 300 ''
@@ -1431,18 +1501,13 @@ if (-not $DoReset) {
         Complete-Live
         if (Test-Path -LiteralPath ($stickRoot + '\')) {
             Log 'Stick nach 5 Min noch gesteckt - kein automatischer Neustart'
-            Banner 'PROFIL DA  -  NEUSTART VON HAND' 'DarkYellow' @(
-                '',
-                'Stick abziehen, dann Gerät neu starten.')
+            Banner 'PROFIL DA  -  NEUSTART VON HAND' 'DarkYellow' (@('') + (Get-EndLines 'UploadNeustartVonHand'))
             Wait-Close
             exit 0
         }
-        Banner 'OK  -  PROFIL DA  -  NEUSTART IN 15 s' 'DarkGreen' @(
-            '',
-            'Danach kommt die Schul-Anmeldung.',
-            '[A] = nicht neu starten')
+        Banner 'OK  -  PROFIL DA  -  NEUSTART IN 15 s' 'DarkGreen' (@('') + (Get-EndLines 'UploadNeustart'))
         $k = Read-KeyTimeout 15 'Neustart' -Valid 'A'
-        if ($k -eq 'A') { Log 'Neustart abgebrochen'; Wait-Close; exit 0 }
+        if ($k -eq 'A') { Log 'Neustart abgebrochen'; Stop-ByUser '' 'NeustartAbgebrochen' 0 }
         # /f: offene Programme (z. B. "Program Manager" im OOBE) duerfen den Neustart nicht blockieren
         Log 'Neustart (shutdown /r /f /t 0)'
         Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\shutdown.exe') -ArgumentList '/r', '/f', '/t', '0' -WindowStyle Hidden
@@ -1450,26 +1515,16 @@ if (-not $DoReset) {
     }
     if ($wr.Assigned) {
         Log ('Nur Upload: Profil zugewiesen: ' + $wr.Profil)
-        Banner 'OK  -  PROFIL DA' 'DarkGreen' @(
-            '',
-            'Jetzt Gerät zurücksetzen:',
-            'Einstellungen > System > Wiederherstellung > PC zurücksetzen')
+        Banner 'OK  -  PROFIL DA' 'DarkGreen' (@('') + (Get-EndLines 'UploadFertig'))
     } else {
         Log ('Nur Upload: Profil nach Wartezeit NICHT sicher zugewiesen, letzter Status: ' + $wr.LastTxt)
-        Banner 'NOCH KEIN PROFIL' 'DarkYellow' @(
-            '',
-            'Upload ist fertig, das Profil fehlt noch.',
-            'Später nochmal D:\go starten.')
+        Banner 'NOCH KEIN PROFIL' 'DarkYellow' (@('') + (Get-EndLines 'UploadKeinProfil'))
     }
     Wait-Close
     exit 0
 }
 
-Banner 'OK  -  STICK ABZIEHEN  -  nächstes Gerät' 'DarkGreen' @(
-    '',
-    ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
-    'Gerät NICHT ausschalten.',
-    'Es setzt sich selbst zurück, sobald das Profil da ist.')
+Banner 'OK  -  STICK ABZIEHEN  -  nächstes Gerät' 'DarkGreen' (@('', ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })), '') + (Get-EndLines 'ResetWarten'))
 $GreenAt = Get-Mono
 
 # ---------- 5. Auf Profil warten ----------
@@ -1485,13 +1540,7 @@ while (-not $wr.Assigned) {
     $minSoFar = [int][math]::Round(((Get-Mono) - $GreenAt) / 60)
     if ($round -ge $ProfileRounds) {
         Protokoll ('ABBRUCH: kein Profil nach ' + $minSoFar + ' Min, nicht zurückgesetzt')
-        Banner 'NOCH KEIN PROFIL  -  NICHT ZURÜCKGESETZT' 'DarkYellow' @(
-            '',
-            ('Nach ' + $minSoFar + ' Minuten ist noch kein Autopilot-Profil da (letzter Stand: ' + $wr.LastTxt + ').'),
-            'Der Upload ist fertig, das Gerät bleibt im Einrichtungsbildschirm.',
-            '',
-            'Später: Stick rein, Shift+F10, D:\go  (Upload wird übersprungen).',
-            'Kommt das Profil nie: Admin fragen, ob für den Tag ein Profil zugewiesen ist.')
+        Banner 'NOCH KEIN PROFIL  -  NICHT ZURÜCKGESETZT' 'DarkYellow' (@('') + (Get-EndLines 'KeinProfilEnde' ('Der Upload ist fertig, aber nach ' + $minSoFar + ' Minuten ist noch kein Autopilot-Profil da (letzter Stand: ' + $wr.LastTxt + ').') 'Später Stick rein, Shift+F10, D:\go (Upload wird übersprungen), kommt das Profil nie: den Admin fragen.'))
         Wait-Close
         exit 1
     }
@@ -1504,7 +1553,7 @@ while (-not $wr.Assigned) {
         '[J]      trotzdem zurücksetzen, ohne Profil',
         '[N]      abbrechen, später nochmal D:\go')
     $k = Read-KeyTimeout 60 'ohne Eingabe: weiter warten' -Valid 'J', 'Y', 'N'
-    if ($k -eq 'N') { Log 'Abbruch durch Benutzer (kein Reset)'; Protokoll 'ABBRUCH: kein Profil, abgebrochen (N)'; exit 1 }
+    if ($k -eq 'N') { Log 'Abbruch durch Benutzer (kein Reset)'; Protokoll 'ABBRUCH: kein Profil, abgebrochen (N)'; Stop-ByUser 'Der Upload ist fertig, das Warten auf das Profil wurde mit N abgebrochen.' }
     if ($k -eq 'J' -or $k -eq 'Y') { Log 'Zurücksetzen OHNE Profil mit Taste J bestätigt'; break }
     $round++
     try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
@@ -1526,13 +1575,7 @@ $ErrorActionPreference = 'Continue'
 function Fail-Reset {
     param([string]$Msg)
     Log ('FEHLER Zurücksetzen: ' + $Msg)
-    Banner 'FEHLER beim Zurücksetzen' 'DarkRed' @(
-        '',
-        'Autopilot-Upload ist OK, nur das Zurücksetzen ist nicht gestartet.',
-        ('Grund: ' + $Msg),
-        ('Log: ' + $LocalLog + ' und ' + $WipeLog),
-        'Nochmal: Stick rein, Shift+F10, D:\go  (Upload wird übersprungen)',
-        'Diagnose zum Abfotografieren: D:\diag')
+    Banner 'FEHLER beim Zurücksetzen' 'DarkRed' (@('') + (Get-EndLines 'FehlerReset' ('Der Upload ist fertig, aber das Zurücksetzen ist nicht gestartet (' + $Msg.TrimEnd('.') + ').')) + @('', ('Log: ' + $LocalLog + ' und ' + $WipeLog)))
     Wait-Close
     exit 1
 }
@@ -1718,10 +1761,7 @@ if ($other.Count) {
     if ($RmOther) { Say ('Fremde Bereitstellungspakete werden entfernt: ' + ($other -join ', ')) 'Yellow' }
     else { Log ('Fremde Bereitstellungspakete bleiben (RemoveOtherPackages=false): ' + ($other -join ', ')) }
 }
-Banner 'ZURÜCKSETZEN STARTET' 'DarkBlue' @(
-    '',
-    'Hersteller-Anpassungen werden entfernt, dann setzt sich das Gerät zurück.',
-    'Danach kommt das Schul-Anmeldefenster (Autopilot).')
+Banner 'ZURÜCKSETZEN STARTET' 'DarkBlue' (@('') + (Get-EndLines $(if ($assigned) { 'ResetStart' } else { 'ResetStartOhneProfil' })))
 
 # 6c. Als SYSTEM starten (geplante Aufgabe) und auf Ergebnis warten
 $tn = 'HUPilot-Wipe'
@@ -1810,9 +1850,5 @@ Write-Host '  Zurücksetzen angenommen - Neustart folgt in Kürze.' -ForegroundC
 Wait-Live 900 'Warte auf Neustart' -1 0 ''
 Log 'Nach 15 Min kein Neustart - Zuruecksetzen hat nicht begonnen'
 Protokoll 'FEHLER: Zuruecksetzen nach 15 Min nicht begonnen'
-Banner 'ZURÜCKSETZEN NICHT GESTARTET' 'DarkRed' @(
-    '',
-    'Nach 15 Minuten kein Neustart.',
-    'Foto von diesem Bild an den Admin.',
-    ('Log: ' + $LocalLog + ' und ' + $WipeLog))
+Banner 'ZURÜCKSETZEN NICHT GESTARTET' 'DarkRed' (@('') + (Get-EndLines 'ResetNichtGestartet') + @('', ('Log: ' + $LocalLog + ' und ' + $WipeLog)))
 Wait-Close

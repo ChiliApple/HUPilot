@@ -231,3 +231,70 @@ Describe 'go: Ablauf und Sicherheit (Quelltext)' {
         $script:GoText | Should -Match 'if \(\$okCount -ge 2\) \{'
     }
 }
+
+Describe 'go: einheitliches Abschlussbild (drei Saetze)' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-GoFunctionText 'Split-NextStep', 'Get-EndText', 'Format-EndLines', 'Get-EndLines')))
+        $a = @($script:GoTop | Where-Object { $_ -isnot [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Extent.Text -match '^\$EndStates = @\(' })
+        $script:States = @(& ([scriptblock]::Create($a[0].Extent.Text + '; $EndStates')))
+        $script:Labels = 'Was ist passiert:', 'Was passiert jetzt:', 'Was musst du tun:'
+    }
+    It 'jeder Endzustand liefert alle drei Saetze' {
+        $script:States.Count | Should -BeGreaterThan 15
+        foreach ($s in $script:States) {
+            $e = Get-EndText $s
+            $e.Was | Should -Not -BeNullOrEmpty -Because $s
+            $e.Jetzt | Should -Not -BeNullOrEmpty -Because $s
+            $e.Tun | Should -Not -BeNullOrEmpty -Because $s
+        }
+    }
+    It 'jeder Zustand, der im Code vorkommt, ist in der Liste' {
+        $used = @([regex]::Matches($script:GoText, "Get-EndLines '([A-Za-z]+)'") | ForEach-Object { $_.Groups[1].Value }) + @('ResetStart', 'ResetStartOhneProfil', 'NeustartAbgebrochen', 'Abbruch')
+        foreach ($u in ($used | Sort-Object -Unique)) { $script:States | Should -Contain $u }
+    }
+    It 'Rot heisst nicht zurueckgesetzt' {
+        foreach ($s in 'Fehler', 'FehlerReset', 'ResetNichtGestartet') { (Get-EndText $s).Jetzt | Should -Match 'nicht zurückgesetzt' }
+        foreach ($b in @($script:GoAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Banner' -and $n.Extent.Text -match "'DarkRed'" }, $true))) {
+            $b.Extent.Text | Should -Match 'NICHT ZURÜCKGESETZT|FEHLER|NICHT GESTARTET|SCHON EINGERICHTET'
+        }
+    }
+    It 'eigener Text ersetzt Was und Tun, Jetzt bleibt' {
+        $e = Get-EndText 'Fehler' 'Grund X.' 'Mach Y.'
+        $e.Was | Should -Be 'Grund X.'; $e.Tun | Should -Be 'Mach Y.'
+        $e.Jetzt | Should -Match 'nicht zurückgesetzt'
+    }
+    It 'umbricht fuer schmale Konsole, alle drei Ueberschriften da' {
+        foreach ($s in $script:States) {
+            $l = @(Format-EndLines (Get-EndText $s) 40)
+            foreach ($x in $script:Labels) { $l | Should -Contain $x }
+            foreach ($x in $l) { ('  ' + $x).Length | Should -BeLessOrEqual 40 -Because "$s : $x" }
+        }
+        $l = @(Format-EndLines @{ Was = ('A' * 90); Jetzt = 'kurz'; Tun = 'x' } 40)
+        foreach ($x in $l) { ('  ' + $x).Length | Should -BeLessOrEqual 40 }
+    }
+    It 'Fehlertext wird in Ursache und naechsten Schritt geteilt' {
+        $r = Split-NextStep 'Die Seriennummer des Geräts ist nicht lesbar (BIOS). Gerät neu starten, dann nochmal D:\go.'
+        $r[0] | Should -Be 'Die Seriennummer des Geräts ist nicht lesbar (BIOS).'
+        $r[1] | Should -Be 'Gerät neu starten, dann nochmal D:\go.'
+        (Split-NextStep 'Windows "X Home" geht nicht (auch Education, Enterprise). Umstellung auf Pro wurde abgelehnt. Zum Umstellen nochmal D:\go und J drücken.')[1] | Should -Be 'Zum Umstellen nochmal D:\go und J drücken.'
+        (Split-NextStep 'Kein Internet nach 2 Min (WLAN prüfen)')[1] | Should -Be ''
+    }
+    It 'jeder rote Abbruch nennt einen naechsten Schritt' {
+        $calls = @($script:GoAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Fail' }, $true))
+        $calls.Count | Should -BeGreaterThan 25
+        foreach ($c in $calls) {
+            $ok = ($c.CommandElements.Count -ge 3) -or ($c.Extent.Text -match '\. (Am PC|Gerät neu starten|Einige Minuten|Nochmal|Zum |Admin:|Foto|Später|Stick neu|Für die Umstellung)')
+            $ok | Should -BeTrue -Because ('Zeile ' + $c.Extent.StartLineNumber)
+        }
+    }
+    It 'alle Schlussbilder zeigen die drei Saetze, Abbrueche durch den Benutzer auch' {
+        $frage = 'NETZTEIL ANSTECKEN', 'GERÄT IST SCHON EINGERICHTET', 'WLAN-PAKET VON INTUNE GESPERRT'
+        foreach ($b in @($script:GoAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Banner' }, $true))) {
+            $title = [string]$b.CommandElements[1].Extent.Text
+            if (@($frage | Where-Object { $title -match [regex]::Escape($_) }).Count) { continue }
+            if ($title -eq "'NOCH KEIN PROFIL'" -and $b.Extent.Text -match '\[J\]') { continue }   # Frage weiter warten / J / N
+            $b.Extent.Text | Should -Match 'Get-EndLines' -Because $title
+        }
+        $script:GoText | Should -Not -Match "ABBRUCH[^\r\n]*; exit 1 \}"
+    }
+}
