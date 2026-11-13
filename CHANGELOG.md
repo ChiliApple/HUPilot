@@ -79,6 +79,12 @@
 - **Öffnet sofort:** Fortschritt beim Laden mit grünem Punkt.
 - **Details als Fenster:** alle Angaben zum Gerät, der ganze Verlauf vom Stick und ein Knopf "Kopieren".
 - **Neue Aktionen mit Rückfrage:** "Tag ändern" für markierte Geräte und "Autopilot-Sync anstoßen". Läuft der Sync schon, kommt ein Hinweis statt eines Fehlers.
+- **Behoben: Ausdruck mit zerrissenen Wörtern:** Passte die Tabelle nicht auf die Seite, wurden alle Spalten gequetscht und der Text brach mitten im Wort um. Jetzt fallen leere Spalten weg, dann wird die Schrift kleiner (bis 6,5 pt), erst danach dürfen "Was tun" und "Benutzer" umbrechen, an Wortgrenzen bzw. in der Mailadresse. Alle anderen Spalten und die Kopfzeile bleiben einzeilig.
+  - Querformat ist im Druckdialog vorgewählt. Gerechnet wird mit dem Papier und der Ausrichtung, die nach dem Dialog wirklich gelten.
+  - Auf A4 quer passen bei einzeiligen Zeilen gut 35 Geräte auf eine Seite. Kopfzeile auf jeder Seite, unten "Seite x von y".
+  - Nur die Zelle "Stand" ist eingefärbt, die Zeilen sind weiß bzw. leicht grau abwechselnd, auch schwarzweiß gut lesbar.
+  - Das Protokoll nennt nach dem Druck Seiten, Ausrichtung, Schriftgröße und welche Spalten weggelassen oder umbrochen wurden.
+- **Excel druckt auf Seitenbreite:** Die Einstellung "auf eine Seite breit" wirkt jetzt wirklich. Leere Spalten bleiben in der Excel-Datei.
 
 ### 💾 Hashes importieren
 - **Schließen während des Imports:** fragt nach und bricht sauber ab. Schon importierte Geräte bleiben, erledigte Zeilen werden noch verschoben.
@@ -108,7 +114,7 @@
 - Paketbau mit auf den Stick: Das Setup kennt nur ICD 10.0.28000.1. Eine neuere ICD-Version wird abgelehnt, bis HUPilot sie kennt, weil ein Teil ihrer Programmdateien schon im Original nicht signiert ist.
 
 ### ✅ Qualität
-- 150 automatische Tests.
+- 153 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung

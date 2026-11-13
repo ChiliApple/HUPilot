@@ -1080,3 +1080,77 @@ Describe 'Setup: Info-Fenster' {
         $b | Should -Match 'Nutzungslizenz - siehe LICENSE'
     }
 }
+
+Describe 'Setup: Druck der Status-Liste' {
+    It 'Layout: leere Spalten weg, Schrift kleiner statt Spalten quetschen, Umbruch nur in Was tun und Benutzer' {
+        $fn = @($script:SetupAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -in 'Get-PrintLayout', 'Get-PrintBreakText', 'New-StatusPrintDoc' } | ForEach-Object { $_.Extent.Text }) -join "`n"
+        $calc = {
+            param($fnText)
+            Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            . ([scriptblock]::Create($fnText))
+            $script:PrintCellPad = 8.0
+            $script:StandClass = @{ 'Fertig' = 'ok' }
+            $cols = 'Stand', 'WasTun', 'Seriennr', 'Tag', 'Name', 'Benutzer', 'RegDatum', 'LetzterKontakt', 'LetzterSync', 'Modell', 'Profil', 'Intune', 'HUPilot'
+            $heads = 'Stand', 'Was tun', 'Seriennummer', 'Tag', 'Gerätename', 'Benutzer', 'Registriert', 'Letzter Kontakt', 'Letzter Sync', 'Modell', 'Profil', 'Intune', 'Stick-Protokoll'
+            $names = @('MUSTERMANN.Maximilian', 'NACHNAME.Vorname', 'OBERHOFER-STEINBERGER.Johanna')
+            $rows = foreach ($i in 1..80) { [pscustomobject]@{ Stand = 'Fertig'; WasTun = 'Nichts, das Gerät ist fertig.'; Seriennr = 'SN26-PF5W4LQA'; Tag = 'SN-2026'; Name = 'SN26-PF5W4LQA'; Benutzer = ($names[$i % 3] + '@example.org'); RegDatum = '12.11.2026 12:43'; LetzterKontakt = '12.11.2026 13:13'; LetzterSync = '12.11.2026 13:43'; Modell = '82YT'; Profil = 'zugewiesen'; Intune = 'registriert'; HUPilot = '' } }
+            $out = @{}
+            $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
+            foreach ($case in @(@('quer', (297 / 25.4 * 96), (210 / 25.4 * 96)), @('hoch', (210 / 25.4 * 96), (297 / 25.4 * 96)))) {
+                $avail = $case[1] - 76
+                $L = Get-PrintLayout $rows $cols $heads $avail
+                # gemessener Inhalt der einzeiligen Spalten bei der verwendeten Schrift
+                $tfN = New-Object System.Windows.Media.Typeface($font, 'Normal', 'Normal', 'Normal'); $tfB = New-Object System.Windows.Media.Typeface($font, 'Normal', 'Bold', 'Normal')
+                $tooSmall = @()
+                for ($i = 0; $i -lt $L.Cols.Count; $i++) {
+                    $c = $L.Cols[$i]; if ($L.Wrapped -contains $c) { continue }
+                    $m = (New-Object System.Windows.Media.FormattedText($L.Headers[$i], [Globalization.CultureInfo]::CurrentCulture, 'LeftToRight', $tfB, $L.Dip, [System.Windows.Media.Brushes]::Black)).WidthIncludingTrailingWhitespace
+                    foreach ($r in $rows) { $x = (New-Object System.Windows.Media.FormattedText([string]$r.$c, [Globalization.CultureInfo]::CurrentCulture, 'LeftToRight', $tfN, $L.Dip, [System.Windows.Media.Brushes]::Black)).WidthIncludingTrailingWhitespace; if ($x -gt $m) { $m = $x } }
+                    if ($L.Widths[$i] -lt $m + 8) { $tooSmall += $c }
+                }
+                $pr = New-StatusPrintDoc -Rows $rows -Cols $cols -Headers $heads -Title 'T' -Sub 'S' -PageW $case[1] -PageH $case[2]
+                $out[$case[0]] = @{ Pt = $L.Pt; Sum = (($L.Widths | Measure-Object -Sum).Sum * $L.Scale); Avail = $avail; Dropped = ($L.Dropped -join ','); Wrapped = ($L.Wrapped -join ','); TooSmall = ($tooSmall -join ','); PerPage = $pr.PerPage; Pages = $pr.Pages; DocPages = $pr.Doc.Pages.Count }
+            }
+            $out | ConvertTo-Json -Compress
+        }
+        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') { $res = "$(& $calc $fn)" }
+        else {
+            $rs = [runspacefactory]::CreateRunspace(); $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
+            try { $ps = [powershell]::Create(); $ps.Runspace = $rs; [void]$ps.AddScript($calc).AddArgument($fn); $res = "$(@($ps.Invoke())[-1])"; if ($ps.Streams.Error.Count) { throw $ps.Streams.Error[0] } } finally { $rs.Close() }
+        }
+        $o = $res | ConvertFrom-Json
+        # A4 quer: alles einzeilig, 6,5 bis 8 pt, leere Spalte weg, deutlich mehr als 20 Geraete je Seite
+        $o.quer.Dropped | Should -Be 'HUPilot'
+        $o.quer.Wrapped | Should -Be ''
+        $o.quer.TooSmall | Should -Be ''
+        [double]$o.quer.Sum | Should -BeLessOrEqual ([double]$o.quer.Avail)
+        [double]$o.quer.Pt | Should -BeGreaterOrEqual 6.5
+        [int]$o.quer.PerPage | Should -BeGreaterThan 30
+        [int]$o.quer.DocPages | Should -Be ([int]$o.quer.Pages)
+        # A4 hoch: dieselbe Regelkette, nur Was tun und Benutzer duerfen umbrechen, nie breiter als die Seite
+        $o.hoch.Dropped | Should -Be 'HUPilot'
+        [double]$o.hoch.Pt | Should -Be 6.5
+        $o.hoch.TooSmall | Should -Be ''
+        @($o.hoch.Wrapped -split ',' | Where-Object { $_ -and $_ -notin 'WasTun', 'Benutzer' }).Count | Should -Be 0
+        [double]$o.hoch.Sum | Should -BeLessOrEqual ([double]$o.hoch.Avail + 0.5)
+    }
+    It 'Seite aus dem Druckauftrag nach dem Dialog, Querformat als Vorgabe, Seitenzahl in der Fusszeile' {
+        $script:SetupText | Should -Match '\$pg = Get-PrintPage \$pd'
+        $script:SetupText | Should -Match '-PageW \$pg\.W -PageH \$pg\.H -Margin \$pg\.Margin'
+        $script:SetupText | Should -Match '\$pd\.PrintTicket\.PageOrientation = \[System\.Printing\.PageOrientation\]::Landscape'
+        $script:SetupText | Should -Match "'Seite ' \+ \(\`$p \+ 1\) \+ ' von ' \+ \`$pages\.Count"
+        $script:SetupText | Should -Match '\$cap = \$Pd\.PrintQueue\.GetPrintCapabilities\(\$tk\)'
+        # Excel: fitToWidth wirkt nur mit fitToPage, leere Spalten bleiben (keine Auslassung im Export)
+        $script:SetupText | Should -Match '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+        [regex]::Match($script:SetupText, '(?s)function Export-StatusXlsx.*?\r?\n\}\r?\n').Value | Should -Not -Match 'Dropped'
+    }
+    It 'Zustandstext neben dem Hauptknopf wird nach dem Paketbau-Abgleich zurueckgesetzt, Fortschritt bis 100 %' {
+        $c = [regex]::Match($script:SetupText, '(?s)function Copy-IcdToStick.*?\r?\n\}\r?\n').Value
+        $c | Should -Match 'finally \{'
+        $c | Should -Match 'Set-ReadyText \$prev\.Text'
+        $script:SetupText | Should -Match "if \(\`$n % 10 -eq 0 -or \`$n -eq \`$all\) \{ Set-ReadyText \('Prüfe Paketbau "
+        # Sticks vorbereiten: nach dem Einlesen nichts markiert, Fokus nicht auf der Liste
+        $script:SetupText | Should -Match 'if \(-not @\(\$k\.Keep\)\.Count\) \{ \$g\.lSticks\.SelectedIndex = -1 \}'
+        $script:SetupText | Should -Match '\[void\]\$g\.tLabel\.Focus\(\)'
+    }
+}

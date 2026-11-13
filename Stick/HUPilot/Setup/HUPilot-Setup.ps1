@@ -1010,7 +1010,7 @@ function Update-ReadyLabel {
 }
 # Kurzer Text rechts neben dem Hauptknopf (eine Zeile, Rest im Tooltip). $Color: Farbschluessel, $Tip: ganzer Text fuer den Tooltip
 function Set-ReadyText([string]$Text, [string]$Color = 'HuText', [string]$Tip = '') {
-    $ui.tReady.Text = $Text
+    $ui.tReady.Text = $Text; $script:ReadyColor = $Color
     try { $ui.tReady.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $Color) } catch { }
     $ui.tReady.ToolTip = $(if ($Tip) { $Tip } else { $Text })
 }
@@ -1286,7 +1286,9 @@ function Show-PrepSticks {
         $k = Get-PrepKeep $selKeys $newKeys
         $g.lSticks.Items.Clear()
         $script:PrepList = $new
+        $g.lSticks.UnselectAll()
         foreach ($st in $new) { [void]$g.lSticks.Items.Add($st.Text); if ($k.Keep -contains (Get-PrepKey $st)) { [void]$g.lSticks.SelectedItems.Add($st.Text) } }
+        if (-not @($k.Keep).Count) { $g.lSticks.SelectedIndex = -1 }
         foreach ($d in $k.Dropped) { & $plog ('Markierung für ' + ($d -split '\|')[0] + ': entfernt, der Stick ist nicht mehr da oder ein anderer.') 'Hinweis' }
         if ($Auto) {
             foreach ($st in @($new | Where-Object { $oldKeys -notcontains (Get-PrepKey $_) })) { & $plog ('Stick ' + $st.Letter + ': erkannt') }
@@ -1354,6 +1356,8 @@ function Show-PrepSticks {
     })
     $pst.Sig = & $prepSig; & $scan $false
     if (-not $SmokeTest) { $pw.Add_ContentRendered({ $ptm.Start() }) }
+    # Fokus auf das Namensfeld, nicht auf die Liste (keine Zeile darf wie ausgewaehlt aussehen)
+    $pw.Add_ContentRendered({ try { [void]$g.tLabel.Focus() } catch { } })
     $pw.Add_Closing({
         param($s, $e)
         if ($pst.Busy) { $e.Cancel = $true; [void][System.Windows.MessageBox]::Show($pw, 'Der Durchgang läuft noch. Bitte warten, bis alle gewählten Sticks fertig sind.', 'HUPilot - Sticks vorbereiten', 'OK', 'Information') }
@@ -2142,7 +2146,7 @@ function Copy-IcdTree([string]$FromX86, [string]$TargetHU, [string]$Ver, [string
         $man | Add-Member -NotePropertyName From -NotePropertyValue $FromX86
         # Pruefliste als LETZTE Datei: eine abgebrochene Kopie gilt nie als vorhanden
         [System.IO.File]::WriteAllText((Join-Path $stage 'HUPilot-ICD.json'), ($man | ConvertTo-Json -Depth 4), $enc)
-        $chk = @(Test-IcdCopy $sx86 (Join-Path $stage 'HUPilot-ICD.json') -Tick { param($n, $all) if ($n % 10 -eq 0) { Set-ReadyText ('Prüfe Paketbau ' + [math]::Floor(100 * $n / [math]::Max(1, $all)) + ' % ...'); Step-Ui } })
+        $chk = @(Test-IcdCopy $sx86 (Join-Path $stage 'HUPilot-ICD.json') -Tick { param($n, $all) if ($n % 10 -eq 0 -or $n -eq $all) { Set-ReadyText ('Prüfe Paketbau ' + [math]::Floor(100 * $n / [math]::Max(1, $all)) + ' % ...'); Step-Ui } })
         if ($chk.Count) { throw ('Prüfung der Kopie nicht bestanden: ' + (@($chk | Select-Object -First 8) -join '; ')) }
         if ([System.IO.Directory]::Exists($tRoot)) { [System.IO.Directory]::Move($tRoot, $oldDir) }
         [System.IO.Directory]::Move($stage, $tRoot)
@@ -2186,9 +2190,20 @@ function Sync-IcdToTarget([string]$TargetHU, [bool]$On, [string]$Where, [bool]$S
     return $p.Action
 }
 # Kopie des Paketbaus auf einen Stick ($Dst = <Stick>\HUPilot), Teil von "5. Auf Stick kopieren" (Fehler machen den Stick nicht unbrauchbar)
+# Der Abgleich schreibt seinen Fortschritt in den Zustandstext neben dem Hauptknopf; danach steht dort wieder, was vorher
+# stand (bei "Stick fertig machen" der laufende Schritt, sonst "Bereit fuer ..."), auch bei Fehler oder Abbruch.
 function Copy-IcdToStick([string]$Dst, [bool]$With) {
+    $prev = $null
+    try { $prev = @{ Text = [string]$ui.tReady.Text; Tip = [string]$ui.tReady.ToolTip; Color = [string]$script:ReadyColor } } catch { }
     try { [void](Sync-IcdToTarget $Dst $With ('am Stick ' + [System.IO.Path]::GetPathRoot($Dst).TrimEnd('\')) $false) }
     catch { Out-Log 'Paketbau konnte nicht auf den Stick kopiert werden. Der Stick ist sonst fertig.' 'Fehler' $_.Exception.Message }
+    finally {
+        if ($prev) {
+            try {
+                if ($prev.Text) { Set-ReadyText $prev.Text $(if ($prev.Color) { $prev.Color } else { 'HuText' }) $prev.Tip } else { $script:HintDrive = '?'; Update-ReadyHint }
+            } catch { }
+        }
+    }
 }
 # Warnstufe fuer das Secret beim Kopieren: expired / soon (< 3 Tage) / ok / unknown
 function Get-SecretWarnLevel($EndUtc, $NowUtc) {
@@ -2845,6 +2860,7 @@ function Export-StatusXlsx {
     }
     $sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' +
         '<dimension ref="A1:' + $last + $rn + '"/>' +
         '<sheetViews><sheetView workbookViewId="0" tabSelected="1"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>' +
         '<sheetFormatPr defaultRowHeight="15"/><cols>' + $colsXml + '</cols>' +
@@ -2891,94 +2907,183 @@ function Export-StatusXlsx {
     } finally { $zip.Dispose() }
 }
 
-# Druckansicht der Status-Tabelle: Querformat, Spaltenbreite nach Inhalt (gemessen), Zeilen abwechselnd hinterlegt,
-# Spalte Stand eingefaerbt wie im Fenster. Passt die Tabelle nicht in die Breite, werden die Spalten anteilig verkleinert.
-function New-StatusPrintDoc {
-    param($Rows, [string[]]$Cols, [string[]]$Headers, [string]$Title, [string]$Sub, [double]$PageW, [double]$PageH)
-    if (-not $Headers -or $Headers.Count -ne $Cols.Count) { $Headers = $Cols }
-    $brush = { param($hex) $b = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex)); $b.Freeze(); $b }
-    $bHead = & $brush '#D9E1F2'; $bAlt = & $brush '#F3F3F3'; $bLine = & $brush '#C8C8C8'
-    $bStand = @{ ok = (& $brush '#DFF2E1'); warn = (& $brush '#FFF4CE'); err = (& $brush '#F8D7DA') }
-    $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
-    $size = 8.0 * 96 / 72
-    $pad = 36.0
-    $doc = New-Object System.Windows.Documents.FlowDocument
-    $doc.FontFamily = $font; $doc.FontSize = $size
-    $doc.TextAlignment = [System.Windows.TextAlignment]::Left
-    $doc.PagePadding = New-Object System.Windows.Thickness($pad)
-    $doc.PageWidth = $PageW; $doc.PageHeight = $PageH
-    $doc.ColumnWidth = $PageW; $doc.ColumnGap = 0
-    $h1 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($Title))
-    $h1.FontSize = 11.0 * 96 / 72; $h1.FontWeight = [System.Windows.FontWeights]::Bold; $h1.Margin = New-Object System.Windows.Thickness(0, 0, 0, 2)
-    $doc.Blocks.Add($h1)
-    $h2 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($Sub))
-    $h2.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
-    $doc.Blocks.Add($h2)
+# ---------- Druck der Status-Liste ----------
+# Layout fuer die Seitenbreite $AvailW (WPF-Einheiten, 1/96 Zoll). Regelkette, wenn die Tabelle nicht passt:
+#   (a) Spalten ohne jeden Inhalt weglassen, (b) Schrift in Schritten von 8 bis 6,5 pt verkleinern,
+#   (c) erst dann duerfen die Spalten $Wrap ("Was tun", "Benutzer") umbrechen: an Wortgrenzen, die Mailadresse vor dem
+#   at-Zeichen und, falls noetig, nach Punkt und Bindestrich im Namen. Reicht auch das nicht (sehr schmale Seite), wird die
+#   ganze Tabelle gleichmaessig verkleinert (Scale), nie eine einzelne Spalte unter ihren Inhalt gequetscht.
+#   Alle anderen Spalten und alle Kopfzeilen bleiben einzeilig. Breite = gemessener Text (Kopf fett) plus Zellabstand.
+# Rueckgabe: Pt, Dip, Cols, Headers, Widths, Dropped, Wrapped (Spalten, die umbrechen), Fits (Summe <= $AvailW)
+$script:PrintCellPad = 8.0
+function Get-PrintLayout($Rows, [string[]]$Cols, [string[]]$Headers, [double]$AvailW, [string[]]$Wrap = @('WasTun', 'Benutzer')) {
     $Rows = @($Rows)
+    if (-not $Headers -or $Headers.Count -ne $Cols.Count) { $Headers = $Cols }
+    $keep = @(); $kh = @(); $dropped = @()
+    for ($i = 0; $i -lt $Cols.Count; $i++) {
+        $c = $Cols[$i]
+        if (@($Rows | Where-Object { [string]$_.$c }).Count) { $keep += $c; $kh += $Headers[$i] } else { $dropped += $c }
+    }
+    $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
     $tfN = New-Object System.Windows.Media.Typeface($font, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
     $tfB = New-Object System.Windows.Media.Typeface($font, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Bold, [System.Windows.FontStretches]::Normal)
     $ci = [Globalization.CultureInfo]::CurrentCulture
-    $measure = { param($t, $tf) (New-Object System.Windows.Media.FormattedText([string]$t, $ci, [System.Windows.FlowDirection]::LeftToRight, $tf, $size, [System.Windows.Media.Brushes]::Black)).WidthIncludingTrailingWhitespace }
-    $cellPad = 10.0
-    $wid = @()
-    for ($ix = 0; $ix -lt $Cols.Count; $ix++) {
-        $c = $Cols[$ix]
-        $m = & $measure $Headers[$ix] $tfB
-        foreach ($r in $Rows) { $v = [string]$r.$c; if ($v) { $x = & $measure $v $tfN; if ($x -gt $m) { $m = $x } } }
-        $wid += ($m + $cellPad + 2)
-    }
-    $avail = $PageW - 2 * $pad - 2
-    $sum = ($wid | Measure-Object -Sum).Sum
-    $f = $(if ($sum -gt $avail) { $avail / $sum } else { 1.0 })
-    $mkCell = {
-        param($t, $bold, $bg, $bottom)
-        $p = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run([string]$t))
-        $p.Margin = New-Object System.Windows.Thickness(0)
-        $cell = New-Object System.Windows.Documents.TableCell($p)
-        $cell.Padding = New-Object System.Windows.Thickness(($cellPad / 2), 1.5, ($cellPad / 2), 1.5)
-        if ($bold) { $cell.FontWeight = [System.Windows.FontWeights]::Bold }
-        if ($bg) { $cell.Background = $bg }
-        $cell.BorderBrush = $bLine; $cell.BorderThickness = New-Object System.Windows.Thickness(0, 0, 0, $bottom)
-        $cell
-    }
-    # Kopfzeile auf jeder Seite: je Seite eine eigene Tabelle mit Kopf, Zeilen pro Seite aus der Zeilenhoehe berechnet
-    $lineH = $font.LineSpacing * $size
-    $rowH = $lineH + 3.5
-    $bodyH = $PageH - 2 * $pad
-    $titleH = $font.LineSpacing * $h1.FontSize + 2 + $lineH + 8
-    $per1 = [math]::Max(5, [int][math]::Floor(($bodyH - $titleH - $rowH) / $rowH) - 1)
-    $perN = [math]::Max(5, [int][math]::Floor(($bodyH - $rowH) / $rowH) - 1)
-    $i = 0; $first = $true
-    do {
-        $n = $(if ($first) { $per1 } else { $perN })
-        $tbl = New-Object System.Windows.Documents.Table
-        $tbl.CellSpacing = 0
-        $tbl.Margin = New-Object System.Windows.Thickness(0)
-        foreach ($x in $wid) { $tc = New-Object System.Windows.Documents.TableColumn; $tc.Width = New-Object System.Windows.GridLength([math]::Floor($x * $f)); $tbl.Columns.Add($tc) }
-        $rg = New-Object System.Windows.Documents.TableRowGroup
-        $hr = New-Object System.Windows.Documents.TableRow
-        foreach ($hd in $Headers) { $hr.Cells.Add((& $mkCell $hd $true $bHead 1.0)) }
-        $rg.Rows.Add($hr)
-        $end = [math]::Min($Rows.Count, $i + $n)
-        for (; $i -lt $end; $i++) {
-            $r = $Rows[$i]
-            $tr = New-Object System.Windows.Documents.TableRow
-            if ($i % 2 -eq 1) { $tr.Background = $bAlt }
-            foreach ($c in $Cols) {
-                $v = [string]$r.$c; $bg = $null
-                if ($c -eq 'Stand' -and $script:StandClass.ContainsKey($v)) { $bg = $bStand[$script:StandClass[$v]] }
-                $tr.Cells.Add((& $mkCell $v $false $bg 0.5))
+    $meas = { param($t, $tf, $dip) if (-not $t) { 0.0 } else { (New-Object System.Windows.Media.FormattedText([string]$t, $ci, [System.Windows.FlowDirection]::LeftToRight, $tf, $dip, [System.Windows.Media.Brushes]::Black)).WidthIncludingTrailingWhitespace } }
+    $air = $script:PrintCellPad + 3
+    $res = $null
+    foreach ($pt in @(8.0, 7.5, 7.0, 6.5)) {
+        $dip = $pt * 96 / 72
+        $full = @(); $minW = @()
+        for ($i = 0; $i -lt $keep.Count; $i++) {
+            $c = $keep[$i]
+            $h = & $meas $kh[$i] $tfB $dip
+            $m = $h; $mw = $h
+            foreach ($r in $Rows) {
+                $v = [string]$r.$c
+                if (-not $v) { continue }
+                $x = & $meas $v $tfN $dip; if ($x -gt $m) { $m = $x }
+                if ($Wrap -contains $c) {
+                    # kleinste Breite beim Umbruch: laengstes Wort, die Mailadresse wird vor dem at-Zeichen getrennt
+                    foreach ($w in @((Get-PrintBreakText $c $v) -split '[\s\u200B]+')) { $y = & $meas $w $tfN $dip; if ($y -gt $mw) { $mw = $y } }
+                }
             }
-            $rg.Rows.Add($tr)
+            $full += [math]::Ceiling($m + $air); $minW += [math]::Ceiling($mw + $air)
         }
-        $tbl.RowGroups.Add($rg)
-        $sec = New-Object System.Windows.Documents.Section
-        if (-not $first) { $sec.BreakPageBefore = $true }
-        $sec.Blocks.Add($tbl)
-        $doc.Blocks.Add($sec)
-        $first = $false
-    } while ($i -lt $Rows.Count)
-    return $doc
+        $sum = ($full | Measure-Object -Sum).Sum
+        $res = [pscustomobject]@{ Pt = $pt; Dip = $dip; Cols = $keep; Headers = $kh; Widths = $full; Dropped = $dropped; Wrapped = @(); Fits = ($sum -le $AvailW); Scale = 1.0 }
+        if ($sum -le $AvailW) { return $res }
+        if ($pt -gt 6.5) { continue }
+        # (c) bei 6,5 pt: nur die Umbruch-Spalten schmaler machen, anteilig, aber nie unter ihr laengstes Wort
+        $fixed = 0.0; $wrapIdx = @()
+        for ($i = 0; $i -lt $keep.Count; $i++) { if ($Wrap -contains $keep[$i]) { $wrapIdx += $i } else { $fixed += $full[$i] } }
+        $rest = $AvailW - $fixed
+        $wantSum = 0.0; foreach ($i in $wrapIdx) { $wantSum += $full[$i] }
+        $w2 = @($full)
+        $wrapped = @()
+        foreach ($i in $wrapIdx) {
+            $share = $(if ($wantSum -gt 0) { [math]::Floor($rest * $full[$i] / $wantSum) } else { $full[$i] })
+            $w2[$i] = [math]::Max($minW[$i], [math]::Min($full[$i], $share))
+            if ($w2[$i] -lt $full[$i]) { $wrapped += $keep[$i] }
+        }
+        $s2 = ($w2 | Measure-Object -Sum).Sum
+        $res = [pscustomobject]@{ Pt = $pt; Dip = $dip; Cols = $keep; Headers = $kh; Widths = $w2; Dropped = $dropped; Wrapped = $wrapped; Fits = ($s2 -le $AvailW); Scale = $(if ($s2 -gt $AvailW) { $AvailW / $s2 } else { 1.0 }) }
+    }
+    return $res
+}
+# Trennstellen fuer den Druck: in "Benutzer" vor dem at-Zeichen sowie nach Punkt und Bindestrich ein unsichtbarer Trennpunkt
+function Get-PrintBreakText([string]$Col, [string]$Text) {
+    if ($Col -ne 'Benutzer' -or -not $Text) { return $Text }
+    $z = [string][char]0x200B
+    return (($Text -replace '@', ($z + '@')) -replace '([.\-])', ('$1' + $z))
+}
+# Seitenweises Dokument (FixedDocument): Titel auf Seite 1, Kopfzeile auf jeder Seite, Zeilen je Seite aus der gemessenen
+# Zeilenhoehe, "Seite x von y" unten rechts. Nur die Zelle "Stand" ist eingefaerbt, die Zeilen weiss bzw. leicht abwechselnd.
+# Rueckgabe: Doc (FixedDocument), Layout, Pages, PerPage (Zeilen auf Seite 1)
+function New-StatusPrintDoc {
+    param($Rows, [string[]]$Cols, [string[]]$Headers, [string]$Title, [string]$Sub, [double]$PageW, [double]$PageH, [double]$Margin = 38)
+    $Rows = @($Rows)
+    $L = Get-PrintLayout $Rows $Cols $Headers ($PageW - 2 * $Margin)
+    $brush = { param($hex) $b = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex)); $b.Freeze(); $b }
+    $bHead = & $brush '#D9E1F2'; $bAlt = & $brush '#F5F5F5'; $bLine = & $brush '#C8C8C8'; $bBlack = [System.Windows.Media.Brushes]::Black
+    $bStand = @{ ok = (& $brush '#C8E6C9'); warn = (& $brush '#FFE9A8'); err = (& $brush '#F4C7CB') }
+    $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
+    $tw = ($L.Widths | Measure-Object -Sum).Sum
+    $mkText = {
+        param($t, [bool]$bold, [bool]$wrap, [double]$size)
+        $tb = New-Object System.Windows.Controls.TextBlock
+        $tb.Text = [string]$t; $tb.FontFamily = $font; $tb.FontSize = $size; $tb.Foreground = $bBlack
+        if ($bold) { $tb.FontWeight = [System.Windows.FontWeights]::Bold }
+        $tb.TextWrapping = $(if ($wrap) { [System.Windows.TextWrapping]::Wrap } else { [System.Windows.TextWrapping]::NoWrap })
+        $tb
+    }
+    # eine Tabellenzeile als Grid mit festen Spaltenbreiten; gemessen fuer die Seitenaufteilung
+    $mkRow = {
+        param($vals, [bool]$head, $bg, [string]$standClass)
+        $gr = New-Object System.Windows.Controls.Grid
+        $gr.Width = $tw
+        foreach ($w in $L.Widths) { $cd = New-Object System.Windows.Controls.ColumnDefinition; $cd.Width = New-Object System.Windows.GridLength($w); $gr.ColumnDefinitions.Add($cd) }
+        if ($bg) { $gr.Background = $bg }
+        # letzter Ausweg: ganze Tabelle gleichmaessig verkleinern
+        if ($L.Scale -lt 1.0) { $gr.LayoutTransform = New-Object System.Windows.Media.ScaleTransform($L.Scale, $L.Scale) }
+        for ($i = 0; $i -lt $L.Cols.Count; $i++) {
+            $c = $L.Cols[$i]
+            $t = [string]$vals[$i]
+            $wrap = (-not $head -and $L.Wrapped -contains $c)
+            # Mailadresse darf vor dem at-Zeichen (notfalls nach Punkt und Bindestrich) umbrechen, nur im Druck
+            if ($wrap) { $t = Get-PrintBreakText $c $t }
+            $bd = New-Object System.Windows.Controls.Border
+            $bd.Padding = New-Object System.Windows.Thickness(($script:PrintCellPad / 2), 1.5, ($script:PrintCellPad / 2), 1.5)
+            $bd.BorderBrush = $bLine; $bd.BorderThickness = New-Object System.Windows.Thickness(0, 0, 0, $(if ($head) { 1.0 } else { 0.5 }))
+            if ($head) { $bd.Background = $bHead }
+            elseif ($c -eq 'Stand' -and $standClass) { $bd.Background = $bStand[$standClass] }
+            $bd.Child = (& $mkText $t $head $wrap $L.Dip)
+            [System.Windows.Controls.Grid]::SetColumn($bd, $i)
+            [void]$gr.Children.Add($bd)
+        }
+        $gr.Measure((New-Object System.Windows.Size($tw, [double]::PositiveInfinity)))
+        $gr
+    }
+    $mkHead = { & $mkRow $L.Headers $true $null '' }
+    $titleBox = New-Object System.Windows.Controls.StackPanel
+    $t1 = & $mkText $Title $true $false (11.0 * 96 / 72); [void]$titleBox.Children.Add($t1)
+    $t2 = & $mkText $Sub $false $true (8.0 * 96 / 72); $t2.Margin = New-Object System.Windows.Thickness(0, 2, 0, 8); $t2.Width = $PageW - 2 * $Margin; [void]$titleBox.Children.Add($t2)
+    $titleBox.Measure((New-Object System.Windows.Size(($PageW - 2 * $Margin), [double]::PositiveInfinity)))
+    $footH = (8.0 * 96 / 72) * 1.6 + 6
+    $bodyH = $PageH - 2 * $Margin - $footH
+    $headH = (& $mkHead).DesiredSize.Height
+    # Seitenaufteilung aus den gemessenen Zeilenhoehen
+    $pages = New-Object System.Collections.ArrayList
+    $cur = New-Object System.Collections.ArrayList
+    $used = $titleBox.DesiredSize.Height + $headH
+    for ($i = 0; $i -lt $Rows.Count; $i++) {
+        $r = $Rows[$i]
+        $vals = @($L.Cols | ForEach-Object { [string]$r.$_ })
+        $sc = ''; $sv = [string]$r.Stand; if ($script:StandClass -and $script:StandClass.ContainsKey($sv)) { $sc = $script:StandClass[$sv] }
+        $row = & $mkRow $vals $false $(if ($i % 2 -eq 1) { $bAlt } else { $null }) $sc
+        $h = $row.DesiredSize.Height
+        if ($cur.Count -and $used + $h -gt $bodyH) { [void]$pages.Add($cur); $cur = New-Object System.Collections.ArrayList; $used = $headH }
+        [void]$cur.Add($row); $used += $h
+    }
+    [void]$pages.Add($cur)
+    $doc = New-Object System.Windows.Documents.FixedDocument
+    $doc.DocumentPaginator.PageSize = New-Object System.Windows.Size($PageW, $PageH)
+    for ($p = 0; $p -lt $pages.Count; $p++) {
+        $fp = New-Object System.Windows.Documents.FixedPage
+        $fp.Width = $PageW; $fp.Height = $PageH; $fp.Background = [System.Windows.Media.Brushes]::White
+        $sp = New-Object System.Windows.Controls.StackPanel
+        if ($p -eq 0) { [void]$sp.Children.Add($titleBox) }
+        [void]$sp.Children.Add((& $mkHead))
+        foreach ($row in $pages[$p]) { [void]$sp.Children.Add($row) }
+        [System.Windows.Documents.FixedPage]::SetLeft($sp, $Margin); [System.Windows.Documents.FixedPage]::SetTop($sp, $Margin)
+        [void]$fp.Children.Add($sp)
+        $ft = & $mkText ('Seite ' + ($p + 1) + ' von ' + $pages.Count) $false $false (8.0 * 96 / 72)
+        $ft.Width = $PageW - 2 * $Margin; $ft.TextAlignment = [System.Windows.TextAlignment]::Right
+        [System.Windows.Documents.FixedPage]::SetLeft($ft, $Margin); [System.Windows.Documents.FixedPage]::SetTop($ft, $PageH - $Margin - $footH + 6)
+        [void]$fp.Children.Add($ft)
+        $fp.Measure((New-Object System.Windows.Size($PageW, $PageH))); $fp.Arrange((New-Object System.Windows.Rect(0, 0, $PageW, $PageH))); $fp.UpdateLayout()
+        $pc = New-Object System.Windows.Documents.PageContent
+        ([System.Windows.Markup.IAddChild]$pc).AddChild($fp)
+        [void]$doc.Pages.Add($pc)
+    }
+    return [pscustomobject]@{ Doc = $doc; Layout = $L; Pages = $pages.Count; PerPage = $(if ($pages.Count) { $pages[0].Count } else { 0 }) }
+}
+# Seitengroesse und Rand NACH dem Druckdialog aus dem Druckauftrag (PrintTicket) und den Faehigkeiten des Druckers lesen.
+# Rueckgabe: W, H (ganze Seite, WPF-Einheiten), Margin, Landscape
+function Get-PrintPage($Pd) {
+    $w = [double]$Pd.PrintableAreaWidth; $h = [double]$Pd.PrintableAreaHeight; $land = ($w -gt $h); $mg = 38.0
+    try {
+        $tk = $Pd.PrintTicket
+        $ms = $tk.PageMediaSize
+        if ($ms -and $ms.Width -and $ms.Height) {
+            $w = [double]$ms.Width; $h = [double]$ms.Height
+            $land = ([string]$tk.PageOrientation -match 'Landscape')
+            if ($land -and $w -lt $h -or -not $land -and $w -gt $h) { $t = $w; $w = $h; $h = $t }
+        }
+        $cap = $Pd.PrintQueue.GetPrintCapabilities($tk)
+        $ia = $cap.PageImageableArea
+        if ($ia) { $mg = [math]::Max($mg, [math]::Ceiling([math]::Max($ia.OriginWidth, $ia.OriginHeight))) }
+    } catch { }
+    return [pscustomobject]@{ W = $w; H = $h; Margin = $mg; Landscape = $land }
 }
 
 # Details eines Geraets als eigenes Fenster: Felder in Klartext, Verlauf aus protokoll.csv, Kopieren, Schliessen
@@ -3438,6 +3543,7 @@ function Show-Status {
         $sst.Dialog = $true
         try {
             $pd = New-Object System.Windows.Controls.PrintDialog
+            # Querformat als Vorgabe im Dialog (wenn der Drucker es zulaesst); was am Ende gilt, liest Get-PrintPage nach dem Dialog
             try { Add-Type -AssemblyName System.Printing; $pd.PrintTicket.PageOrientation = [System.Printing.PageOrientation]::Landscape } catch { }
             if (-not $pd.ShowDialog()) { return }
             $flt = @()
@@ -3449,9 +3555,11 @@ function Show-Status {
             if ($g.cZeit.IsChecked) { $flt += ('letzte ' + [string]$g.cZeitSpan.SelectedItem + ' ' + [string]$g.cZeitBasis.SelectedItem) }
             if ($g.tFind.Text) { $flt += ('Suche "' + $g.tFind.Text + '"') }
             $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
-            $doc = New-StatusPrintDoc -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Title ('HUPilot - Status ' + (Get-Cfg).Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pd.PrintableAreaWidth -PageH $pd.PrintableAreaHeight
-            $pd.PrintDocument(([System.Windows.Documents.IDocumentPaginatorSource]$doc).DocumentPaginator, 'HUPilot-Status')
-            Out-Log 'Status gedruckt' 'OK'
+            # tatsaechliche Seite (Papier, Ausrichtung, Rand) erst nach dem Dialog lesen und danach rechnen
+            $pg = Get-PrintPage $pd
+            $pr = New-StatusPrintDoc -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Title ('HUPilot - Status ' + (Get-Cfg).Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pg.W -PageH $pg.H -Margin $pg.Margin
+            $pd.PrintDocument($pr.Doc.DocumentPaginator, 'HUPilot-Status')
+            Out-Log ('Status gedruckt: ' + $pr.Pages + ' Seite(n), ' + $(if ($pg.Landscape) { 'Querformat' } else { 'Hochformat' }) + ', Schrift ' + $pr.Layout.Pt + ' pt, bis ' + $pr.PerPage + ' Geräte je Seite') 'OK' ($(if (@($pr.Layout.Dropped).Count) { 'ohne leere Spalten: ' + (@($pr.Layout.Dropped) -join ', ') + '. ' } else { '' }) + $(if (@($pr.Layout.Wrapped).Count) { 'umbrochen: ' + (@($pr.Layout.Wrapped) -join ', ') } else { 'keine Spalte umbrochen' }))
         } catch { Out-Log 'Drucken fehlgeschlagen. Drucker prüfen und nochmal versuchen.' 'Fehler' $_.Exception.Message }
         finally { $sst.Dialog = $false }
     })
