@@ -19,7 +19,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.12'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.13'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -395,9 +395,138 @@ Say ('Zurücksetzen: ' + $(if ($DoReset) { 'JA' } else { 'NEIN - nur Upload' }))
 
 $os = Get-CimInstance Win32_OperatingSystem
 Say ('Windows      : ' + $os.Caption + ' ' + $os.Version)
-if ($os.Caption -notmatch 'Pro|Education|Enterprise') {
-    Fail ('Edition "' + $os.Caption + '" - Zurücksetzen per RemoteWipe nur mit Pro/Education/Enterprise')
+
+# ---------- Edition: Windows Home -> Pro (optional, config.json "EditionKey" = MAK fuer Pro) ----------
+# Ablauf: Rueckfrage -> Dienste starten -> changepk mit dem GENERISCHEN Pro-Schluessel (stellt nur die Edition um,
+# verbraucht keine Aktivierung) -> Windows startet neu -> D:\go erneut -> nach dem Netz MAK installieren + aktivieren.
+# Merkdatei (lokal + am Stick je Seriennummer) verhindert eine Schleife: nach einem Fehlversuch kein zweiter Versuch.
+# Im OOBE tat changepk mit dem MAK direkt nichts (Test 13.11.2026, Dienste vermutlich gestoppt) - daher dieser Weg.
+$EdKey = ([string]$cfg.EditionKey).Trim().ToUpper()
+if ($EdKey -and $EdKey -notmatch '^[A-Z0-9]{5}(-[A-Z0-9]{5}){4}$') { Fail 'config.json: EditionKey (MAK) hat nicht die Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX' }
+$EdMarkLocal = 'C:\Windows\Temp\HUPilot-Edition.json'
+$EdMarkStick = Join-Path $CfgDir ('logs\edition_' + $Serial + '.json')
+$EdMark = $null
+foreach ($f in $EdMarkLocal, $EdMarkStick) {
+    if (-not $EdMark -and (Test-Path -LiteralPath $f)) { try { $EdMark = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Log ('Merkdatei Edition nicht lesbar: ' + $f) } }
 }
+$EdId = ''
+try { $EdId = [string](Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction Stop).EditionID } catch { }
+Log ('EditionID: ' + $EdId)
+function Get-KeyTail([string]$Key) { if ($Key.Length -ge 5) { return '*****-' + $Key.Substring($Key.Length - 5) } return '' }
+function Hide-Key([string]$Text) {
+    # Schluessel nie ins Log: MAK und generische Schluessel durch die letzten 5 Zeichen ersetzen
+    if ($EdKey) { $Text = $Text.Replace($EdKey, (Get-KeyTail $EdKey)) }
+    return [regex]::Replace($Text, '[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}', { param($m) Get-KeyTail $m.Value })
+}
+function Save-EdMark([hashtable]$Data) {
+    $j = $Data | ConvertTo-Json -Compress
+    foreach ($f in $EdMarkLocal, $EdMarkStick) { try { [System.IO.File]::WriteAllText($f, $j, (New-Object System.Text.UTF8Encoding($false))) } catch { Log ('Merkdatei Edition nicht schreibbar: ' + $f + ' - ' + $_.Exception.Message) } }
+}
+function Get-SysExe([string]$Name) {
+    # 32-Bit-PowerShell auf 64-Bit-Windows sieht System32 umgeleitet -> Sysnative
+    $d = Join-Path $env:SystemRoot 'System32'
+    if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) { $d = Join-Path $env:SystemRoot 'Sysnative' }
+    return (Join-Path $d $Name)
+}
+function Start-EdService([string]$Name) {
+    try {
+        $s = Get-Service -Name $Name -ErrorAction Stop
+        if ($s.StartType -eq 'Disabled') { Set-Service -Name $Name -StartupType Manual -ErrorAction Stop }
+        if ($s.Status -ne 'Running') { Start-Service -Name $Name -ErrorAction Stop }
+        Log ('Dienst ' + $Name + ': ' + (Get-Service -Name $Name).Status)
+    } catch { Log ('Dienst ' + $Name + ' nicht gestartet: ' + $_.Exception.Message) }
+}
+$IsHome = $EdId -match '^Core' -or ($os.Caption -notmatch 'Pro|Education|Enterprise')
+if ($IsHome) {
+    $homeMsg = 'Edition "' + $os.Caption + '" - Zurücksetzen per RemoteWipe nur mit Pro/Education/Enterprise'
+    if (-not $EdKey) { Fail ($homeMsg + '. Umstellen auf Pro: im Setup den MAK (Pro) eintragen') }
+    $edRetry = $false
+    if ($EdMark) {
+        # Frueherer Versuch gescheitert: nie von selbst wiederholen, nur auf ausdruecklichen Tastendruck
+        Write-Host ''
+        Write-Host ('  Umstellung auf Pro hat beim letzten Mal nicht geklappt (' + [string]$EdMark.Zeit + '), Edition weiter ' + $EdId + '.') -ForegroundColor Yellow
+        Write-Host '    [W]      nochmal versuchen' -ForegroundColor White
+        Write-Host '    [Enter]  abbrechen   (Standard)'
+        $k = Read-KeyTimeout 30 'ohne Eingabe: abbrechen'
+        if ($k -ne 'W') { Fail ('Umstellung auf Pro hat nicht geklappt (Versuch ' + [string]$EdMark.Zeit + ', Edition weiter ' + $EdId + '). Nochmal: D:\go und W drücken. Sonst über Windows: Einrichtung mit lokalem Konto abschließen, Einstellungen > Aktivierung > Product Key ändern') }
+        Log 'Umstellung auf Pro: erneuter Versuch auf Tastendruck'
+        $edRetry = $true
+    }
+    $genKey = 'VK7JG-NPHTM-C97JM-9MPGT-3V66T'   # generischer Schluessel Windows Pro (Microsoft), aktiviert nicht
+    $target = 'Professional'
+    if ($EdId -eq 'CoreN') { $genKey = '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT'; $target = 'ProfessionalN' }
+    $te = ''
+    try { $te = ((& (Get-SysExe 'dism.exe') /English /Online /Get-TargetEditions 2>&1) | Out-String) } catch { $te = $_.Exception.Message }
+    Log ('Zieleditionen: ' + (($te -split "`r?`n" | Where-Object { $_ -match 'Target Edition' } | ForEach-Object { ($_ -split ':')[-1].Trim() }) -join ', '))
+    if ($te -notmatch ('(?m)Target Edition\s*:\s*' + $target + '\s*$')) {
+        Fail ($homeMsg + '. Windows bietet ' + $target + ' nicht als Ziel an' + $(if ($EdId -eq 'CoreN') { ' (Home N braucht einen Pro-N-Schlüssel)' } else { '' }))
+    }
+    $cpk = Get-SysExe 'changepk.exe'
+    if (-not (Test-Path -LiteralPath $cpk)) { Fail ($homeMsg + '. changepk.exe fehlt auf diesem Gerät: ' + $cpk) }
+    if (-not $edRetry) {
+        Write-Host ''
+        Write-Host '  Windows Home erkannt - Autopilot braucht Pro.' -ForegroundColor Yellow
+        Write-Host '  Auf Windows Pro umstellen? Gerät startet dabei neu, danach D:\go erneut starten.' -ForegroundColor Yellow
+        Write-Host '    [J]      ja, auf Pro umstellen' -ForegroundColor White
+        Write-Host '    [Enter]  nein, abbrechen   (Standard)'
+        $k = Read-KeyTimeout 30 'ohne Eingabe: abbrechen'
+        if ($k -ne 'J' -and $k -ne 'Y') { Fail ($homeMsg + '. Umstellen auf Pro abgelehnt') }
+    }
+    Wait-Power
+    Say ('Stelle auf ' + $target + ' um (MAK ' + (Get-KeyTail $EdKey) + ' wird nach dem Neustart aktiviert) ...') 'Cyan'
+    Save-EdMark @{ Seriennr = $Serial; Zeit = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); Von = $EdId; Ziel = $target; Aktiviert = $false }
+    Protokoll ('EDITION: Umstellung ' + $EdId + ' -> ' + $target + ' gestartet')
+    Banner 'WINDOWS WIRD AUF PRO UMGESTELLT' 'DarkBlue' @(
+        '',
+        'Gerät startet von selbst neu (auch mehrmals) - NICHT ausschalten.',
+        'Danach im Einrichtungsbildschirm: Shift+F10, dann  D:\go',
+        '',
+        'Fragt Windows in einem Fenster nach: bestätigen.',
+        'Kommt nach 10 Minuten kein Neustart, wird abgebrochen (Rot).')
+    # changepk kehrt meist sofort zurueck, Windows stellt im Hintergrund um und startet selbst neu.
+    # Deshalb: sichtbar und ohne Warten starten (ein verstecktes Rueckfrage-Fenster wuerde sonst alles blockieren),
+    # 10 Min ueberwachen, einmal wiederholen, und selbst neu starten, sobald die Registry die neue Edition zeigt.
+    $t0 = Get-Mono
+    $edTry = 0
+    $edLast = -1000.0
+    $edProc = $null
+    $edDone = $false
+    while ((Get-Mono) - $t0 -lt 600) {
+        $nowId = ''
+        try { $nowId = [string](Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction Stop).EditionID } catch { }
+        if ($nowId -and $nowId -notmatch '^Core') { $edDone = $true; break }
+        if ($edProc -and $edProc.HasExited) { Complete-Live; Log ('changepk beendet, Code ' + $edProc.ExitCode); $edProc = $null }
+        $busy = $false
+        try { $busy = @(Get-Process -Name 'changepk', 'SetupHost', 'LicensingUI' -ErrorAction SilentlyContinue).Count -gt 0 } catch { }
+        if (-not $busy -and $edTry -lt 2 -and ((Get-Mono) - $edLast) -gt 180) {
+            $edTry++
+            $edLast = Get-Mono
+            Complete-Live
+            # Dienste bei jedem Versuch: im Einrichtungsbildschirm sind sie teils gestoppt, dann tut changepk nichts
+            foreach ($svc in 'sppsvc', 'ClipSVC', 'LicenseManager', 'wuauserv') { Start-EdService $svc }
+            try {
+                $edProc = Start-Process -FilePath $cpk -ArgumentList '/ProductKey', $genKey -PassThru -ErrorAction Stop
+                Log ('changepk gestartet (Versuch ' + $edTry + ' von 2)')
+            } catch { Log ('changepk nicht startbar (Versuch ' + $edTry + '): ' + (Hide-Key $_.Exception.Message)) }
+        }
+        Wait-Live 10 ('Umstellung läuft (Versuch ' + $edTry + ' von 2), warte auf Neustart') $t0 600 'nächste Prüfung'
+    }
+    Complete-Live
+    if ($edDone) {
+        # Edition steht schon in der Registry, Windows hat aber nicht selbst neu gestartet -> selbst neu starten
+        Log ('Edition jetzt ' + $nowId + ' - Neustart durch HUPilot (shutdown /r /f /t 10)')
+        Protokoll ('EDITION: jetzt ' + $nowId + ', Neustart')
+        Write-Host '  Umgestellt - Neustart in 10 s. Danach Shift+F10 und D:\go' -ForegroundColor Green
+        Start-Process -FilePath (Get-SysExe 'shutdown.exe') -ArgumentList '/r', '/f', '/t', '10' -WindowStyle Hidden
+        Start-Sleep -Seconds 60
+        exit 0
+    }
+    Protokoll 'EDITION: Umstellung ohne Wirkung (kein Neustart nach 10 Min)'
+    Fail ('Windows hat nach 2 Versuchen nicht auf Pro umgestellt - Edition weiter ' + $EdId + '. Nochmal: D:\go und W drücken. Sonst über Windows: Einrichtung mit lokalem Konto abschließen, Einstellungen > Aktivierung > Product Key ändern, dann HUPilot erneut')
+}
+# Nach erfolgreicher Umstellung: Merkdatei da, Edition jetzt Pro -> nach dem Netz aktivieren (siehe unten)
+$EdActivate = ($EdMark -and $EdKey -and -not $EdMark.Aktiviert -and $EdId -match '^Professional')
+if ($EdMark -and $EdId -match '^Professional') { Say ('Edition      : auf ' + $EdId + ' umgestellt (' + [string]$EdMark.Zeit + ')') 'Green' }
 if ($null -ne $cfg.MinBattery) { $MinBattery = [int]$cfg.MinBattery }
 
 # ---------- Schutz: nur im Einrichtungsbildschirm (OOBE) ohne Benutzerdaten ----------
@@ -515,6 +644,32 @@ if (-not $netOk) {
 }
 Say 'Internet OK' 'Green'
 Sync-Clock
+
+# ---------- Edition: nach Umstellung auf Pro den MAK installieren und aktivieren ----------
+# Fehler hier sind nur Warnungen: Autopilot braucht keine Aktivierung. Kein zweiter Versuch, wenn schon aktiviert.
+if ($EdActivate) {
+    Say ('Aktiviere Windows mit MAK ' + (Get-KeyTail $EdKey) + ' ...') 'Cyan'
+    $slmgr = Get-SysExe 'slmgr.vbs'
+    $cs = Get-SysExe 'cscript.exe'
+    $okAct = $false
+    try {
+        $o1 = ((& $cs //Nologo $slmgr /ipk $EdKey 2>&1) | Out-String).Trim()
+        Log ('slmgr /ipk: ' + (Hide-Key $o1))
+        $o2 = ((& $cs //Nologo $slmgr /ato 2>&1) | Out-String).Trim()
+        Log ('slmgr /ato: ' + (Hide-Key $o2))
+        $lic = @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL AND Name LIKE 'Windows%'" -ErrorAction Stop)
+        $okAct = @($lic | Where-Object { [int]$_.LicenseStatus -eq 1 }).Count -gt 0
+        Log ('Lizenzstatus: ' + (($lic | ForEach-Object { $_.Name + ' = ' + $_.LicenseStatus + ' (' + $_.PartialProductKey + ')' }) -join ' | '))
+    } catch { Log ('Aktivierung: ' + (Hide-Key $_.Exception.Message)) }
+    if ($okAct) {
+        Say 'Windows aktiviert' 'Green'
+        Save-EdMark @{ Seriennr = $Serial; Zeit = [string]$EdMark.Zeit; Von = [string]$EdMark.Von; Ziel = [string]$EdMark.Ziel; Aktiviert = $true; AktiviertAm = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+        Protokoll ('EDITION: ' + $EdId + ' aktiviert (MAK ' + (Get-KeyTail $EdKey) + ')')
+    } else {
+        Say 'WARNUNG: Aktivierung nicht bestätigt - geht trotzdem weiter (Details im Log)' 'Yellow'
+        Protokoll ('EDITION: ' + $EdId + ' NICHT aktiviert')
+    }
+}
 
 # ---------- 3a. Token ----------
 $tok = $null

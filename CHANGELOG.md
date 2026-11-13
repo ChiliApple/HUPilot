@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.7.13 - 2026-11-13
+### 🪟 Windows-Edition
+- **Neu: Windows Home auf Pro umstellen (Test):** Geräte mit Windows Home bleiben nicht mehr nur rot stehen.
+  - Im Setup neues Feld "MAK (Pro)" für den Volumenlizenz-Schlüssel, leer = aus.
+  - Am Gerät fragt go nach (`J` = umstellen, sonst Abbruch), stellt auf Pro um und Windows startet neu. Danach `D:\go` erneut.
+  - Nach dem Verbinden aktiviert go mit dem MAK. Klappt das nicht, gibt es nur eine Warnung.
+  - Geräte mit Pro, Education oder Enterprise werden nicht angefasst.
+- **Überwachte Umstellung:** go beobachtet die Umstellung 10 Minuten, versucht es dabei bis zu zweimal und startet selbst neu, falls Windows es nicht tut.
+- **Kein neuer Versuch von selbst:** Scheitert die Umstellung, fragt go beim nächsten Start nach (`W` = nochmal versuchen, sonst Abbruch).
+- **Schlüssel nie im Log:** Im Log und im Protokoll stehen nur die letzten 5 Zeichen.
+
+### 🚧 Grenzen
+- Noch an keinem Gerät bestätigt. Im Einrichtungsbildschirm hat die Umstellung mit dem MAK direkt nicht gewirkt, deshalb stellt go zuerst mit dem allgemeinen Pro-Schlüssel von Microsoft um und aktiviert erst danach.
+- Windows Home N braucht einen Schlüssel für Pro N, go bricht dort mit Hinweis ab.
+- Jede Aktivierung zählt beim MAK mit.
+
+### ✅ Qualität
+- 13 automatische Tests.
+
 ## v2.7.12 - 2026-11-05
 ### 📊 Status
 - **Neu: Zeitfilter:** Häkchen „nur letzte“ mit 4 h, 24 h oder 48 h.
