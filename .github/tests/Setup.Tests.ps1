@@ -12,7 +12,7 @@ BeforeAll {
     $script:SetupAst = $ast
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
-        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets'
+        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
     . ([scriptblock]::Create($script:FnText))
@@ -40,7 +40,7 @@ BeforeAll {
 
 Describe 'Setup: Fenster (XAML)' {
     It 'alle Fenster-Bloecke werden gefunden' {
-        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'sx', 'gx', 'hx')
+        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'dx', 'sx', 'gx', 'hx')
     }
     It 'jedes Fenster laedt mit XamlReader (STA), ohne und mit Dark Theme' {
         $theme = [regex]::Match($script:SetupText, "(?s)\`$script:HuThemeXaml = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
@@ -74,7 +74,7 @@ Describe 'Setup: Fenster (XAML)' {
         $res.Count | Should -Be (2 * $script:XamlBlocks.Count)
     }
     It 'jedes Fenster bekommt das Dark Theme vor dem Laden' {
-        foreach ($v in 'xaml', 'px', 'vx', 'sx', 'gx', 'hx') { $script:SetupText | Should -Match ('Add-HuTheme \$' + $v + '\r?\n\s*\$\w+ = \[Windows\.Markup\.XamlReader\]::Load\(\(New-Object System\.Xml\.XmlNodeReader \$' + $v + '\)\)') }
+        foreach ($v in 'xaml', 'px', 'vx', 'dx', 'sx', 'gx', 'hx') { $script:SetupText | Should -Match ('Add-HuTheme \$' + $v + '\r?\n\s*\$\w+ = \[Windows\.Markup\.XamlReader\]::Load\(\(New-Object System\.Xml\.XmlNodeReader \$' + $v + '\)\)') }
     }
     It 'Protokoll liegt nicht mehr im Scrollbereich, Hauptknopf und Ampeln vorhanden' {
         $x = [xml]$script:XamlBlocks[0].Xaml
@@ -100,7 +100,7 @@ Describe 'Setup: Fenster (XAML)' {
         $bad | Should -BeNullOrEmpty
     }
     It 'Unterfenster passen sich an kleine Bildschirme an (Set-WinFit)' {
-        foreach ($w in '$pw', '$vw', '$sw', '$gw', '$hw') { $script:SetupText | Should -Match ('Set-WinFit \' + $w + '\b') }
+        foreach ($w in '$pw', '$vw', '$dw', '$sw', '$gw', '$hw') { $script:SetupText | Should -Match ('Set-WinFit \' + $w + '\b') }
     }
 }
 
@@ -350,5 +350,62 @@ Describe 'Setup: Protokoll mit drei Stufen' {
         $script:SetupText | Should -Match "'setup_' \+ \(Get-Date -Format 'yyyyMMdd_HHmm'\) \+ '\.log'"
         $script:SetupText | Should -Match "Select-Object -Skip 19"
         $script:SetupText | Should -Match "Where-Object \{ \`$_\.Name -ne 'logs' -and"
+    }
+}
+
+Describe 'Setup: Status in Klartext' {
+    BeforeAll {
+        $script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err' }
+    }
+    It 'Stand aus Profilstatus und Intune-Status' {
+        Get-DeviceStand 'assignedInSync' 'enrolled' $true | Should -Be 'Fertig'
+        Get-DeviceStand 'notAssigned' 'enrolled' $false | Should -Be 'Fertig'
+        Get-DeviceStand 'assignedInSync' 'notContacted' $true | Should -Be 'Profil da, Gerät noch nicht angemeldet'
+        Get-DeviceStand 'assignedOutOfSync' 'notContacted' $true | Should -Be 'Profil da, Gerät noch nicht angemeldet'
+        Get-DeviceStand 'assignedInSync' 'notContacted' $false | Should -Be 'Wartet auf Profil'
+        Get-DeviceStand 'pending' 'notContacted' $false | Should -Be 'Wartet auf Profil'
+        Get-DeviceStand 'unknown' '' $false | Should -Be 'Wartet auf Profil'
+        Get-DeviceStand 'notAssigned' 'notContacted' $false | Should -Be 'Kein Profil für diesen Tag'
+        Get-DeviceStand 'assignedInSync' 'failed' $true | Should -Be 'Fehler'
+        Get-DeviceStand 'assignedInSync' 'blocked' $true | Should -Be 'Fehler'
+        Get-DeviceStand 'failed' 'notContacted' $false | Should -Be 'Fehler'
+    }
+    It 'Was tun: ein Satz je Stand' {
+        Get-DeviceTodo 'Fertig' '' 'enrolled' | Should -Match '^Nichts'
+        Get-DeviceTodo 'Wartet auf Profil' 'pending' '' | Should -Match 'läuft'
+        Get-DeviceTodo 'Wartet auf Profil' 'assignedOutOfSync' '' | Should -Match 'Sync'
+        Get-DeviceTodo 'Profil da, Gerät noch nicht angemeldet' '' '' | Should -Match 'WLAN'
+        Get-DeviceTodo 'Kein Profil für diesen Tag' 'notAssigned' '' | Should -Match 'Tag prüfen'
+        Get-DeviceTodo 'Fehler' '' 'blocked' | Should -Match 'blockiert'
+        Get-DeviceTodo 'Fehler' '' 'failed' | Should -Match 'Intune'
+        foreach ($s in $script:StandClass.Keys) { Get-DeviceTodo $s '' '' | Should -Not -BeNullOrEmpty -Because $s }
+    }
+    It 'Spalten mit deutschen Ueberschriften, feste Spalten statt automatisch' {
+        $script:SetupText | Should -Match "Key = 'LetzterKontakt'; Header = 'Letzter Kontakt'"
+        $script:SetupText | Should -Match "Key = 'WasTun'; Header = 'Was tun'"
+        $sx = @($script:XamlBlocks | Where-Object { $_.Name -eq 'sx' })[0].Xaml
+        $sx | Should -Match 'x:Name="dGrid"[^>]*AutoGenerateColumns="False"'
+        $sx | Should -Match 'SelectionMode="Extended"'
+    }
+    It 'Excel bekommt die deutschen Ueberschriften und faerbt nach Stand' {
+        $p = Join-Path $TestDrive 'status.xlsx'
+        $rows = @([pscustomobject]@{ Stand = 'Fertig'; Seriennr = 'A1' }, [pscustomobject]@{ Stand = 'Fehler'; Seriennr = 'B2' }, [pscustomobject]@{ Stand = 'Wartet auf Profil'; Seriennr = 'C3' })
+        Export-StatusXlsx -Rows $rows -Cols @('Stand', 'Seriennr') -Headers @('Stand', 'Seriennummer') -Path $p
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $z = [System.IO.Compression.ZipFile]::OpenRead($p)
+        try { $r = New-Object System.IO.StreamReader($z.GetEntry('xl/worksheets/sheet1.xml').Open()); $x = $r.ReadToEnd(); $r.Dispose() } finally { $z.Dispose() }
+        $x | Should -Match '<t>Seriennummer</t>'
+        $x | Should -Match 'r="A2" s="3"'
+        $x | Should -Match 'r="A3" s="5"'
+        $x | Should -Match 'r="A4" s="4"'
+    }
+    It 'Aktionen nur mit Rueckfrage, keine Loesch-Aktion, Sync 409/429 kein Fehler' {
+        $script:SetupText | Should -Match "Tag `"' \+ \`$pick\.Tag \+ '`" setzen für"
+        $script:SetupText | Should -Match "if \(\`$code -in 409, 429\)"
+        $script:SetupText | Should -Not -Match "Method DELETE -Uri \('https://graph\.microsoft\.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/"
+    }
+    It 'Automatisch aktualisieren: Timer stoppt beim Schliessen, nicht bei offenem Dialog' {
+        $script:SetupText | Should -Match '\$tm\.Add_Tick\(\{ if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\)'
+        $script:SetupText | Should -Match '\$sw\.Add_Closing\(\{\s+\$tm\.Stop\(\)'
     }
 }

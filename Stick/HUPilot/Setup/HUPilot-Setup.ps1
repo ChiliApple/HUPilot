@@ -1017,7 +1017,7 @@ function Start-Pull([string]$Version = '') {
 }
 
 # Liste zur Auswahl (Versionen). Rueckgabe: gewaehlte Zeile oder $null
-function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkText) {
+function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkText, $Owner = $null) {
     [xml]$vx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -1061,7 +1061,7 @@ function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkTe
 '@
     Add-HuTheme $vx
     $vw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $vx))
-    $vw.Owner = $win; if ($win.Icon) { $vw.Icon = $win.Icon }
+    $vw.Owner = $(if ($Owner) { $Owner } else { $win }); if ($win.Icon) { $vw.Icon = $win.Icon }
     $vw.Title = $Title
     Set-WinFit $vw
     $g = @{}; foreach ($n in 'tHint', 'bOk', 'bNo', 'gV') { $g[$n] = $vw.FindName($n) }
@@ -1635,8 +1635,10 @@ function Build-Package([switch]$NoSave) {
 }
 $ui.bPkg.Add_Click({ [void](Build-Package) })
 
+# protokoll.csv von Quelle und Ziel-Stick: je Seriennummer die neueste Zeile ($map) und alle Zeilen ($script:ProtoAll, fuer Details)
 function Read-Protokoll {
     $map = @{}
+    $script:ProtoAll = @{}
     $files = @(Join-Path $srcHU 'logs\protokoll.csv')
     $dr = Get-ReadyDrive; if ($dr) { $files += ($dr + '\HUPilot\logs\protokoll.csv') }
     foreach ($f in $files) {
@@ -1644,34 +1646,64 @@ function Read-Protokoll {
             if (-not [System.IO.File]::Exists($f)) { continue }
             foreach ($row in @([System.IO.File]::ReadAllLines($f) | ConvertFrom-Csv -Delimiter ';')) {
                 if (-not $row.Seriennr) { continue }
+                if (-not $script:ProtoAll.ContainsKey($row.Seriennr)) { $script:ProtoAll[$row.Seriennr] = New-Object System.Collections.ArrayList }
+                [void]$script:ProtoAll[$row.Seriennr].Add([pscustomobject]@{ Zeit = [string]$row.Zeit; Ergebnis = [string]$row.Ergebnis; Tag = [string]$row.Tag; Datei = $f })
                 if (-not $map.ContainsKey($row.Seriennr) -or [string]$row.Zeit -gt [string]$map[$row.Seriennr].Zeit) { $map[$row.Seriennr] = $row }
             }
-            Out-Log ('Protokoll gelesen: ' + $f)
-        } catch { Out-Log ('Protokoll ' + $f + ': ' + $_.Exception.Message) }
+        } catch { Out-Log 'Ein Stick-Protokoll (protokoll.csv) konnte nicht gelesen werden.' 'Hinweis' ($f + ': ' + $_.Exception.Message) }
     }
     return $map
 }
 
-# Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Excel und Druck
-$script:StatusCols = @('Seriennr', 'Tag', 'Profil', 'Intune', 'RegDatum', 'LetzterKontakt', 'Benutzer', 'Name', 'LetzterSync', 'Modell', 'HUPilot')
+# ---------- Status: Stand und naechster Schritt in Klartext (aus Profilstatus und Intune-Status) ----------
+#   ProfileStatus = deploymentProfileAssignmentStatus, EnrollState = enrollmentState (Graph, Autopilot-Geraet)
+function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate) {
+    if ($EnrollState -eq 'enrolled') { return 'Fertig' }
+    if ($EnrollState -in 'failed', 'blocked' -or $ProfileStatus -eq 'failed') { return 'Fehler' }
+    if ($ProfileStatus -eq 'notAssigned') { return 'Kein Profil für diesen Tag' }
+    if ($ProfileStatus -in 'assignedInSync', 'assignedUnkownSyncState', 'assignedUnknownSyncState', 'assignedOutOfSync' -and $HasAssignedDate) { return 'Profil da, Gerät noch nicht angemeldet' }
+    return 'Wartet auf Profil'
+}
+function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollState) {
+    switch ($Stand) {
+        'Fertig' { return 'Nichts, das Gerät ist fertig.' }
+        'Wartet auf Profil' { if ($ProfileStatus -eq 'assignedOutOfSync') { return 'Autopilot-Sync anstoßen und ein paar Minuten warten.' } return 'Nichts, läuft. Das Profil kommt meist in 5 bis 15 Minuten.' }
+        'Profil da, Gerät noch nicht angemeldet' { return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
+        'Kein Profil für diesen Tag' { return 'Tag prüfen: kein Profil zugewiesen ("2. Tags prüfen"), oder mit "Tag ändern" einen Tag mit Profil wählen.' }
+        'Fehler' { if ($EnrollState -eq 'blocked') { return 'Gerät ist in Intune blockiert. Admin fragen.' } return 'Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen.' }
+    }
+    return ''
+}
+# Farbe und Kachel je Stand: ok (gruen) / warn (gelb) / err (rot)
+$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err' }
+$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob' }
+
+# Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Fenster, CSV, Excel und Druck
+$script:StatusCols = @(
+    @{ Key = 'Stand'; Header = 'Stand' }, @{ Key = 'WasTun'; Header = 'Was tun' }, @{ Key = 'Seriennr'; Header = 'Seriennummer' }, @{ Key = 'Tag'; Header = 'Tag' },
+    @{ Key = 'Name'; Header = 'Gerätename' }, @{ Key = 'Benutzer'; Header = 'Benutzer' }, @{ Key = 'RegDatum'; Header = 'Registriert' },
+    @{ Key = 'LetzterKontakt'; Header = 'Letzter Kontakt' }, @{ Key = 'LetzterSync'; Header = 'Letzter Sync' }, @{ Key = 'Modell'; Header = 'Modell' },
+    @{ Key = 'Profil'; Header = 'Profil' }, @{ Key = 'Intune'; Header = 'Intune' }, @{ Key = 'HUPilot'; Header = 'Stick-Protokoll' }
+)
 
 # Excel-Datei (.xlsx) direkt schreiben, ohne installiertes Excel: Kopfzeile fett, fixiert, mit Filter,
-# Spaltenbreite nach Inhalt, Datumsspalten als echtes Datum, Spalte Profil eingefaerbt wie im Fenster
+# Spaltenbreite nach Inhalt, Datumsspalten als echtes Datum, Spalte Stand eingefaerbt wie im Fenster
 function Export-StatusXlsx {
-    param($Rows, [string[]]$Cols, [string]$Path)
+    param($Rows, [string[]]$Cols, [string[]]$Headers, [string]$Path)
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (-not $Headers -or $Headers.Count -ne $Cols.Count) { $Headers = $Cols }
     $esc = { param($s) [System.Security.SecurityElement]::Escape(([string]$s -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', '')) }
     $colName = { param([int]$i) $n = ''; $i++; while ($i -gt 0) { $m = ($i - 1) % 26; $n = [char](65 + $m) + $n; $i = [int][math]::Floor(($i - 1) / 26) }; $n }
     $dateCols = @('RegDatum', 'LetzterKontakt', 'LetzterSync')
     $fmts = [string[]]@('dd.MM.yyyy HH:mm', 'yyyy-MM-dd HH:mm')
     $de = [Globalization.CultureInfo]::InvariantCulture
+    $standStyle = @{ ok = 3; warn = 4; err = 5 }
     $Rows = @($Rows)
-    $width = @{}; foreach ($c in $Cols) { $width[$c] = $c.Length + 4 }
+    $width = @{}; for ($i = 0; $i -lt $Cols.Count; $i++) { $width[$Cols[$i]] = $Headers[$i].Length + 4 }
     $sb = New-Object System.Text.StringBuilder
-    # Kopfzeile
     [void]$sb.Append('<row r="1">')
-    for ($i = 0; $i -lt $Cols.Count; $i++) { [void]$sb.Append('<c r="' + (& $colName $i) + '1" s="1" t="inlineStr"><is><t>' + (& $esc $Cols[$i]) + '</t></is></c>') }
+    for ($i = 0; $i -lt $Cols.Count; $i++) { [void]$sb.Append('<c r="' + (& $colName $i) + '1" s="1" t="inlineStr"><is><t>' + (& $esc $Headers[$i]) + '</t></is></c>') }
     [void]$sb.Append('</row>')
     $rn = 1
     foreach ($r in $Rows) {
@@ -1687,7 +1719,7 @@ function Export-StatusXlsx {
                 continue
             }
             $s = 0
-            if ($c -eq 'Profil') { if ($v -eq 'zugewiesen') { $s = 3 } elseif ($v -in 'ausstehend', 'zugew., Datum fehlt', 'zugew., nicht synchron') { $s = 4 } }
+            if ($c -eq 'Stand' -and $script:StandClass.ContainsKey($v)) { $s = $standStyle[$script:StandClass[$v]] }
             [void]$sb.Append('<c r="' + $ref + '"' + $(if ($s) { ' s="' + $s + '"' } else { '' }) + ' t="inlineStr"><is><t xml:space="preserve">' + (& $esc $v) + '</t></is></c>')
         }
         [void]$sb.Append('</row>')
@@ -1695,7 +1727,7 @@ function Export-StatusXlsx {
     $last = (& $colName ($Cols.Count - 1))
     $colsXml = ''
     for ($i = 0; $i -lt $Cols.Count; $i++) {
-        $w = [math]::Min(60, [math]::Max($width[$Cols[$i]], $(if ($dateCols -contains $Cols[$i]) { 18 } else { 6 })))
+        $w = [math]::Min(70, [math]::Max($width[$Cols[$i]], $(if ($dateCols -contains $Cols[$i]) { 18 } else { 6 })))
         $colsXml += '<col min="' + ($i + 1) + '" max="' + ($i + 1) + '" width="' + $w + '" customWidth="1"/>'
     }
     $sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -1712,17 +1744,19 @@ function Export-StatusXlsx {
         '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
         '<numFmts count="1"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/></numFmts>' +
         '<fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>' +
-        '<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+        '<fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
         '<fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/><bgColor indexed="64"/></patternFill></fill>' +
         '<fill><patternFill patternType="solid"><fgColor rgb="FFDFF2E1"/><bgColor indexed="64"/></patternFill></fill>' +
-        '<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4CE"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4CE"/><bgColor indexed="64"/></patternFill></fill>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFF8D7DA"/><bgColor indexed="64"/></patternFill></fill></fills>' +
         '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF808080"/></bottom><diagonal/></border></borders>' +
         '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-        '<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+        '<cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
         '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>' +
         '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
         '<xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>' +
-        '<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/></cellXfs>' +
+        '<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/>' +
+        '<xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/></cellXfs>' +
         '<cellStyles count="1"><cellStyle name="Standard" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>'
     $parts = [ordered]@{
@@ -1745,11 +1779,13 @@ function Export-StatusXlsx {
 }
 
 # Druckansicht der Status-Tabelle: Querformat, Spaltenbreite nach Inhalt (gemessen), Zeilen abwechselnd hinterlegt,
-# Profil eingefaerbt wie im Fenster. Passt die Tabelle nicht in die Breite, werden die Spalten anteilig verkleinert.
+# Spalte Stand eingefaerbt wie im Fenster. Passt die Tabelle nicht in die Breite, werden die Spalten anteilig verkleinert.
 function New-StatusPrintDoc {
-    param($Rows, [string[]]$Cols, [string]$Title, [string]$Sub, [double]$PageW, [double]$PageH)
+    param($Rows, [string[]]$Cols, [string[]]$Headers, [string]$Title, [string]$Sub, [double]$PageW, [double]$PageH)
+    if (-not $Headers -or $Headers.Count -ne $Cols.Count) { $Headers = $Cols }
     $brush = { param($hex) $b = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex)); $b.Freeze(); $b }
-    $bHead = & $brush '#D9E1F2'; $bAlt = & $brush '#F3F3F3'; $bLine = & $brush '#C8C8C8'; $bGreen = & $brush '#DFF2E1'; $bYellow = & $brush '#FFF4CE'
+    $bHead = & $brush '#D9E1F2'; $bAlt = & $brush '#F3F3F3'; $bLine = & $brush '#C8C8C8'
+    $bStand = @{ ok = (& $brush '#DFF2E1'); warn = (& $brush '#FFF4CE'); err = (& $brush '#F8D7DA') }
     $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
     $size = 8.0 * 96 / 72
     $pad = 36.0
@@ -1765,7 +1801,6 @@ function New-StatusPrintDoc {
     $h2 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($Sub))
     $h2.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
     $doc.Blocks.Add($h2)
-    # Spaltenbreiten messen
     $Rows = @($Rows)
     $tfN = New-Object System.Windows.Media.Typeface($font, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
     $tfB = New-Object System.Windows.Media.Typeface($font, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Bold, [System.Windows.FontStretches]::Normal)
@@ -1773,8 +1808,9 @@ function New-StatusPrintDoc {
     $measure = { param($t, $tf) (New-Object System.Windows.Media.FormattedText([string]$t, $ci, [System.Windows.FlowDirection]::LeftToRight, $tf, $size, [System.Windows.Media.Brushes]::Black)).WidthIncludingTrailingWhitespace }
     $cellPad = 10.0
     $wid = @()
-    foreach ($c in $Cols) {
-        $m = & $measure $c $tfB
+    for ($ix = 0; $ix -lt $Cols.Count; $ix++) {
+        $c = $Cols[$ix]
+        $m = & $measure $Headers[$ix] $tfB
         foreach ($r in $Rows) { $v = [string]$r.$c; if ($v) { $x = & $measure $v $tfN; if ($x -gt $m) { $m = $x } } }
         $wid += ($m + $cellPad + 2)
     }
@@ -1793,7 +1829,6 @@ function New-StatusPrintDoc {
         $cell
     }
     # Kopfzeile auf jeder Seite: je Seite eine eigene Tabelle mit Kopf, Zeilen pro Seite aus der Zeilenhoehe berechnet
-    # (1 Zeile Reserve). Seite 1 hat zusaetzlich Titel und Untertitel.
     $lineH = $font.LineSpacing * $size
     $rowH = $lineH + 3.5
     $bodyH = $PageH - 2 * $pad
@@ -1809,7 +1844,7 @@ function New-StatusPrintDoc {
         foreach ($x in $wid) { $tc = New-Object System.Windows.Documents.TableColumn; $tc.Width = New-Object System.Windows.GridLength([math]::Floor($x * $f)); $tbl.Columns.Add($tc) }
         $rg = New-Object System.Windows.Documents.TableRowGroup
         $hr = New-Object System.Windows.Documents.TableRow
-        foreach ($c in $Cols) { $hr.Cells.Add((& $mkCell $c $true $bHead 1.0)) }
+        foreach ($hd in $Headers) { $hr.Cells.Add((& $mkCell $hd $true $bHead 1.0)) }
         $rg.Rows.Add($hr)
         $end = [math]::Min($Rows.Count, $i + $n)
         for (; $i -lt $end; $i++) {
@@ -1818,13 +1853,12 @@ function New-StatusPrintDoc {
             if ($i % 2 -eq 1) { $tr.Background = $bAlt }
             foreach ($c in $Cols) {
                 $v = [string]$r.$c; $bg = $null
-                if ($c -eq 'Profil') { if ($v -eq 'zugewiesen') { $bg = $bGreen } elseif ($v -in 'ausstehend', 'zugew., Datum fehlt', 'zugew., nicht synchron') { $bg = $bYellow } }
+                if ($c -eq 'Stand' -and $script:StandClass.ContainsKey($v)) { $bg = $bStand[$script:StandClass[$v]] }
                 $tr.Cells.Add((& $mkCell $v $false $bg 0.5))
             }
             $rg.Rows.Add($tr)
         }
         $tbl.RowGroups.Add($rg)
-        # Seitenumbruch wirkt nur auf eine Section, nicht direkt auf die Tabelle
         $sec = New-Object System.Windows.Documents.Section
         if (-not $first) { $sec.BreakPageBefore = $true }
         $sec.Blocks.Add($tbl)
@@ -1834,12 +1868,75 @@ function New-StatusPrintDoc {
     return $doc
 }
 
+# Details eines Geraets als eigenes Fenster: Felder in Klartext, Verlauf aus protokoll.csv, Kopieren, Schliessen
+function Show-DeviceDetail($Row, $Owner) {
+    [xml]$dx = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot - Gerät" Width="720" Height="560" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False">
+  <DockPanel Margin="10">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Button x:Name="bCopy" Content="Kopieren" Padding="10,4" ToolTip="Alle Angaben in die Zwischenablage kopieren (z. B. für eine E-Mail an den Admin)."/>
+      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" IsCancel="True" ToolTip="Fenster schließen (Esc)."/>
+    </StackPanel>
+    <TextBox x:Name="tDet" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" ToolTip="Angaben zum Gerät aus Autopilot, Intune und dem Stick-Protokoll. Text lässt sich markieren und kopieren."/>
+  </DockPanel>
+</Window>
+'@
+    Add-HuTheme $dx
+    $dw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $dx))
+    $dw.Owner = $Owner; if ($win.Icon) { $dw.Icon = $win.Icon }
+    Set-WinFit $dw
+    $dw.Title = 'HUPilot - Gerät ' + $Row.Seriennr
+    # Profil live nachladen (optional)
+    $prof = ''; $profAt = ''
+    $id = $script:ApIds[[string]$Row.Seriennr]
+    if ($id) {
+        $tok = Get-ApiToken
+        if ($tok) {
+            try {
+                $d = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '?$expand=deploymentProfile') -Headers @{ Authorization = 'Bearer ' + $tok } -TimeoutSec 30
+                if ($d.deploymentProfile) { $prof = [string]$d.deploymentProfile.displayName }
+                try { $t = [datetime]$d.deploymentProfileAssignedDateTime; if ($t.Year -gt 2000) { $profAt = $t.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }
+            } catch { Out-Log ('Profil von ' + $Row.Seriennr + ' nicht nachladbar, die Angaben stammen aus der Liste.') 'Hinweis' $_.Exception.Message }
+        }
+    }
+    $nl = "`r`n"
+    $lines = @(
+        ('Seriennummer:      ' + $Row.Seriennr),
+        ('Stand:             ' + $Row.Stand),
+        ('Was tun:           ' + $Row.WasTun),
+        '',
+        ('Tag:               ' + $Row.Tag),
+        ('Autopilot-Profil:  ' + $(if ($prof) { $prof } else { '-' }) + $(if ($profAt) { ' (zugewiesen am ' + $profAt + ')' } else { '' })),
+        ('Profilstatus:      ' + $Row.Profil),
+        ('Intune:            ' + $Row.Intune),
+        ('Registriert:       ' + $(if ($Row.RegDatum) { $Row.RegDatum } else { '-' })),
+        ('Letzter Kontakt:   ' + $(if ($Row.LetzterKontakt) { $Row.LetzterKontakt } else { '-' })),
+        ('Letzter Sync:      ' + $(if ($Row.LetzterSync) { $Row.LetzterSync } else { '-' })),
+        ('Benutzer:          ' + $(if ($Row.Benutzer) { $Row.Benutzer } else { '-' })),
+        ('Gerätename:        ' + $(if ($Row.Name) { $Row.Name } else { '-' })),
+        ('Modell:            ' + $Row.Modell),
+        '',
+        'Verlauf am Stick (protokoll.csv):'
+    )
+    $hist = @()
+    if ($script:ProtoAll -and $script:ProtoAll.ContainsKey([string]$Row.Seriennr)) { $hist = @($script:ProtoAll[[string]$Row.Seriennr] | Sort-Object Zeit) }
+    if ($hist.Count) { foreach ($h in $hist) { $lines += ('  ' + $h.Zeit + '   ' + $h.Ergebnis + $(if ($h.Tag) { '   (Tag ' + $h.Tag + ')' } else { '' })) } }
+    else { $lines += '  keine Einträge (Gerät wurde nicht mit diesem Stick bearbeitet oder das Protokoll ist nicht da)' }
+    $txt = $lines -join $nl
+    $c = @{ tDet = $dw.FindName('tDet'); bCopy = $dw.FindName('bCopy'); bClose = $dw.FindName('bClose') }
+    $c.tDet.Text = $txt
+    $c.bCopy.Add_Click({ try { [System.Windows.Clipboard]::SetText($c.tDet.Text); $c.bCopy.Content = 'Kopiert' } catch { $c.bCopy.Content = 'Kopieren fehlgeschlagen' } })
+    $c.bClose.Add_Click({ $dw.Close() })
+    [void]$dw.ShowDialog()
+}
+
 function Show-Status {
-    param($Rows, [hashtable]$Proto, [string]$Tenant)
     [xml]$sx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot - Status" Width="1260" Height="640" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
+        Title="HUPilot - Status" Width="1280" Height="720" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
   <Window.Resources>
     <Style x:Key="HuThumb" TargetType="Thumb">
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
@@ -1866,26 +1963,56 @@ function Show-Status {
         </Trigger>
       </Style.Triggers>
     </Style>
+    <Style x:Key="HuTile" TargetType="Button">
+      <Setter Property="Background" Value="#FF2D2D2D"/><Setter Property="Foreground" Value="#FFCCCCCC"/><Setter Property="BorderBrush" Value="#FF3E3E42"/>
+      <Setter Property="BorderThickness" Value="2"/><Setter Property="Padding" Value="14,6"/><Setter Property="Margin" Value="0,0,8,6"/><Setter Property="MinWidth" Value="150"/><Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Left"/></Border>
+        <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Opacity" Value="0.85"/></Trigger></ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
   </Window.Resources>
   <DockPanel Margin="10">
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+      <Button x:Name="kAll" Style="{StaticResource HuTile}" Tag="" ToolTip="Alle Geräte (mit den Filtern unten). Klick hebt den Kachel-Filter auf."><StackPanel><TextBlock x:Name="nAll" Text="-" FontSize="22" FontWeight="Bold"/><TextBlock Text="Geräte gesamt"/></StackPanel></Button>
+      <Button x:Name="kOk" Style="{StaticResource HuTile}" Tag="ok" ToolTip="Fertig: in Intune angemeldet. Klick zeigt nur diese, zweiter Klick wieder alle."><StackPanel><TextBlock x:Name="nOk" Text="-" FontSize="22" FontWeight="Bold" Foreground="#FF4CAF50"/><TextBlock Text="Fertig"/></StackPanel></Button>
+      <Button x:Name="kWait" Style="{StaticResource HuTile}" Tag="wait" ToolTip="Hochgeladen, Microsoft weist das Profil noch zu (meist 5 bis 15 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nWait" Text="-" FontSize="22" FontWeight="Bold" Foreground="#FFFF9800"/><TextBlock Text="Wartet auf Profil"/></StackPanel></Button>
+      <Button x:Name="kReady" Style="{StaticResource HuTile}" Tag="ready" ToolTip="Profil ist da, das Gerät hat sich aber noch nicht angemeldet. Klick filtert."><StackPanel><TextBlock x:Name="nReady" Text="-" FontSize="22" FontWeight="Bold" Foreground="#FFFF9800"/><TextBlock Text="Profil da, noch nicht angemeldet"/></StackPanel></Button>
+      <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="#FFE57373"/><TextBlock Text="Problem"/></StackPanel></Button>
+    </WrapPanel>
     <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
       <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,4"/>
       <ComboBox x:Name="cTag" Width="140" Margin="0,0,0,4" ToolTip="Nur Geräte mit diesem Group Tag"/>
-      <CheckBox x:Name="cProto" Content="nur Geräte aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
+      <CheckBox x:Name="cProto" Content="nur Geräte aus dem Stick-Protokoll" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
+      <CheckBox x:Name="cToday" Content="heute" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die heute hochgeladen oder registriert wurden"/>
+      <CheckBox x:Name="cProblem" Content="nur Probleme" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte mit Stand &quot;Kein Profil für diesen Tag&quot; oder &quot;Fehler&quot;"/>
       <CheckBox x:Name="cZeit" Content="nur letzte" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Zeitfilter: nur Geräte, die im gewählten Zeitraum registriert bzw. importiert wurden"/>
-      <ComboBox x:Name="cZeitSpan" Width="60" Margin="6,0,0,4" ToolTip="Zeitraum bis jetzt"/>
-      <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte RegDatum).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
-      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,4" VerticalAlignment="Center" ToolTip="Suche in Seriennummer / Gerätename / Benutzer"/>
-      <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,4" FontWeight="SemiBold" ToolTip="Anzahl der angezeigten Geräte"/>
-      <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" Margin="14,0,0,4" ToolTip="Alle Daten neu aus Autopilot/Intune laden"/>
+      <ComboBox x:Name="cZeitSpan" Width="70" Margin="6,0,0,4" ToolTip="Zeitraum bis jetzt"/>
+      <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte Registriert).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
+      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,4" VerticalAlignment="Center" ToolTip="Suche in Seriennummer, Gerätename und Benutzer"/>
     </WrapPanel>
-    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4" ToolTip="Angezeigte Zeilen als CSV (Strichpunkt getrennt) speichern"/>
-      <Button x:Name="bXlsx" Content="Excel speichern" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen als Excel-Datei (.xlsx) speichern:&#x0a;Kopfzeile fixiert mit Filter, Datum als echtes Datum, Profil eingefärbt.&#x0a;Excel muss dafür nicht installiert sein."/>
-      <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen drucken (Querformat, auch als PDF über „Microsoft Print to PDF“)"/>
-      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen"/>
-    </StackPanel>
-    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details (Profil live nachladen)" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" HeadersVisibility="Column"/>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+      <Button x:Name="bReload" DockPanel.Dock="Right" Content="Aktualisieren" Padding="10,2" ToolTip="Alle Daten jetzt neu aus Autopilot und Intune laden"/>
+      <CheckBox x:Name="cAuto" DockPanel.Dock="Right" Content="alle 60 s aktualisieren" VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Liste jede Minute neu laden (nicht, während ein Dialog offen ist). Auswahl, Sortierung und Filter bleiben."/>
+      <TextBlock x:Name="tStamp" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="#FF858585" ToolTip="Zeitpunkt der letzten erfolgreichen Abfrage"/>
+      <Ellipse x:Name="ePulse" Width="10" Height="10" Fill="#FF4CAF50" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Daten werden geladen"/>
+      <TextBlock x:Name="tLoad" VerticalAlignment="Center" Foreground="#FF858585" ToolTip="Fortschritt beim Laden"/>
+    </DockPanel>
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4" ToolTip="Angezeigte Zeilen als CSV (Strichpunkt getrennt) speichern, mit denselben Spalten wie im Fenster"/>
+        <Button x:Name="bXlsx" Content="Excel speichern" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen als Excel-Datei (.xlsx) speichern:&#x0a;Kopfzeile fixiert mit Filter, Datum als echtes Datum, Stand eingefärbt.&#x0a;Excel muss dafür nicht installiert sein."/>
+        <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen drucken (Querformat, auch als PDF über Microsoft Print to PDF)"/>
+        <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal">
+        <Button x:Name="bDetail" Content="Details ..." Padding="10,4" ToolTip="Angaben zur markierten Zeile mit Verlauf aus dem Stick-Protokoll (auch Doppelklick auf die Zeile)"/>
+        <Button x:Name="bTagSet" Content="Tag ändern ..." Padding="10,4" Margin="8,0,0,0" ToolTip="Den markierten Geräten einen anderen Group Tag geben (Standard- oder Auswahl-Tag aus den Einstellungen). Mit Rückfrage."/>
+        <Button x:Name="bSync" Content="Autopilot-Sync anstoßen" Padding="10,4" Margin="8,0,0,0" ToolTip="Microsoft gleicht Autopilot neu ab (immer für den ganzen Tenant). Hilft, wenn ein Profil nicht kommt. Höchstens alle 10 Minuten."/>
+        <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" ToolTip="Anzahl der angezeigten und markierten Geräte"/>
+      </StackPanel>
+    </DockPanel>
+    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details. Mehrere Zeilen markieren: Strg+Klick oder Umschalt+Klick. Spalten lassen sich verschieben und in der Breite ändern (wird gemerkt)." AutoGenerateColumns="False" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="True" CanUserResizeColumns="True" SelectionMode="Extended" SelectionUnit="FullRow" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
 '@
@@ -1894,151 +2021,248 @@ function Show-Status {
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
     Set-WinFit $sw
-    $g = @{}; foreach ($n in 'cTag','cProto','cZeit','cZeitSpan','cZeitBasis','tFind','tCount','bCsv','bXlsx','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
-    # Spalte Profil dezent einfaerben: zugewiesen = hellgruen, in Arbeit (ausstehend, Datum fehlt, nicht synchron) = hellgelb.
-    # Auswahl bleibt erkennbar (eigener Trigger fuer IsSelected mit den Systemfarben).
-    $profStyle = $null
+    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid') { $g[$n] = $sw.FindName($n) }
+    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true }
+    $script:SRows = @(); $script:StatusView = @()
+    # Spalten fest (deutsche Ueberschriften), Reihenfolge und Breite aus ui.json
+    foreach ($col in $script:StatusCols) {
+        $dc = New-Object System.Windows.Controls.DataGridTextColumn
+        $dc.Header = $col.Header; $dc.Binding = New-Object System.Windows.Data.Binding($col.Key); $dc.SortMemberPath = $col.Key
+        $dc.Width = New-Object System.Windows.Controls.DataGridLength(1, [System.Windows.Controls.DataGridLengthUnitType]::Auto)
+        if ($col.Key -eq 'WasTun') { $dc.MaxWidth = 460 }
+        $g.dGrid.Columns.Add($dc)
+    }
     try {
-        $profStyle = [Windows.Markup.XamlReader]::Parse(@'
-<Style TargetType="DataGridCell" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        $saved = @(Get-UiSetting 'StatusCols' @())
+        $byKey = @{}; foreach ($dc in $g.dGrid.Columns) { $byKey[$dc.SortMemberPath] = $dc }
+        foreach ($s in $saved) { $p = ([string]$s) -split '\|'; if ($p.Count -eq 3 -and $byKey.ContainsKey($p[0])) { $w = [double]$p[2]; if ($w -ge 30 -and $w -le 1200) { $byKey[$p[0]].Width = New-Object System.Windows.Controls.DataGridLength($w) } } }
+        $order = @($saved | ForEach-Object { $p = ([string]$_) -split '\|'; if ($p.Count -eq 3 -and $byKey.ContainsKey($p[0])) { [pscustomobject]@{ Key = $p[0]; Ix = [int]$p[1] } } } | Sort-Object Ix)
+        if ($order.Count -eq $g.dGrid.Columns.Count) { for ($i = 0; $i -lt $order.Count; $i++) { $byKey[$order[$i].Key].DisplayIndex = $i } }
+    } catch { }
+    # Zeile nach Stand einfaerben (gruen / gelb / rot), Auswahl bleibt erkennbar (Zellen markiert in der Auswahlfarbe)
+    try {
+        $g.dGrid.RowStyle = [Windows.Markup.XamlReader]::Parse(@'
+<Style TargetType="DataGridRow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
   <Style.Triggers>
-    <DataTrigger Binding="{Binding Profil}" Value="zugewiesen"><Setter Property="Background" Value="#1E4620"/><Setter Property="Foreground" Value="#E8F5E9"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="ausstehend"><Setter Property="Background" Value="#4A3F10"/><Setter Property="Foreground" Value="#FFF8E1"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="zugew., Datum fehlt"><Setter Property="Background" Value="#4A3F10"/><Setter Property="Foreground" Value="#FFF8E1"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="zugew., nicht synchron"><Setter Property="Background" Value="#4A3F10"/><Setter Property="Foreground" Value="#FFF8E1"/></DataTrigger>
-    <Trigger Property="IsSelected" Value="True">
-      <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
-      <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
-    </Trigger>
+    <DataTrigger Binding="{Binding Klasse}" Value="ok"><Setter Property="Background" Value="#FF1E4620"/><Setter Property="Foreground" Value="#FFE8F5E9"/></DataTrigger>
+    <DataTrigger Binding="{Binding Klasse}" Value="warn"><Setter Property="Background" Value="#FF4A3F10"/><Setter Property="Foreground" Value="#FFFFF8E1"/></DataTrigger>
+    <DataTrigger Binding="{Binding Klasse}" Value="err"><Setter Property="Background" Value="#FF5C1F1F"/><Setter Property="Foreground" Value="#FFFFEBEE"/></DataTrigger>
   </Style.Triggers>
 </Style>
 '@)
-    } catch { Out-Log ('Status-Farben: ' + $_.Exception.Message) }
-    if ($profStyle) { $g.dGrid.Add_AutoGeneratingColumn({ param($s, $e) if ([string]$e.PropertyName -eq 'Profil') { $e.Column.CellStyle = $profStyle } }) }
-    $script:SRows = @($Rows)
+    } catch { Out-Log 'Farben der Status-Tabelle nicht verfügbar.' 'Hinweis' $_.Exception.Message }
     $fillTags = {
         $keep = [string]$g.cTag.SelectedItem
         $g.cTag.Items.Clear(); [void]$g.cTag.Items.Add('Alle')
         foreach ($t in @($script:SRows | ForEach-Object { $_.Tag } | Where-Object { $_ } | Sort-Object -Unique)) { [void]$g.cTag.Items.Add($t) }
         if ($keep -and $g.cTag.Items.Contains($keep)) { $g.cTag.SelectedItem = $keep } else { $g.cTag.SelectedIndex = 0 }
     }
-    & $fillTags
-    $g.cProto.IsChecked = ($Proto.Count -gt 0)
-    $g.cProto.IsEnabled = ($Proto.Count -gt 0)
-    # Zeitfilter: Zeitraum und Grundlage, Standard 24 h nach Registrierung (Haekchen aus)
     $script:ZeitStd = @(4, 24, 48)
     foreach ($h in $script:ZeitStd) { [void]$g.cZeitSpan.Items.Add(('' + $h + ' h')) }
+    [void]$g.cZeitSpan.Items.Add('heute')
     $g.cZeitSpan.SelectedIndex = 1
     [void]$g.cZeitBasis.Items.Add('nach Registrierung')
     [void]$g.cZeitBasis.Items.Add('nach Autopilot-Import')
     $g.cZeitBasis.SelectedIndex = 0
-    $script:StatusView = @()
+    $g.cAuto.IsChecked = ([string](Get-UiSetting 'StatusAuto' $true) -ne 'False')
+    $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb }
+    $accent = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#FF4CAF50'))
     $refresh = {
+        # Auswahl und Sortierung merken
+        $selSn = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Seriennr })
+        $sorts = @($g.dGrid.Items.SortDescriptions | ForEach-Object { $_ })
         $v = @($script:SRows)
         if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
         if ($g.cProto.IsChecked) { $v = @($v | Where-Object { $_.HUPilot }) }
+        if ($g.cToday.IsChecked) { $d0 = (Get-Date).Date; $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and (($t.Reg -and $t.Reg -ge $d0) -or ($t.Imp -and $t.Imp -ge $d0)) }) }
+        if ($g.cProblem.IsChecked) { $v = @($v | Where-Object { $_.Klasse -eq 'err' }) }
         if ($g.cZeit.IsChecked) {
-            $since = (Get-Date).AddHours(-1 * $script:ZeitStd[[math]::Max(0, $g.cZeitSpan.SelectedIndex)])
+            $since = $(if ($g.cZeitSpan.SelectedIndex -eq 3) { (Get-Date).Date } else { (Get-Date).AddHours(-1 * $script:ZeitStd[[math]::Max(0, [math]::Min(2, $g.cZeitSpan.SelectedIndex))]) })
             $key = $(if ($g.cZeitBasis.SelectedIndex -eq 1) { 'Imp' } else { 'Reg' })
             $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and $t[$key] -and $t[$key] -ge $since })
         }
         if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
+        # Kacheln zaehlen ueber die gefilterte Liste (ohne Kachel-Filter)
+        $cnt = @{ ok = 0; wait = 0; ready = 0; prob = 0 }
+        foreach ($r in $v) { $k = $script:StandTile[[string]$r.Stand]; if ($k) { $cnt[$k]++ } }
+        $g.nAll.Text = '' + $v.Count; $g.nOk.Text = '' + $cnt.ok; $g.nWait.Text = '' + $cnt.wait; $g.nReady.Text = '' + $cnt.ready; $g.nProb.Text = '' + $cnt.prob
+        if ($sst.Tile) { $tk = $sst.Tile; $v = @($v | Where-Object { $script:StandTile[[string]$_.Stand] -eq $tk }) }
+        foreach ($k in @($tiles.Keys)) { if ($k -eq $sst.Tile -and $k) { $tiles[$k].BorderBrush = $accent } else { $tiles[$k].ClearValue([System.Windows.Controls.Control]::BorderBrushProperty) } }
         $script:StatusView = $v
         $g.dGrid.ItemsSource = $v
-        $ok = @($v | Where-Object { $_.Intune -eq 'registriert' }).Count
-        $g.tCount.Text = ('' + $v.Count + ' Geräte  |  ' + $ok + ' in Intune registriert  |  ' + ($v.Count - $ok) + ' offen')
+        # Sortierung und Auswahl wiederherstellen
+        foreach ($sd in $sorts) { $g.dGrid.Items.SortDescriptions.Add($sd); foreach ($dc in $g.dGrid.Columns) { if ($dc.SortMemberPath -eq $sd.PropertyName) { $dc.SortDirection = $sd.Direction } } }
+        if ($selSn.Count) { foreach ($it in @($g.dGrid.Items)) { if ($selSn -contains [string]$it.Seriennr) { [void]$g.dGrid.SelectedItems.Add($it) } } }
+        $g.tCount.Text = ('' + $v.Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' }))
     }
-    $g.cTag.Add_SelectionChanged($refresh)
-    $g.cProto.Add_Click($refresh)
-    $g.cZeit.Add_Click($refresh)
+    $pulse = New-Object System.Windows.Media.Animation.DoubleAnimation(1.0, 0.2, (New-Object System.Windows.Duration([TimeSpan]::FromMilliseconds(600))))
+    $pulse.AutoReverse = $true; $pulse.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
+    $load = {
+        if ($sst.Loading) { return }
+        $sst.Loading = $true; $g.bReload.IsEnabled = $false
+        $g.ePulse.Visibility = 'Visible'; $g.ePulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $pulse)
+        Set-Step 'Status' 'run'
+        try {
+            $d = Get-StatusData -Progress { param($t) $g.tLoad.Text = $t; $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+            if ($d) {
+                $script:SRows = @($d.Rows); & $fillTags
+                if ($sst.First) { $g.cProto.IsChecked = ($d.Proto.Count -gt 0); $g.cProto.IsEnabled = ($d.Proto.Count -gt 0); $sst.First = $false }
+                $g.tStamp.Text = 'Stand: ' + (Get-Date -Format 'HH:mm')
+                $g.tLoad.Text = ''
+                Set-Step 'Status' 'ok' ('' + @($d.Rows).Count + ' Geräte')
+            } else { $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Set-Step 'Status' 'err' 'nicht geladen' }
+        } catch { $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Out-Log 'Status konnte nicht geladen werden.' 'Fehler' $_.Exception.Message; Set-Step 'Status' 'err' $_.Exception.Message }
+        finally {
+            $sst.Loading = $false; $g.bReload.IsEnabled = $true
+            $g.ePulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null); $g.ePulse.Visibility = 'Collapsed'
+        }
+        & $refresh
+    }
+    foreach ($k in @($tiles.Keys)) { $tiles[$k].Add_Click({ $t = [string]$this.Tag; if (-not $t -or $sst.Tile -eq $t) { $sst.Tile = '' } else { $sst.Tile = $t }; & $refresh }) }
+    $g.cTag.Add_SelectionChanged({ if (-not $sst.Loading) { & $refresh } })
+    foreach ($cb in 'cProto', 'cToday', 'cProblem', 'cZeit') { $g[$cb].Add_Click({ & $refresh }) }
     $g.cZeitSpan.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
     $g.cZeitBasis.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
-    $g.tFind.Add_TextChanged($refresh)
+    $g.tFind.Add_TextChanged({ & $refresh })
+    $g.dGrid.Add_SelectionChanged({ $g.tCount.Text = ('' + @($script:StatusView).Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' })) })
+    $g.bReload.Add_Click({ & $load })
     $g.bClose.Add_Click({ $sw.Close() })
-    $g.bReload.Add_Click({
-        $g.bReload.IsEnabled = $false; $g.tCount.Text = 'lade ...'
-        $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
-        $d = Get-StatusData
-        if ($d) { $script:SRows = @($d.Rows); & $fillTags }
-        & $refresh
-        $g.bReload.IsEnabled = $true
+    $g.cAuto.Add_Click({ Set-UiSetting 'StatusAuto' ([bool]$g.cAuto.IsChecked) })
+    # Automatisch aktualisieren: nicht waehrend Laden oder offenem Dialog
+    $tm = New-Object System.Windows.Threading.DispatcherTimer
+    $tm.Interval = [TimeSpan]::FromSeconds(60)
+    $tm.Add_Tick({ if ($g.cAuto.IsChecked -and -not $sst.Loading -and -not $sst.Dialog) { & $load } })
+    $sw.Add_Closing({
+        $tm.Stop()
+        try { Set-UiSetting 'StatusCols' @($g.dGrid.Columns | ForEach-Object { $_.SortMemberPath + '|' + $_.DisplayIndex + '|' + [int]$_.ActualWidth }) } catch { }
     })
-    $g.dGrid.Add_MouseDoubleClick({
-        $it = $g.dGrid.SelectedItem; if (-not $it) { return }
-        $id = $script:ApIds[[string]$it.Seriennr]; if (-not $id) { return }
-        $tok = Get-ApiToken; if (-not $tok) { return }
+    $detail = {
+        $it = $g.dGrid.SelectedItem; if (-not $it) { $g.tCount.Text = 'Bitte zuerst eine Zeile markieren.'; return }
+        $sst.Dialog = $true
+        try { Show-DeviceDetail $it $sw } catch { Out-Log ('Details zu ' + $it.Seriennr + ' nicht verfügbar.') 'Fehler' $_.Exception.Message } finally { $sst.Dialog = $false }
+    }
+    $g.dGrid.Add_MouseDoubleClick($detail)
+    $g.bDetail.Add_Click($detail)
+    # Tag aendern fuer markierte Geraete (Auswahl aus Standard- und Auswahl-Tags der Einstellungen)
+    $g.bTagSet.Add_Click({
+        $sel = @($g.dGrid.SelectedItems); if (-not $sel.Count) { $g.tCount.Text = 'Bitte zuerst Geräte markieren.'; return }
+        $c = Get-Cfg
+        $tags = @(@($c.GroupTag) + @($c.TagChoices) | Where-Object { $_ } | Select-Object -Unique)
+        if (-not $tags.Count) { Show-Msg 'In den Einstellungen ist kein Group Tag eingetragen (Hauptfenster: Group Tag).' 'HUPilot - Tag ändern' 'Warning' $sw; return }
+        $sst.Dialog = $true
         try {
-            $d = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '?$expand=deploymentProfile') -Headers @{ Authorization = 'Bearer ' + $tok }
-            $fmt = { param($v) try { $t = [datetime]$v; if ($t.Year -gt 2000) { $t.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } else { '-' } } catch { '-' } }
-            $txt = @(
-                ('Seriennummer:      ' + $d.serialNumber),
-                ('Group Tag:         ' + $d.groupTag),
-                ('Profilstatus:      ' + $d.deploymentProfileAssignmentStatus),
-                ('Profil:            ' + $(if ($d.deploymentProfile) { $d.deploymentProfile.displayName } else { '-' })),
-                ('Profil zugewiesen: ' + (& $fmt $d.deploymentProfileAssignedDateTime)),
-                ('Intune:            ' + $d.enrollmentState),
-                ('Letzter Kontakt:   ' + (& $fmt $d.lastContactedDateTime)),
-                ('Benutzer:          ' + $it.Benutzer),
-                ('Name:              ' + $it.Name),
-                ('Modell:            ' + $d.manufacturer + ' ' + $d.model),
-                ('HUPilot:           ' + $it.HUPilot)
-            ) -join "`r`n"
-            [void][System.Windows.MessageBox]::Show($sw, $txt, ('Details ' + $d.serialNumber), 'OK', 'Information')
-        } catch { Out-Log ('Details ' + $it.Seriennr + ': ' + $_.Exception.Message) }
+            $rows = @($tags | ForEach-Object { [pscustomobject]@{ Tag = $_; Art = $(if ($_ -eq $c.GroupTag) { 'Standard' } else { 'Auswahl' }) } })
+            $pick = Show-Pick 'HUPilot - Tag ändern' ('Neuen Group Tag für ' + $sel.Count + ' Gerät(e) wählen.') $rows 'Diesen Tag setzen' $sw
+            if (-not $pick) { return }
+            $sns = @($sel | ForEach-Object { [string]$_.Seriennr })
+            $list = (@($sns | Select-Object -First 15) -join "`r`n") + $(if ($sns.Count -gt 15) { "`r`n... und " + ($sns.Count - 15) + ' weitere' } else { '' })
+            $q = [System.Windows.MessageBox]::Show($sw, ('Tag "' + $pick.Tag + '" setzen für ' + $sns.Count + ' Gerät(e):' + "`r`n`r`n" + $list + "`r`n`r`n" + 'Wirkung: Die Geräte wechseln in die Gruppe dieses Tags und bekommen dessen Autopilot-Profil. Das dauert einige Minuten. Bereits eingerichtete Geräte ändern sich erst beim nächsten Zurücksetzen.' + "`r`n`r`n" + 'Fortfahren?'), 'HUPilot - Tag ändern', 'YesNo', 'Question')
+            if ($q -ne 'Yes') { return }
+            $tok = Get-ApiToken; if (-not $tok) { Show-Msg $script:TokenMsg 'HUPilot - Tag ändern' 'Warning' $sw; return }
+            $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
+            $ok = 0
+            foreach ($r in $sel) {
+                $id = $script:ApIds[[string]$r.Seriennr]
+                if (-not $id) { Out-Log ($r.Seriennr + ': nicht in Autopilot gefunden, Tag nicht geändert.') 'Fehler'; continue }
+                try {
+                    Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = [string]$pick.Tag } | ConvertTo-Json) -TimeoutSec 30 | Out-Null
+                    Out-Log ($r.Seriennr + ': Tag auf "' + $pick.Tag + '" gesetzt') 'OK'; $ok++
+                } catch { $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }; Out-Log ($r.Seriennr + ': Tag konnte nicht geändert werden. Später nochmal versuchen.') 'Fehler' $m }
+                $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+            }
+            Show-Msg ('Tag "' + $pick.Tag + '" gesetzt: ' + $ok + ' von ' + $sel.Count + ' Gerät(en). Einzelheiten im Protokoll des Hauptfensters.') 'HUPilot - Tag ändern' $(if ($ok -eq $sel.Count) { 'Information' } else { 'Warning' }) $sw
+        } finally { $sst.Dialog = $false }
+        & $load
     })
+    # Autopilot-Sync: wirkt fuer den ganzen Tenant; 409/429 = laeuft bereits oder vor weniger als 10 Minuten
+    $g.bSync.Add_Click({
+        $sns = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Seriennr })
+        $sst.Dialog = $true
+        try {
+            $q = [System.Windows.MessageBox]::Show($sw, ('Autopilot-Sync anstoßen?' + "`r`n`r`n" + 'Microsoft gleicht dabei alle Autopilot-Geräte des Tenants ab, nicht nur einzelne.' + $(if ($sns.Count) { ' Markiert: ' + (@($sns | Select-Object -First 10) -join ', ') + $(if ($sns.Count -gt 10) { ' ...' } else { '' }) + '.' } else { '' }) + "`r`n" + 'Wirkung: neue Geräte und geänderte Tags werden schneller sichtbar. Geht höchstens alle 10 Minuten.' + "`r`n`r`n" + 'Fortfahren?'), 'HUPilot - Autopilot-Sync', 'YesNo', 'Question')
+            if ($q -ne 'Yes') { return }
+            $tok = Get-ApiToken; if (-not $tok) { Show-Msg $script:TokenMsg 'HUPilot - Autopilot-Sync' 'Warning' $sw; return }
+            try {
+                Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotSettings/sync' -Headers @{ Authorization = 'Bearer ' + $tok } -TimeoutSec 30 | Out-Null
+                Out-Log ('Autopilot-Sync angestoßen' + $(if ($sns.Count) { ' (markiert: ' + ($sns -join ', ') + ')' } else { '' })) 'OK'
+                Show-Msg 'Autopilot-Sync angestoßen. In ein paar Minuten "Aktualisieren" klicken.' 'HUPilot - Autopilot-Sync' 'Information' $sw
+            } catch {
+                $code = Get-HttpCode $_
+                if ($code -in 409, 429) { Out-Log 'Autopilot-Sync läuft bereits oder wurde vor weniger als 10 Minuten angestoßen. Einfach etwas warten.' 'Hinweis' ('HTTP ' + $code); Show-Msg 'Der Sync läuft bereits oder wurde vor weniger als 10 Minuten angestoßen. Einfach etwas warten.' 'HUPilot - Autopilot-Sync' 'Information' $sw }
+                else { Out-Log 'Autopilot-Sync konnte nicht angestoßen werden. Später nochmal versuchen.' 'Fehler' $_.Exception.Message; Show-Msg 'Autopilot-Sync konnte nicht angestoßen werden. Details im Protokoll des Hauptfensters.' 'HUPilot - Autopilot-Sync' 'Warning' $sw }
+            }
+        } finally { $sst.Dialog = $false }
+    })
+    $exportRows = { @($g.dGrid.Items) }
+    $fileBase = { 'HUPilot-Status_' + ((Get-Cfg).Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') }
     $g.bCsv.Add_Click({
-        $dlg = New-Object Microsoft.Win32.SaveFileDialog
-        $dlg.Filter = 'CSV (*.csv)|*.csv'
-        $dlg.FileName = 'HUPilot-Status_' + ($Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') + '.csv'
-        if ($dlg.ShowDialog()) {
-            $script:StatusView | Export-Csv -Path $dlg.FileName -Delimiter ';' -NoTypeInformation -Encoding UTF8
-            Out-Log ('Status gespeichert: ' + $dlg.FileName)
-        }
+        $sst.Dialog = $true
+        try {
+            $dlg = New-Object Microsoft.Win32.SaveFileDialog
+            $dlg.Filter = 'CSV (*.csv)|*.csv'; $dlg.FileName = (& $fileBase) + '.csv'
+            if ($dlg.ShowDialog()) {
+                $props = @($script:StatusCols | ForEach-Object { $k = $_.Key; @{ Name = $_.Header; Expression = [scriptblock]::Create('$_.' + $k) } })
+                @(& $exportRows) | Select-Object -Property $props | Export-Csv -Path $dlg.FileName -Delimiter ';' -NoTypeInformation -Encoding UTF8
+                Out-Log 'Status als CSV gespeichert' 'OK' $dlg.FileName
+            }
+        } catch { Out-Log 'CSV-Datei konnte nicht gespeichert werden. Ist sie noch in Excel offen?' 'Fehler' $_.Exception.Message }
+        finally { $sst.Dialog = $false }
     })
     $g.bXlsx.Add_Click({
-        $dlg = New-Object Microsoft.Win32.SaveFileDialog
-        $dlg.Filter = 'Excel (*.xlsx)|*.xlsx'
-        $dlg.FileName = 'HUPilot-Status_' + ($Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') + '.xlsx'
-        if ($dlg.ShowDialog()) {
-            try {
-                Export-StatusXlsx -Rows $script:StatusView -Cols $script:StatusCols -Path $dlg.FileName
-                Out-Log ('Status gespeichert: ' + $dlg.FileName)
-            } catch {
-                Out-Log 'Excel-Datei konnte nicht gespeichert werden. Ist sie noch in Excel offen?' 'Fehler' $_.Exception.Message
-                [void][System.Windows.MessageBox]::Show($sw, ('Excel-Datei konnte nicht gespeichert werden (ist sie noch in Excel offen?)' + "`r`n`r`n" + $_.Exception.Message), 'HUPilot - Status', 'OK', 'Warning')
+        $sst.Dialog = $true
+        try {
+            $dlg = New-Object Microsoft.Win32.SaveFileDialog
+            $dlg.Filter = 'Excel (*.xlsx)|*.xlsx'; $dlg.FileName = (& $fileBase) + '.xlsx'
+            if ($dlg.ShowDialog()) {
+                try {
+                    Export-StatusXlsx -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Path $dlg.FileName
+                    Out-Log 'Status als Excel-Datei gespeichert' 'OK' $dlg.FileName
+                } catch {
+                    Out-Log 'Excel-Datei konnte nicht gespeichert werden. Ist sie noch in Excel offen?' 'Fehler' $_.Exception.Message
+                    [void][System.Windows.MessageBox]::Show($sw, ('Excel-Datei konnte nicht gespeichert werden (ist sie noch in Excel offen?)' + "`r`n`r`n" + $_.Exception.Message), 'HUPilot - Status', 'OK', 'Warning')
+                }
             }
-        }
+        } finally { $sst.Dialog = $false }
     })
     $g.bPrint.Add_Click({
+        $sst.Dialog = $true
         try {
             $pd = New-Object System.Windows.Controls.PrintDialog
-            # Querformat vorschlagen, im Druckdialog weiter aenderbar
             try { Add-Type -AssemblyName System.Printing; $pd.PrintTicket.PageOrientation = [System.Printing.PageOrientation]::Landscape } catch { }
             if (-not $pd.ShowDialog()) { return }
             $flt = @()
             if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $flt += ('Tag ' + [string]$g.cTag.SelectedItem) }
-            if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus protokoll.csv' }
+            if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus dem Stick-Protokoll' }
+            if ($g.cToday.IsChecked) { $flt += 'heute' }
+            if ($g.cProblem.IsChecked) { $flt += 'nur Probleme' }
+            if ($sst.Tile) { $flt += ('Kachel ' + @{ ok = 'Fertig'; wait = 'Wartet auf Profil'; ready = 'Profil da'; prob = 'Problem' }[$sst.Tile]) }
             if ($g.cZeit.IsChecked) { $flt += ('letzte ' + [string]$g.cZeitSpan.SelectedItem + ' ' + [string]$g.cZeitBasis.SelectedItem) }
-            if ($g.tFind.Text) { $flt += ('Suche „' + $g.tFind.Text + '“') }
-            $sub = $g.tCount.Text + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
-            $doc = New-StatusPrintDoc -Rows $script:StatusView -Cols $script:StatusCols -Title ('HUPilot - Status ' + $Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pd.PrintableAreaWidth -PageH $pd.PrintableAreaHeight
+            if ($g.tFind.Text) { $flt += ('Suche "' + $g.tFind.Text + '"') }
+            $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
+            $doc = New-StatusPrintDoc -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Title ('HUPilot - Status ' + (Get-Cfg).Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pd.PrintableAreaWidth -PageH $pd.PrintableAreaHeight
             $pd.PrintDocument(([System.Windows.Documents.IDocumentPaginatorSource]$doc).DocumentPaginator, 'HUPilot-Status')
-            Out-Log 'Status gedruckt'
+            Out-Log 'Status gedruckt' 'OK'
         } catch { Out-Log 'Drucken fehlgeschlagen. Drucker prüfen und nochmal versuchen.' 'Fehler' $_.Exception.Message }
+        finally { $sst.Dialog = $false }
     })
-    & $refresh
+    $sw.Add_ContentRendered({ & $load; $tm.Start() })
     [void]$sw.ShowDialog()
+    $tm.Stop()
 }
 
-function Get-StatusData {
+# Autopilot- und Intune-Geraete laden. -Progress: Skriptblock mit einem Text (Fortschritt), haelt das Fenster zwischen den Seiten bedienbar
+function Get-StatusData([scriptblock]$Progress = $null) {
+    $say = { param($t) if ($Progress) { & $Progress $t } }
+    & $say 'Anmeldung bei Microsoft ...'
     $tok = Get-ApiToken; if (-not $tok) { return $null }
     $h = @{ Authorization = 'Bearer ' + $tok }
-    Out-Log 'Lade Autopilot-Geräte ...'
     $all = @()
     try {
         $uri = 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=500'
+        $page = 0
         while ($uri) {
-            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h
+            $page++; & $say ('lade Autopilot-Geräte, Seite ' + $page + ' ...')
+            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h -TimeoutSec 60
             $all += @($r.value)
             $uri = $r.'@odata.nextLink'
         }
@@ -2047,25 +2271,28 @@ function Get-StatusData {
     $md = @{}
     try {
         $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime,enrolledDateTime&`$top=999"
+        $page = 0
         while ($uri) {
-            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h
+            $page++; & $say ('lade Intune-Geräte, Seite ' + $page + ' ...')
+            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h -TimeoutSec 60
             foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $md['SN:' + [string]$m.serialNumber] = $m } }
             $uri = $r.'@odata.nextLink'
         }
-        Out-Log ('Intune-Geräte gelesen: ' + @($md.Keys | Where-Object { $_ -like 'SN:*' }).Count)
-    } catch { Out-Log 'Primärer Benutzer nicht lesbar (optional: Anwendungsberechtigung DeviceManagementManagedDevices.Read.All für HUPilot-Upload)' }
+    } catch { Out-Log 'Benutzer, Gerätename und letzter Sync nicht lesbar. Optional: der App die Berechtigung DeviceManagementManagedDevices.Read.All geben.' 'Hinweis' $_.Exception.Message }
+    & $say 'lese Stick-Protokoll ...'
     $proto = Read-Protokoll
     $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
     $script:ApIds = @{}
     foreach ($d in $all) { if ($d.serialNumber) { $script:ApIds[[string]$d.serialNumber] = [string]$d.id } }
-    # Zeiten fuer den Zeitfilter (nicht als Spalte): Reg = Intune-Registrierung, Imp = Autopilot-Import.
-    # Graph liefert keine Importzeit: genommen wird die HUPilot-Zeit aus protokoll.csv, sonst die Profil-Zuweisung
-    # (kommt meist wenige Minuten nach dem Import).
+    # Zeiten fuer die Zeitfilter (nicht als Spalte): Reg = Intune-Registrierung, Imp = Autopilot-Import.
+    # Graph liefert keine Importzeit: genommen wird die HUPilot-Zeit aus protokoll.csv, sonst die Profil-Zuweisung.
     $script:StatusTimes = @{}
     $rows = foreach ($d in $all) {
         $ps = [string]$d.deploymentProfileAssignmentStatus
-        $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($(try { ([datetime]$d.deploymentProfileAssignedDateTime).Year -gt 2000 } catch { $false })) { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
+        $hasDate = $false; try { $hasDate = ([datetime]$d.deploymentProfileAssignedDateTime).Year -gt 2000 } catch { }
+        $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($hasDate) { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
         $es = [string]$d.enrollmentState
+        $stand = Get-DeviceStand $ps $es $hasDate
         $lc = ''
         try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }
         $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
@@ -2081,34 +2308,30 @@ function Get-StatusData {
         if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
         if ($d.serialNumber) { $script:StatusTimes[[string]$d.serialNumber] = @{ Reg = $tReg; Imp = $tImp } }
         [pscustomobject]@{
+            Stand          = $stand
+            WasTun         = (Get-DeviceTodo $stand $ps $es)
             Seriennr       = [string]$d.serialNumber
             Tag            = [string]$d.groupTag
-            Profil         = $prof
-            Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
+            Name           = $(if ($im) { [string]$im.deviceName } else { [string]$d.displayName })
+            Benutzer       = $(if ($im -and $im.userPrincipalName) { [string]$im.userPrincipalName } else { [string]$d.userPrincipalName })
             RegDatum       = $reg
             LetzterKontakt = $lc
-            Benutzer       = $(if ($im -and $im.userPrincipalName) { [string]$im.userPrincipalName } else { [string]$d.userPrincipalName })
-            Name           = $(if ($im) { [string]$im.deviceName } else { [string]$d.displayName })
             LetzterSync    = $sync
             Modell         = [string]$d.model
+            Profil         = $prof
+            Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
             HUPilot        = $(if ($pr) { [string]$pr.Zeit + ' ' + [string]$pr.Ergebnis } else { '' })
+            Klasse         = $script:StandClass[$stand]
         }
     }
-    # Neueste Intune-Registrierung oben, Geraete ohne Datum unten
     # noch nicht registrierte Geraete (gerade in Arbeit) OBEN, danach die registrierten, neueste zuerst
     $rows = @(@($rows | Where-Object { -not $_.RegDatum }) + @($rows | Where-Object { $_.RegDatum } | Sort-Object RegDatum -Descending))
-    Out-Log ('' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus protokoll.csv')
+    Out-Log ('Status geladen: ' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus dem Stick-Protokoll') 'OK'
     return @{ Rows = $rows; Proto = $proto }
 }
 $ui.bStatus.Add_Click({
-    try {
-        Set-Step 'Status' 'run'; Step-Ui
-        $d = Get-StatusData; if (-not $d) { Set-Step 'Status' 'err' 'nicht geladen - siehe Protokoll'; return }
-        Set-Step 'Status' 'ok' ('' + @($d.Rows).Count + ' Geräte')
-        Show-Status -Rows @($d.Rows) -Proto $d.Proto -Tenant ((Get-Cfg).Tenant)
-    } catch { Out-Log ('Status: ' + $_.Exception.Message); Set-Step 'Status' 'err' $_.Exception.Message }
+    try { Show-Status } catch { Out-Log 'Das Status-Fenster konnte nicht geöffnet werden.' 'Fehler' $_.Exception.Message; Set-Step 'Status' 'err' $_.Exception.Message }
 })
-
 # Desktop-Verknuepfung (nur wenn das Setup vom PC laeuft)
 if ($script:SrcOnUsb) { $ui.bLnk.Visibility = 'Collapsed' }
 $ui.bLnk.Add_Click({
