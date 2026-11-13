@@ -9,6 +9,7 @@ BeforeAll {
     # Funktionen aus dem Setup holen (AST), ohne das Skript auszufuehren
     $tk = $null; $er = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:SetupPath, [ref]$tk, [ref]$er)
+    $script:SetupAst = $ast
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
         'Test-StickCopy', 'Get-CfgBytesNoMak'
@@ -41,23 +42,39 @@ Describe 'Setup: Fenster (XAML)' {
     It 'alle Fenster-Bloecke werden gefunden' {
         @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'sx', 'gx', 'hx')
     }
-    It 'jedes Fenster laedt mit XamlReader (STA)' {
-        $res = @()
+    It 'jedes Fenster laedt mit XamlReader (STA), ohne und mit Dark Theme' {
+        $theme = [regex]::Match($script:SetupText, "(?s)\`$script:HuThemeXaml = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
+        $fn = @($script:SetupAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Add-HuTheme' } | ForEach-Object { $_.Extent.Text }) -join "`n"
+        $theme | Should -Match '<ResourceDictionary'
+        $fn | Should -Match 'function Add-HuTheme'
         $load = {
-            param($blocks)
+            param($blocks, $themeText, $fnText)
             Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            $script:HuThemeXaml = $themeText
+            . ([scriptblock]::Create($fnText))
             foreach ($b in $blocks) {
-                try { [void][System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader ([xml]$b.Xaml))); "$($b.Name): OK" }
-                catch { "$($b.Name): $($_.Exception.Message)" }
+                foreach ($mode in 'ohne', 'mit') {
+                    try {
+                        $x = [xml]$b.Xaml
+                        if ($mode -eq 'mit') { Add-HuTheme $x }
+                        $w = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $x))
+                        if ($mode -eq 'mit' -and "$($w.Background)" -ne '#FF1E1E1E') { throw "Hintergrund $($w.Background)" }
+                        "$($b.Name) $($mode): OK"
+                    } catch { "$($b.Name) $($mode): $($_.Exception.Message)" }
+                }
             }
         }
-        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') { $res = @(& $load $script:XamlBlocks) }
+        $res = @()
+        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') { $res = @(& $load $script:XamlBlocks $theme $fn) }
         else {
             $rs = [runspacefactory]::CreateRunspace(); $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
-            try { $ps = [powershell]::Create(); $ps.Runspace = $rs; [void]$ps.AddScript($load).AddArgument($script:XamlBlocks); $res = @($ps.Invoke() | ForEach-Object { "$_" }) } finally { $rs.Close() }
+            try { $ps = [powershell]::Create(); $ps.Runspace = $rs; [void]$ps.AddScript($load).AddArgument($script:XamlBlocks).AddArgument($theme).AddArgument($fn); $res = @($ps.Invoke() | ForEach-Object { "$_" }) } finally { $rs.Close() }
         }
         @($res | Where-Object { $_ -notmatch ': OK$' }) | Should -BeNullOrEmpty
-        $res.Count | Should -Be $script:XamlBlocks.Count
+        $res.Count | Should -Be (2 * $script:XamlBlocks.Count)
+    }
+    It 'jedes Fenster bekommt das Dark Theme vor dem Laden' {
+        foreach ($v in 'xaml', 'px', 'vx', 'sx', 'gx', 'hx') { $script:SetupText | Should -Match ('Add-HuTheme \$' + $v + '\r?\n\s*\$\w+ = \[Windows\.Markup\.XamlReader\]::Load\(\(New-Object System\.Xml\.XmlNodeReader \$' + $v + '\)\)') }
     }
     It 'Protokoll liegt nicht mehr im Scrollbereich, Hauptknopf und Ampeln vorhanden' {
         $x = [xml]$script:XamlBlocks[0].Xaml

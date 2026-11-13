@@ -79,10 +79,224 @@ $tplXml   = Join-Path $PSScriptRoot 'WCD-Vorlage\HUPilot-WLAN\customizations.xml
 $enc      = New-Object System.Text.UTF8Encoding($false)
 $script:Extra = @{}
 
+# ---------- Dark Theme nach dem HU-GUI-Standard (Farben und Stile aus HU-MultiTenant, XAML\Theme.xaml) ----------
+#   Wird beim Laden jedes Fensters als zusammengefuehrtes Woerterbuch in Window.Resources eingesetzt (Add-HuTheme).
+#   Eigene Stile eines Fensters (z. B. die 14-px-Bildlaufleiste des Hauptfensters) haben Vorrang.
+$script:HuThemeXaml = @'
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#094771"/>
+  <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="White"/>
+  <Style x:Key="DarkButton" TargetType="Button">
+    <Setter Property="Foreground" Value="White"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Padding" Value="14,6"/>
+    <Setter Property="Cursor" Value="Hand"/><Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+      <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="Opacity" Value="0.85"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="border" Property="Opacity" Value="0.4"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="DarkCheckBox" TargetType="CheckBox"><Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="Margin" Value="0,4"/></Style>
+  <Style x:Key="DarkComboBoxItem" TargetType="ComboBoxItem">
+    <Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="Background" Value="#3E3E42"/><Setter Property="Padding" Value="6,3"/>
+    <Style.Triggers>
+      <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#505058"/><Setter Property="Foreground" Value="#FFFFFF"/></Trigger>
+      <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#505058"/><Setter Property="Foreground" Value="#FFFFFF"/></Trigger>
+    </Style.Triggers>
+  </Style>
+  <Style x:Key="DarkComboBox" TargetType="ComboBox">
+    <Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="Background" Value="#3E3E42"/><Setter Property="BorderBrush" Value="#555555"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="FontSize" Value="10"/><Setter Property="MinWidth" Value="150"/>
+    <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItem}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+      <Grid>
+        <ToggleButton x:Name="ToggleButton" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" ClickMode="Press">
+          <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
+            <Border x:Name="Border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="2">
+              <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="18"/></Grid.ColumnDefinitions>
+                <Path x:Name="Arrow" Grid.Column="1" Fill="#CCCCCC" HorizontalAlignment="Center" VerticalAlignment="Center" Data="M 0 0 L 4 4 L 8 0 Z"/></Grid>
+            </Border>
+          </ControlTemplate></ToggleButton.Template>
+        </ToggleButton>
+        <ContentPresenter x:Name="ContentSite" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                          Margin="6,2,20,2" VerticalAlignment="Center" HorizontalAlignment="Left" IsHitTestVisible="False"/>
+        <TextBox x:Name="PART_EditableTextBox" Style="{x:Null}" Visibility="Hidden" Margin="4,1,20,1" Padding="1,0" VerticalAlignment="Center" HorizontalAlignment="Stretch"
+                 Background="Transparent" BorderThickness="0" Foreground="{TemplateBinding Foreground}" CaretBrush="#CCCCCC"
+                 SelectionBrush="#094771" FontSize="{TemplateBinding FontSize}" IsReadOnly="{TemplateBinding IsReadOnly}"/>
+        <Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+          <Grid x:Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+            <Border x:Name="DropDownBorder" Background="#3E3E42" BorderBrush="#555555" BorderThickness="1" CornerRadius="0,0,2,2"/>
+            <ScrollViewer Margin="2" SnapsToDevicePixels="True"><StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
+          </Grid>
+        </Popup>
+      </Grid>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsEditable" Value="True">
+          <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/><Setter TargetName="ContentSite" Property="Visibility" Value="Hidden"/><Setter Property="IsTabStop" Value="False"/>
+        </Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="DarkTextBox" TargetType="TextBox">
+    <Setter Property="Background" Value="#1E1E1E"/><Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#3E3E42"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="6,4"/><Setter Property="CaretBrush" Value="#CCCCCC"/><Setter Property="SelectionBrush" Value="#264F78"/>
+    <Style.Triggers>
+      <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="#4CAF50"/></Trigger>
+      <Trigger Property="IsReadOnly" Value="True"><Setter Property="Foreground" Value="#AAAAAA"/></Trigger>
+    </Style.Triggers>
+  </Style>
+  <Style x:Key="DarkPasswordBox" TargetType="PasswordBox">
+    <Setter Property="Background" Value="#1E1E1E"/><Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#3E3E42"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="6,4"/><Setter Property="CaretBrush" Value="#CCCCCC"/>
+  </Style>
+  <Style x:Key="DarkListBox" TargetType="ListBox">
+    <Setter Property="Background" Value="#1E1E1E"/><Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#3E3E42"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+  </Style>
+  <Style x:Key="DarkListBoxItem" TargetType="ListBoxItem">
+    <Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="Padding" Value="6,4"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+      <Border x:Name="bd" Background="Transparent" Padding="{TemplateBinding Padding}" BorderThickness="0,0,0,1" BorderBrush="#2D2D30"><ContentPresenter/></Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#2A2D2E"/></Trigger>
+        <Trigger Property="IsSelected" Value="True"><Setter TargetName="bd" Property="Background" Value="#094771"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="ToolTip"><Setter Property="Background" Value="#252526"/><Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#3E3E42"/></Style>
+  <Style TargetType="ContextMenu">
+    <Setter Property="Background" Value="#252526"/><Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#3E3E42"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
+      <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="3"><StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/></Border>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="MenuItem">
+    <Setter Property="Foreground" Value="#CCCCCC"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem">
+      <Border x:Name="bd" Background="Transparent" CornerRadius="3" Padding="12,5">
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock x:Name="chk" Text="&#x2713;" Foreground="#4CAF50" Width="16" Visibility="Hidden" VerticalAlignment="Center"/>
+          <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+          <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="#858585" Margin="24,0,0,0" VerticalAlignment="Center"/></Grid>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsChecked" Value="True"><Setter TargetName="chk" Property="Visibility" Value="Visible"/></Trigger>
+        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="bd" Property="Background" Value="#094771"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#6A6A6A"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Background="#3E3E42" Margin="6,3"/></ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="DarkDataGrid" TargetType="DataGrid">
+    <Setter Property="Background" Value="#1E1E1E"/><Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="RowBackground" Value="#1E1E1E"/>
+    <Setter Property="AlternatingRowBackground" Value="#232323"/><Setter Property="BorderBrush" Value="#3E3E42"/><Setter Property="GridLinesVisibility" Value="Horizontal"/>
+    <Setter Property="HorizontalGridLinesBrush" Value="#2D2D30"/><Setter Property="HeadersVisibility" Value="Column"/><Setter Property="CanUserAddRows" Value="False"/>
+    <Setter Property="IsReadOnly" Value="True"/><Setter Property="SelectionMode" Value="Single"/><Setter Property="ColumnWidth" Value="Auto"/>
+    <Setter Property="CellStyle"><Setter.Value>
+      <Style TargetType="DataGridCell">
+        <Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="6,1,12,1"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridCell">
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+            <ContentPresenter VerticalAlignment="Center" SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+          </Border>
+        </ControlTemplate></Setter.Value></Setter>
+        <Style.Triggers>
+          <Trigger Property="IsSelected" Value="True">
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+          </Trigger>
+          <MultiTrigger>
+            <MultiTrigger.Conditions><Condition Property="IsSelected" Value="True"/><Condition Property="Selector.IsSelectionActive" Value="False"/></MultiTrigger.Conditions>
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.InactiveSelectionHighlightBrushKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.InactiveSelectionHighlightBrushKey}}"/>
+          </MultiTrigger>
+          <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource {x:Static DataGrid.FocusBorderBrushKey}}"/></Trigger>
+        </Style.Triggers>
+      </Style>
+    </Setter.Value></Setter>
+    <Setter Property="ColumnHeaderStyle"><Setter.Value>
+      <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="#2D2D2D"/><Setter Property="Foreground" Value="#AAAAAA"/><Setter Property="Padding" Value="6,4,12,4"/>
+        <Setter Property="BorderBrush" Value="#3E3E42"/><Setter Property="BorderThickness" Value="0,0,1,1"/>
+      </Style>
+    </Setter.Value></Setter>
+  </Style>
+  <Style x:Key="HUScrollThumb" TargetType="Thumb">
+    <Setter Property="OverridesDefaultStyle" Value="True"/><Setter Property="IsTabStop" Value="False"/><Setter Property="Focusable" Value="False"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+      <Border x:Name="b" Background="#5A5A5A" CornerRadius="4" Margin="2"/>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#787878"/></Trigger>
+        <Trigger Property="IsDragging" Value="True"><Setter TargetName="b" Property="Background" Value="#9A9A9A"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="HUScrollPage" TargetType="RepeatButton">
+    <Setter Property="OverridesDefaultStyle" Value="True"/><Setter Property="IsTabStop" Value="False"/><Setter Property="Focusable" Value="False"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="ScrollBar">
+    <Setter Property="OverridesDefaultStyle" Value="True"/><Setter Property="SnapsToDevicePixels" Value="True"/><Setter Property="Background" Value="#252526"/>
+    <Style.Triggers>
+      <Trigger Property="Orientation" Value="Vertical">
+        <Setter Property="Width" Value="12"/><Setter Property="MinWidth" Value="12"/><Setter Property="Height" Value="Auto"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+          <Border Background="{TemplateBinding Background}"><Track x:Name="PART_Track" IsDirectionReversed="True">
+            <Track.DecreaseRepeatButton><RepeatButton Style="{StaticResource HUScrollPage}" Command="ScrollBar.PageUpCommand"/></Track.DecreaseRepeatButton>
+            <Track.Thumb><Thumb Style="{StaticResource HUScrollThumb}" MinHeight="24"/></Track.Thumb>
+            <Track.IncreaseRepeatButton><RepeatButton Style="{StaticResource HUScrollPage}" Command="ScrollBar.PageDownCommand"/></Track.IncreaseRepeatButton>
+          </Track></Border>
+        </ControlTemplate></Setter.Value></Setter>
+      </Trigger>
+      <Trigger Property="Orientation" Value="Horizontal">
+        <Setter Property="Height" Value="12"/><Setter Property="MinHeight" Value="12"/><Setter Property="Width" Value="Auto"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+          <Border Background="{TemplateBinding Background}"><Track x:Name="PART_Track" IsDirectionReversed="False">
+            <Track.DecreaseRepeatButton><RepeatButton Style="{StaticResource HUScrollPage}" Command="ScrollBar.PageLeftCommand"/></Track.DecreaseRepeatButton>
+            <Track.Thumb><Thumb Style="{StaticResource HUScrollThumb}" MinWidth="24"/></Track.Thumb>
+            <Track.IncreaseRepeatButton><RepeatButton Style="{StaticResource HUScrollPage}" Command="ScrollBar.PageRightCommand"/></Track.IncreaseRepeatButton>
+          </Track></Border>
+        </ControlTemplate></Setter.Value></Setter>
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+  <!-- Standard fuer alle Steuerelemente der HUPilot-Fenster (ohne eigenen Stil) -->
+  <Style TargetType="Button" BasedOn="{StaticResource DarkButton}"><Setter Property="Background" Value="#3E3E42"/></Style>
+  <Style TargetType="TextBox" BasedOn="{StaticResource DarkTextBox}"><Setter Property="Padding" Value="4,2"/></Style>
+  <Style TargetType="PasswordBox" BasedOn="{StaticResource DarkPasswordBox}"><Setter Property="Padding" Value="4,2"/></Style>
+  <Style TargetType="CheckBox" BasedOn="{StaticResource DarkCheckBox}"/>
+  <Style TargetType="ComboBox" BasedOn="{StaticResource DarkComboBox}"><Setter Property="FontSize" Value="12"/><Setter Property="MinWidth" Value="0"/><Setter Property="Padding" Value="4,3"/></Style>
+  <Style TargetType="ListBox" BasedOn="{StaticResource DarkListBox}"/>
+  <Style TargetType="ListBoxItem" BasedOn="{StaticResource DarkListBoxItem}"/>
+  <Style TargetType="DataGrid" BasedOn="{StaticResource DarkDataGrid}"/>
+  <Style TargetType="GroupBox"><Setter Property="Foreground" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#3E3E42"/></Style>
+</ResourceDictionary>
+'@
+function Add-HuTheme([xml]$Doc) {
+    $ns = 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+    $root = $Doc.DocumentElement
+    foreach ($a in @(@('Background', '#1E1E1E'), @('Foreground', '#CCCCCC'), @('UseLayoutRounding', 'True'), @('TextOptions.TextFormattingMode', 'Display'))) { if (-not $root.HasAttribute($a[0])) { $root.SetAttribute($a[0], $a[1]) } }
+    $res = $null
+    foreach ($ch in @($root.ChildNodes)) { if ($ch.LocalName -eq 'Window.Resources') { $res = $ch } }
+    if (-not $res) { $res = $Doc.CreateElement('Window.Resources', $ns); [void]$root.PrependChild($res) }
+    $rd = $Doc.CreateElement('ResourceDictionary', $ns)
+    $md = $Doc.CreateElement('ResourceDictionary.MergedDictionaries', $ns)
+    [void]$md.AppendChild($Doc.ImportNode(([xml]$script:HuThemeXaml).DocumentElement, $true))
+    [void]$rd.AppendChild($md)
+    foreach ($ch in @($res.ChildNodes)) { [void]$rd.AppendChild($res.RemoveChild($ch)) }
+    [void]$res.AppendChild($rd)
+}
+
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="890" Height="980" MinWidth="640" MinHeight="420" WindowStartupLocation="CenterScreen" FontSize="13" ResizeMode="CanResizeWithGrip">
+        Title="HUPilot-Setup" Width="890" Height="1060" MinWidth="640" MinHeight="420" WindowStartupLocation="CenterScreen" FontSize="13" ResizeMode="CanResizeWithGrip">
   <Window.Resources>
     <Style x:Key="HuThumb" TargetType="Thumb">
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
@@ -132,7 +346,7 @@ $script:Extra = @{}
     </Style>
     <Style x:Key="HuLamp" TargetType="Ellipse">
       <Setter Property="Width" Value="10"/><Setter Property="Height" Value="10"/><Setter Property="Margin" Value="0,0,6,0"/>
-      <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Fill" Value="#FF9E9E9E"/><Setter Property="ToolTip" Value="Stand: offen"/>
+      <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Fill" Value="#FF6A6A6A"/><Setter Property="ToolTip" Value="Stand: offen"/>
     </Style>
   </Window.Resources>
   <DockPanel Margin="14">
@@ -144,24 +358,24 @@ $script:Extra = @{}
     </StackPanel>
     <Image x:Name="iLogo" Width="44" Height="44"/>
     <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-      <TextBlock Text="HUPilot" FontSize="20" FontWeight="SemiBold"/>
-      <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="Gray"/>
+      <TextBlock Text="HUPilot" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
+      <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="#FF858585"/>
     </StackPanel>
   </DockPanel>
   <!-- Protokoll fest unten (nicht im Scrollbereich), Hoehe per Ziehgriff, gemerkt in HUPilot\Config\ui.json -->
   <DockPanel x:Name="pLog" DockPanel.Dock="Bottom" Margin="0,4,0,0">
     <Thumb x:Name="thLog" DockPanel.Dock="Top" Height="10" Cursor="SizeNS" ToolTip="Höhe des Protokolls anpassen (ziehen) - wird gemerkt." ToolTipService.ShowDuration="30000">
-      <Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="Transparent"><Border Background="#FF9E9E9E" Opacity="0.6" Height="4" Width="80" CornerRadius="2" VerticalAlignment="Center"/></Border></ControlTemplate></Thumb.Template>
+      <Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="Transparent"><Border Background="#3E3E42" Height="4" Width="80" CornerRadius="2" VerticalAlignment="Center"/></Border></ControlTemplate></Thumb.Template>
     </Thumb>
     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
       <Button x:Name="bLogClear" DockPanel.Dock="Right" Content="Löschen" Padding="8,1" Margin="6,0,0,0" ToolTip="Protokoll dieser Sitzung leeren (die Dateien am Stick bleiben unverändert)." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bLogRev" DockPanel.Dock="Right" Content="Umkehren" Padding="8,1" ToolTip="Reihenfolge umkehren: neueste Zeile oben oder unten (wird gemerkt)." ToolTipService.ShowDuration="30000"/>
       <TextBlock Text="Protokoll" FontWeight="SemiBold" VerticalAlignment="Center" ToolTip="Was das Setup in dieser Sitzung gemacht hat." ToolTipService.ShowDuration="30000"/>
     </DockPanel>
-    <TextBox x:Name="tLog" Height="160" ToolTip="Protokoll dieser Sitzung (neueste Zeile oben, mit Umkehren änderbar)." ToolTipService.ShowDuration="30000" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+    <TextBox x:Name="tLog" Height="120" ToolTip="Protokoll dieser Sitzung (neueste Zeile oben, mit Umkehren änderbar)." ToolTipService.ShowDuration="30000" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </DockPanel>
   <!-- Hauptknopf: alles in einem Durchgang -->
-  <Border x:Name="bdReady" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8" CornerRadius="4" BorderThickness="1" BorderBrush="#FF2E7D32" Background="#142E7D32">
+  <Border x:Name="bdReady" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8" CornerRadius="4" BorderThickness="1" BorderBrush="#FF4CAF50" Background="#252526">
     <DockPanel>
       <Button x:Name="bReady" DockPanel.Dock="Left" Style="{StaticResource HuMain}" Padding="18,8" FontSize="15" FontWeight="Bold" ToolTip="Macht den gewählten Stick in einem Durchgang fertig:&#x0a;Felder prüfen, Verbindung und Secret prüfen, Tags prüfen (nur Warnung), speichern,&#x0a;WLAN-Paket bauen, wenn es fehlt oder veraltet ist, auf den Stick kopieren und die kopierten Dateien kontrollieren.&#x0a;Bricht beim ersten echten Fehler ab und sagt, was zu tun ist." ToolTipService.ShowDuration="60000">
         <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="12" Height="12" Margin="0,0,8,0"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
@@ -211,7 +425,7 @@ $script:Extra = @{}
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="MAK (Pro)" VerticalAlignment="Center"/>
         <DockPanel Grid.Row="0" Grid.Column="1"><CheckBox x:Name="cShowEd" ToolTip="MAK im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pEdKey" ToolTip="Volumenlizenz-Schlüssel (MAK) für Windows Pro, Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX.&#x0a;Windows Home lässt keine Intune-Verwaltung zu, dafür braucht es Pro oder Pro Education (auch Education, Enterprise).&#x0a;Nur für Geräte mit Windows Home: go.ps1 fragt am Gerät nach, stellt auf Pro um (Neustart) und aktiviert danach mit diesem Schlüssel.&#x0a;Jede Aktivierung zählt beim MAK mit. Geräte mit Pro, Pro Education, Education oder Enterprise werden nicht angefasst.&#x0a;ACHTUNG: Der MAK steht im Klartext in config.json auf jedem Stick. Nur für Einzelfälle eintragen, nicht für Massen-Rollouts,&#x0a;Stick nicht aus der Hand geben und das Feld danach wieder leeren (3. Speichern, 5. Auf Stick kopieren). Leer = Funktion aus." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tEdKey" ToolTip="MAK für Windows Pro im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
-        <TextBlock Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Foreground="#FFC0392B" TextWrapping="Wrap" Text="Nur für Einzelfälle: Der MAK liegt im Klartext auf dem Stick. Nicht für Massen-Rollouts, danach wieder leeren." ToolTip="Der Schlüssel steht unverschlüsselt in HUPilot\config.json auf jedem bespielten Stick. Wer den Stick hat, kann ihn lesen." ToolTipService.ShowDuration="30000"/>
+        <TextBlock Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Foreground="#FFE57373" TextWrapping="Wrap" Text="Nur für Einzelfälle: Der MAK liegt im Klartext auf dem Stick. Nicht für Massen-Rollouts, danach wieder leeren." ToolTip="Der Schlüssel steht unverschlüsselt in HUPilot\config.json auf jedem bespielten Stick. Wer den Stick hat, kann ihn lesen." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="4" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
@@ -227,24 +441,24 @@ $script:Extra = @{}
       </Grid>
     </GroupBox>
     <WrapPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Vorbereiten" Width="78" VerticalAlignment="Center" Foreground="Gray" Margin="0,0,0,4" ToolTip="Einzelschritte zum Vorbereiten der Quelle. Der Knopf &quot;Stick fertig machen&quot; unten erledigt sie in einem Durchgang." ToolTipService.ShowDuration="30000"/>
+      <TextBlock Text="Vorbereiten" Width="78" VerticalAlignment="Center" Foreground="#FF858585" Margin="0,0,0,4" ToolTip="Einzelschritte zum Vorbereiten der Quelle. Der Knopf &quot;Stick fertig machen&quot; unten erledigt sie in einem Durchgang." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup läuft).&#x0a;Ungespeicherte Änderungen gehen dabei verloren (mit Rückfrage)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,0,4"/>
       <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTest" Style="{StaticResource HuLamp}"/><TextBlock Text="1. Verbindung testen"/></StackPanel></Button>
       <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geräte in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob für einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTags" Style="{StaticResource HuLamp}"/><TextBlock Text="2. Tags prüfen"/></StackPanel></Button>
       <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eWrite" Style="{StaticResource HuLamp}"/><TextBlock Text="3. Speichern"/></StackPanel></Button>
-      <TextBlock x:Name="tDirty" Text="* ungespeichert" Foreground="#FFE65100" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,0,4" Visibility="Collapsed" ToolTip="Es gibt Änderungen, die noch nicht in config.json stehen.&#x0a;3. Speichern oder Stick fertig machen speichert sie." ToolTipService.ShowDuration="30000"/>
+      <TextBlock x:Name="tDirty" Text="* ungespeichert" Foreground="#FFFF9800" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,0,4" Visibility="Collapsed" ToolTip="Es gibt Änderungen, die noch nicht in config.json stehen.&#x0a;3. Speichern oder Stick fertig machen speichert sie." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
-      <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="6,0,0,4" Foreground="Gray" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut" ToolTipService.ShowDuration="30000"/>
+      <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="6,0,0,4" Foreground="#FF858585" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut&#x0a;unbekannt = gebaut mit einer älteren Version, neu bauen empfohlen" ToolTipService.ShowDuration="30000"/>
     </WrapPanel>
     <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="Gray" Margin="0,0,0,4" ToolTip="Ziel-Stick für 5. Auf Stick kopieren und für Stick fertig machen." ToolTipService.ShowDuration="30000"/>
+      <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="#FF858585" Margin="0,0,0,4" ToolTip="Ziel-Stick für 5. Auf Stick kopieren und für Stick fertig machen." ToolTipService.ShowDuration="30000"/>
       <ComboBox x:Name="cDrive" ToolTip="Ziel-Stick für 5. Auf Stick kopieren und Stick fertig machen. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000" Width="180" Margin="0,0,0,4"/>
       <Button x:Name="bReload" ToolTip="USB-Laufwerke neu einlesen." ToolTipService.ShowDuration="30000" Content="Aktualisieren" Padding="8,2" Margin="6,0,0,4"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen. Danach Kontrolle der kopierten Dateien." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eCopy" Style="{StaticResource HuLamp}"/><TextBlock Text="5. Auf Stick kopieren"/></StackPanel></Button>
       <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,4"/>
     </WrapPanel>
     <WrapPanel Grid.Row="7" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="Gray" Margin="0,0,0,4" ToolTip="Nach dem Einsatz der Sticks: Stand in Autopilot ansehen, offline gespeicherte Hashes hochladen." ToolTipService.ShowDuration="30000"/>
+      <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="#FF858585" Margin="0,0,0,4" ToolTip="Nach dem Einsatz der Sticks: Stand in Autopilot ansehen, offline gespeicherte Hashes hochladen." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV oder Excel, Drucken (auch als PDF)." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eStatus" Style="{StaticResource HuLamp}"/><TextBlock Text="6. Status"/></StackPanel></Button>
       <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eHash" Style="{StaticResource HuLamp}"/><TextBlock Text="7. Hashes importieren"/></StackPanel></Button>
     </WrapPanel>
@@ -253,6 +467,7 @@ $script:Extra = @{}
   </DockPanel>
 </Window>
 '@
+Add-HuTheme $xaml
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
 foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg') { $ui[$n] = $win.FindName($n) }
@@ -323,7 +538,7 @@ function Out-Log([string]$m) {
         $ui.tLog.ScrollToEnd()
     }
 }
-try { $h = [double](Get-UiSetting 'LogHeight' 160); if ($h -ge 60 -and $h -le 800) { $ui.tLog.Height = $h } } catch { }
+try { $h = [double](Get-UiSetting 'LogHeight' 120); if ($h -ge 60 -and $h -le 800) { $ui.tLog.Height = $h } } catch { }
 $ui.thLog.Add_DragDelta({
     param($s, $e)
     $max = [math]::Max(60, [math]::Min(800, $win.ActualHeight - 330))
@@ -341,7 +556,7 @@ $ui.bLogRev.Add_Click({
 $ui.bLogClear.Add_Click({ $ui.tLog.Clear() })
 
 # ---------- Ampeln je Schritt (offen, laeuft, ok, Warnung, Fehler) ----------
-$script:LampColor = @{ open = '#FF9E9E9E'; run = '#FF1976D2'; ok = '#FF2E7D32'; warn = '#FFF9A825'; err = '#FFC62828' }
+$script:LampColor = @{ open = '#FF6A6A6A'; run = '#FF42A5F5'; ok = '#FF4CAF50'; warn = '#FFFF9800'; err = '#FFE57373' }
 $script:LampText  = @{ open = 'offen'; run = 'läuft ...'; ok = 'OK'; warn = 'Warnung'; err = 'Fehler' }
 function Set-Step([string]$Step, [string]$State, [string]$Note = '') {
     $e = $ui['e' + $Step]
@@ -522,7 +737,7 @@ function Show-PrepSticks {
     </Style>
   </Window.Resources>
   <DockPanel Margin="12">
-    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="Firebrick" FontWeight="SemiBold" Margin="0,0,0,8"
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="#FFE57373" FontWeight="SemiBold" Margin="0,0,0,8"
       Text="ACHTUNG: Die gewählten USB-Sticks werden FORMATIERT - alle Daten darauf gehen verloren. Interne Laufwerke und der Quell-Datenträger werden nie angezeigt."/>
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
       <TextBlock Text="Name:" VerticalAlignment="Center"/>
@@ -541,6 +756,7 @@ function Show-PrepSticks {
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $px
     $pw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $px))
     $pw.Owner = $win
     if ($win.Icon) { $pw.Icon = $win.Icon }
@@ -645,10 +861,12 @@ function Set-UpdButton([string]$RemoteVer = '', [bool]$Pre = $false, [string]$Te
     if ($RemoteVer) {
         $ui.bUpd.Content = 'Update v' + $RemoteVer + $(if ($Pre) { ' (Test)' })
         $ui.bUpd.Background = [System.Windows.Media.Brushes]::Gold
+        $ui.bUpd.Foreground = [System.Windows.Media.Brushes]::Black
         $ui.bUpd.FontWeight = 'Bold'
     } else {
         $ui.bUpd.Content = $(if ($Text) { $Text } else { 'Aktuell v' + $SetupVer })
         $ui.bUpd.ClearValue([System.Windows.Controls.Control]::BackgroundProperty)
+        $ui.bUpd.ClearValue([System.Windows.Controls.Control]::ForegroundProperty)
         $ui.bUpd.ClearValue([System.Windows.Controls.Control]::FontWeightProperty)
     }
 }
@@ -763,6 +981,7 @@ function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkTe
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $vx
     $vw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $vx))
     $vw.Owner = $win; if ($win.Icon) { $vw.Icon = $win.Icon }
     $vw.Title = $Title
@@ -1057,7 +1276,7 @@ function Show-SecretExpiry([string]$Token) {
 }
 function Set-SubSecret([string]$Text, [bool]$Warn) {
     $ui.tSub.Text = $Text
-    $ui.tSub.Foreground = $(if ($Warn) { [System.Windows.Media.Brushes]::Firebrick } else { [System.Windows.Media.Brushes]::DimGray })
+    $ui.tSub.Foreground = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($(if ($Warn) { '#FFE57373' } else { '#FF858585' })))
 }
 # Autopilot lesen (Berechtigung DeviceManagementServiceConfig.ReadWrite.All). Rueckgabe: Fehlertext oder '' = ok
 function Test-ApAccess([string]$Token) {
@@ -1123,9 +1342,9 @@ function Get-PkgState($c, [string]$PkgPath, [string]$FpPath) {
     } catch { return 'unbekannt' }
 }
 $script:PkgStateText = @{
-    aus = @('WLAN-Paket: nicht verwendet', 'Gray', 'open'); fremd = @('WLAN-Paket: eigenes (nicht geprüft)', 'Gray', 'open')
-    fehlt = @('WLAN-Paket: fehlt', '#FFC62828', 'err'); unbekannt = @('WLAN-Paket: Stand unbekannt (neu bauen)', '#FFE65100', 'warn')
-    veraltet = @('WLAN-Paket: veraltet (neu bauen)', '#FFE65100', 'warn'); aktuell = @('WLAN-Paket: aktuell', '#FF2E7D32', 'ok')
+    aus = @('Paket: nicht verwendet', '#FF858585', 'open'); fremd = @('Paket: eigenes (nicht geprüft)', '#FF858585', 'open')
+    fehlt = @('Paket: fehlt', '#FFE57373', 'err'); unbekannt = @('Paket: unbekannt', '#FFFF9800', 'warn')
+    veraltet = @('Paket: veraltet', '#FFFF9800', 'warn'); aktuell = @('Paket: aktuell', '#FF4CAF50', 'ok')
 }
 function Update-PkgState {
     $s = 'unbekannt'
@@ -1589,10 +1808,11 @@ function Show-Status {
       <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen drucken (Querformat, auch als PDF über „Microsoft Print to PDF“)"/>
       <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen"/>
     </StackPanel>
-    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details (Profil live nachladen)" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
+    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details (Profil live nachladen)" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $sx
     $sw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $sx))
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
@@ -1605,10 +1825,10 @@ function Show-Status {
         $profStyle = [Windows.Markup.XamlReader]::Parse(@'
 <Style TargetType="DataGridCell" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Style.Triggers>
-    <DataTrigger Binding="{Binding Profil}" Value="zugewiesen"><Setter Property="Background" Value="#DFF2E1"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="ausstehend"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="zugew., Datum fehlt"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="zugew., nicht synchron"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="zugewiesen"><Setter Property="Background" Value="#1E4620"/><Setter Property="Foreground" Value="#E8F5E9"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="ausstehend"><Setter Property="Background" Value="#4A3F10"/><Setter Property="Foreground" Value="#FFF8E1"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="zugew., Datum fehlt"><Setter Property="Background" Value="#4A3F10"/><Setter Property="Foreground" Value="#FFF8E1"/></DataTrigger>
+    <DataTrigger Binding="{Binding Profil}" Value="zugew., nicht synchron"><Setter Property="Background" Value="#4A3F10"/><Setter Property="Foreground" Value="#FFF8E1"/></DataTrigger>
     <Trigger Property="IsSelected" Value="True">
       <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
       <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
@@ -1919,10 +2139,11 @@ function Show-Grid {
   <DockPanel Margin="10">
     <TextBlock x:Name="tInfo" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
     <Button x:Name="bClose" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Content="Schließen" Padding="10,4" Margin="0,8,0,0" ToolTip="Fenster schließen."/>
-    <DataGrid x:Name="dGrid" ToolTip="Je Tag: Geräte, passende Gruppe und Autopilot-Profil. Spaltenkopf anklicken = sortieren." AutoGenerateColumns="True" IsReadOnly="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
+    <DataGrid x:Name="dGrid" ToolTip="Je Tag: Geräte, passende Gruppe und Autopilot-Profil. Spaltenkopf anklicken = sortieren." AutoGenerateColumns="True" IsReadOnly="True" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $gx
     $gw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $gx))
     $gw.Owner = $win; $gw.Title = $Title
     if ($win.Icon) { $gw.Icon = $win.Icon }
@@ -2043,7 +2264,7 @@ function Show-HashImport {
       <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen. Während eines Imports: Abbrechen mit Rückfrage."/>
     </StackPanel>
     <TextBox x:Name="tHLog" ToolTip="Protokoll des Imports." DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
-    <DataGrid x:Name="dGrid" ToolTip="Gefundene Hashes mit Stand des Imports." AutoGenerateColumns="False" IsReadOnly="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column">
+    <DataGrid x:Name="dGrid" ToolTip="Gefundene Hashes mit Stand des Imports." AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Seriennr" Binding="{Binding Seriennr}"/>
         <DataGridTextColumn Header="Tag" Binding="{Binding Tag}"/>
@@ -2055,6 +2276,7 @@ function Show-HashImport {
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $hx
     $hw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $hx))
     $hw.Owner = $win
     if ($win.Icon) { $hw.Icon = $win.Icon }
