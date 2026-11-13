@@ -1,4 +1,120 @@
-# Changelog
+﻿# Changelog
+
+## v2.7.18 - 2026-11-13
+### 🚀 Stick fertig machen
+- **Neuer Hauptknopf "Stick fertig machen":** erledigt alles in einem Durchgang und sagt bei einem Fehler in Klartext, was zu tun ist.
+  - Prüft die Eingaben, die Verbindung und das Secret, warnt bei Tags ohne Autopilot-Profil, speichert, baut das WLAN-Paket nur wenn nötig und kopiert auf den gewählten Stick.
+  - Danach werden die Dateien auf dem Stick mit der Quelle verglichen. Erst dann heißt es "fertig und kontrolliert".
+- **Ampel je Schritt:** Die Knöpfe 1 bis 7 haben einen Punkt: grau offen, blau läuft, grün OK, gelb Warnung, rot Fehler. Die Maus darüber zeigt den Grund.
+- **Kontrolle auch beim Einzelknopf:** "5. Auf Stick kopieren" und "Sticks vorbereiten" vergleichen die kopierten Dateien ebenfalls.
+- **Stick-Auswahl direkt beim Hauptknopf:** Stick wählen und "Stick fertig machen" klicken geht ohne Scrollen, auch auf kleinen Bildschirmen. "5. Auf Stick kopieren" nutzt dieselbe Auswahl.
+- **Sticks werden von selbst erkannt:** Angesteckte und abgezogene Sticks erscheinen bzw. verschwinden ohne Klick, im Hauptfenster und in "Sticks vorbereiten". Das Protokoll nennt "Stick E: HUPILOT erkannt" und "Stick E: entfernt".
+  - Der gewählte Stick bleibt gewählt, auch wenn ein zweiter dazukommt. Von selbst gewählt wird nur, wenn genau ein Stick neu dazukommt und vorher keiner da war. Wird der gewählte abgezogen, ist die Auswahl leer, bis ein Stick gewählt wird. So landet config.json nie auf einem Stick, den man nicht gewählt hat.
+  - Während eines Vorgangs und solange ein anderes Fenster wie Status offen ist, ändert sich die Auswahl nicht.
+  - In "Sticks vorbereiten" bleibt eine Markierung nur beim selben Stick, erkannt an Seriennummer, Größe und Kennung von Datenträger und Laufwerk. Verschwindet er oder wird er getauscht, wird die Markierung entfernt und im Protokoll genannt. Nach jedem Durchgang ist kein Stick mehr markiert.
+- **Formatieren nur den markierten Stick:** Direkt vor dem Formatieren liest "Sticks vorbereiten" den Stick neu ein und vergleicht ihn mit dem markierten. Wurde er inzwischen getauscht, wird er nicht formatiert. Während eines Durchgangs lässt sich das Fenster nicht schließen.
+  - Der Knopf zum Neu-Einlesen bleibt als kleiner Rückfall.
+- **Kurzer Stand neben dem Hauptknopf:** eine Zeile je Zustand, zum Beispiel "Bereit für E: HUPILOT", "Kein Stick erkannt. Stick anstecken.", während des Durchgangs der aktuelle Schritt, danach das Ergebnis. Bei einem Fehler steht dort der eine Satz, was zu tun ist, die ganze Meldung im Tooltip.
+
+### 🎨 Oberfläche
+- **Dunkle oder helle Oberfläche:** Standard ist dunkel. Der Knopf neben dem Fragezeichen schaltet sofort um, in allen offenen Fenstern, die Wahl wird gemerkt. Tooltips an allen Steuerelementen.
+- **Info-Fenster:** Klick auf das Logo oben links oder Rechtsklick auf "Update", dann "Info ...". Zeigt Version und Stand, Update-Kanal, die Quelle, aus der das Setup läuft, PowerShell- und Windows-Version, den Stand des Paketbaus und die Protokolldatei der Sitzung, dazu Links zu Repo, Anleitung, Änderungen und Lizenz.
+  - "Kopieren" legt die Angaben als Text in die Zwischenablage, für Rückfragen beim Admin. Tenant, Tenant-ID, App-ID und Secret stehen nicht darin.
+  - Im selben Menü öffnet "Anleitung (F1)" die Anleitung.
+- **Ruhige Gruppenrahmen:** eine dünne graue Linie mit der Überschrift in der Linie statt des doppelten weißen Rahmens.
+- **Protokoll fest unten:** nicht mehr abgeschnitten, Höhe mit dem Ziehgriff einstellbar und gemerkt, neueste Zeile oben, Knöpfe "Umkehren" und "Löschen". Es lässt dem Formular immer genug Platz und wird bei kleinem Fenster von selbst kleiner.
+- **Ungespeicherte Änderungen sichtbar:** "* ungespeichert" neben "3. Speichern" und im Fenstertitel. Rückfrage bei "Neu laden", beim Schließen und vor einem Update.
+- **Kennwörter verdeckt:** WLAN-Kennwort und beide Admin-Kennwörter mit "anzeigen", wie Secret und MAK.
+- **Alle Fenster passen auf den Bildschirm:** Status, Hashes importieren, Sticks vorbereiten, Tags und Versionsauswahl stehen immer ganz im Bild, die Knopfleiste unten ist nie abgeschnitten.
+- **Tabellen ganz sichtbar:** Die Fenster sind so breit wie die Spalten, mit Luft in Zellen und Zeilen. Ein Querbalken erscheint nur, wenn der Bildschirm zu schmal ist.
+  - Im Status richtet sich jede Spalte nach den gerade angezeigten Geräten und passt sich bei jedem Filter, jeder Suche und jedem Aktualisieren an.
+  - Eine von Hand gezogene Spalte und ein maximiertes oder selbst vergrößertes Fenster bleiben bis zum Schließen so.
+  - Ändert sich die Breite, bleibt das Status-Fenster an seinem Platz, auch auf einem zweiten Bildschirm. Es rückt nur so weit, dass es ganz zu sehen ist.
+  - Die Suche wird nach einer kurzen Tipp-Pause ausgewertet, das Fenster reagiert dabei flüssiger.
+- **Behoben: Absturz beim schnellen Schließen:** Wurde das Status-Fenster während des Ladens oder direkt nach einem Filterklick geschlossen, konnte sich das ganze Setup beenden.
+
+### 📝 Protokoll
+- **Drei Stufen:** jede Zeile ist OK (grün), Hinweis (gelb) oder Fehler (rot).
+- **Klartext mit nächstem Schritt:** Felder heißen wie im Fenster, z. B. "WLAN-Kennwort fehlt. Bitte oben eintragen."
+  - Technische Meldungen von Microsoft oder dem Paketbau stehen im Tooltip der Zeile und per Doppelklick.
+- **Kopieren:** markierte Zeilen oder das ganze Protokoll mit Strg+C oder "Protokoll kopieren".
+- **Protokolldatei je Sitzung:** in `HUPilot\logs`, ohne Secret, Kennwörter und Schlüssel. Die letzten 20 Dateien bleiben, sie kommen nicht auf die Sticks.
+
+### ✅ Prüfungen
+- **Group Tag und Auswahl werden beim Speichern geprüft:** mit denselben Regeln wie am Gerät. Bisher brach go erst am Gerät rot ab.
+  - Mehr als 9 Einträge in der Auswahl werden mit Meldung abgelehnt.
+- **Behoben: lokaler Admin blockierte andere Knöpfe:** Ein halb ausgefüllter Admin verhinderte "1. Verbindung testen", "2. Tags prüfen", "6. Status" und "7. Hashes importieren". Die Admins werden jetzt nur beim Speichern und beim Paketbau geprüft.
+- **Behoben: "Secret UNGÜLTIG" ohne Internet:** Ohne Verbindung steht jetzt grau "Keine Verbindung - Secret nicht geprüft". Rot nur noch, wenn das Secret wirklich abgelaufen oder falsch ist.
+
+### 📶 WLAN-Paket
+- **Stand sichtbar:** neben "4. WLAN-Paket bauen" steht "Paket: aktuell", "veraltet", "fehlt" oder "unbekannt".
+- **Behoben: altes Paket auf dem Stick:** Wurden WLAN oder lokale Admins geändert, kam bisher still das alte Paket auf den Stick. Jetzt fragt das Setup nach: neu bauen, trotzdem kopieren oder abbrechen.
+- **"4. WLAN-Paket bauen" speichert vorher:** braucht deshalb alle Pflichtfelder.
+- **Altes Paket auf dem Stick wird entfernt:** liegt auf dem Stick ein WLAN-Paket, das nicht aus der Quelle stammt (z. B. beim Kopieren ohne Paket), entfernt das Setup es und nennt es im Protokoll.
+- **Paketbau mit auf den Stick (Test):** Ein Häkchen in der Zeile "Stick" nimmt den Paketbau (ICD.exe aus dem Windows ADK, rund 78 MB) mit auf den Stick. Damit baut das Setup auch an einem PC ohne ADK WLAN-Pakete. Kein eigener Arbeitsschritt: "Stick fertig machen", "5. Auf Stick kopieren" und "Sticks vorbereiten" erledigen das im selben Durchgang. Das Häkchen wird gemerkt, Standard aus.
+  - Das Setup sieht nach, was am Stick schon liegt, und tut nur das Nötige: gleiche Version schon da, nichts kopieren; ältere Version, aktualisieren; beschädigte oder unvollständige Kopie, ersetzen; neuere Version, nicht überschreiben. Eine vorhandene Kopie zählt nur, wenn sie die Prüfung besteht.
+  - Die Dateien kommen aus dem Windows ADK am PC, ohne ADK aus einer gültigen Kopie in der Quelle. Gibt es beides nicht, ist das Häkchen grau.
+  - Ohne Häkchen bleibt eine Kopie am Stick, sie wird nie still gelöscht.
+  - Läuft das Setup vom Stick, zeigt das Häkchen, ob dieser Stick den Paketbau hat. Setzen holt ihn sofort, Entfernen fragt nach.
+  - Rechtsklick auf das Häkchen: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Der Tooltip nennt die Versionen am PC, in der Quelle und am gewählten Stick.
+  - Beim Kopieren wird der freie Platz geprüft, danach jede Datei per SHA256. Daneben liegt eine Prüfliste mit Version, Datum und Prüfsummen, sie wird als letzte Datei geschrieben.
+  - Vor jedem Bau mit der Kopie prüft das Setup Prüfsummen, fremde Dateien und die Signaturen. Jede Programmdatei braucht eine gültige Signatur von Microsoft. Ausnahme sind nur die Dateien, die schon im Original unsigniert sind; für sie steht die Prüfsumme fest im Setup. Stimmt etwas nicht, wird nicht gebaut.
+  - Das schützt vor beschädigten oder zufällig veränderten Dateien und vor fremden Programmdateien. Wer den Stick gezielt verändern kann, kann auch das Setup selbst ändern: Stick nicht aus der Hand geben.
+  - Gesucht wird zuerst das installierte ADK, dann die Kopie. Welche benutzt wird und in welcher Version, steht im Protokoll und im Tooltip der Ampel.
+  - Die Kopie lädt nie selbst etwas aus dem Internet.
+  - Das ADK gehört Microsoft und wird nicht mit HUPilot ausgeliefert, auch nicht per Update. Die Kopie ist nur für den eigenen Gebrauch.
+
+### 🔐 Secret und MAK
+- **Ablauf des Secrets:** Das Setup merkt sich das Ablaufdatum, wenn es lesbar ist (optional Application.Read.All).
+  - Beim Kopieren Rückfrage, wenn das Secret abgelaufen ist, Hinweis mit Datum, wenn es in weniger als 3 Tagen abläuft.
+  - Am Gerät zeigt go das Datum ebenfalls an.
+- **MAK nur auf gewünschte Sticks:** Ist das Feld "MAK (Pro)" gefüllt, fragt das Setup beim Kopieren "MAK mit auf diesen Stick?". Nein = dieser Stick ohne MAK, die Einstellungen bleiben. Bei "Sticks vorbereiten" einmal für alle.
+
+### 📊 Status
+- **Kacheln oben:** Geräte gesamt, Fertig, Wartet auf Profil, Profil da und noch nicht angemeldet, Problem. Ein Klick filtert die Liste, ein zweiter hebt den Filter auf.
+- **Stand und Was tun:** zwei neue Spalten in Klartext. Der Stand steht als grünes, gelbes oder rotes Schild da, die Zeile ist nur leicht getönt.
+- **Deutsche Spalten:** Die Reihenfolge wird gemerkt. CSV, Excel und Ausdruck haben dieselben Spalten, eingefärbt nach Stand.
+- **Neue Filter:** "nur Probleme" und "heute", auch im Zeitfilter.
+- **Aktualisiert sich selbst:** alle 60 Sekunden (abschaltbar), Auswahl, Sortierung und Filter bleiben. Das Protokoll wiederholt dabei keine gleichen Zeilen, ohne Verbindung pausiert das Aktualisieren nach zwei Versuchen.
+- **Öffnet sofort:** Fortschritt beim Laden mit grünem Punkt.
+- **Details als Fenster:** alle Angaben zum Gerät, der ganze Verlauf vom Stick und ein Knopf "Kopieren".
+- **Neue Aktionen mit Rückfrage:** "Tag ändern" für markierte Geräte und "Autopilot-Sync anstoßen". Läuft der Sync schon, kommt ein Hinweis statt eines Fehlers.
+- **Behoben: Ausdruck mit zerrissenen Wörtern:** Passte die Tabelle nicht auf die Seite, wurden alle Spalten gequetscht und der Text brach mitten im Wort um. Jetzt fallen leere Spalten weg, dann wird die Schrift kleiner (bis 6,5 pt), erst danach dürfen "Was tun" und "Benutzer" umbrechen, an Wortgrenzen bzw. in der Mailadresse. Alle anderen Spalten und die Kopfzeile bleiben einzeilig.
+  - Querformat ist im Druckdialog vorgewählt. Gerechnet wird mit dem Papier und der Ausrichtung, die nach dem Dialog wirklich gelten.
+  - Auf A4 quer passen bei einzeiligen Zeilen gut 35 Geräte auf eine Seite. Kopfzeile auf jeder Seite, unten "Seite x von y".
+  - Nur die Zelle "Stand" ist eingefärbt, die Zeilen sind weiß bzw. leicht grau abwechselnd, auch schwarzweiß gut lesbar.
+  - Das Protokoll nennt nach dem Druck Seiten, Ausrichtung, Schriftgröße und welche Spalten weggelassen oder umbrochen wurden.
+- **Excel druckt auf Seitenbreite:** Die Einstellung "auf eine Seite breit" wirkt jetzt wirklich. Leere Spalten bleiben in der Excel-Datei.
+
+### 💾 Hashes importieren
+- **Schließen während des Imports:** fragt nach und bricht sauber ab. Schon importierte Geräte bleiben, erledigte Zeilen werden noch verschoben.
+
+### 💻 Am Gerät
+- **Erst prüfen, dann fragen:** go prüft zuerst Einstellungen, Seriennummer, Windows, WLAN-Paket und Hash. Fehlt etwas, kommt Rot sofort und nicht erst nach den Fragen.
+- **Fragen gebündelt, dann Zusammenfassung:** nach Tag, Benutzer und Zurücksetzen zeigt go eine Zusammenfassung, danach läuft alles ohne weitere Fragen.
+- **Schritt x von 6:** Prüfen, Internet, Anmelden, Hochladen, Profil, Zurücksetzen.
+- **Countdown hält bei falscher Taste an:** dann gilt nur eine gültige Taste oder Enter. Nach 60 Sekunden ohne Taste läuft er von vorn. Ein doppeltes Enter beantwortet nicht mehr die nächste Frage mit.
+- **Abschlussbild mit drei Sätzen:** "Was ist passiert", "Was passiert jetzt", "Was musst du tun", auch bei großer Schrift lesbar.
+- **Noch kein Profil = weiter warten:** go wartet von selbst bis zu 4 Runden zu je 20 Minuten. Ohne Profil zurückgesetzt wird nur mit der Taste `J`.
+- **Leere Auswahl im Setup:** am Gerät keine Tag-Frage, es gilt der Standard-Tag. Ungültige Einträge blendet go mit Hinweis aus.
+- **Windows Home auf Pro:** Die Frage kommt zuerst. Tag, Benutzer und Zurücksetzen werden gemerkt und nach dem Neustart angeboten (Enter übernimmt).
+- **Mindest-Akku aus dem Setup:** gilt jetzt auch beim Umstellen auf Pro.
+
+### ⚠️ Nach dem Update
+- Sticks neu bespielen, am einfachsten mit "Stick fertig machen".
+- Ein vorhandenes WLAN-Paket zeigt zuerst "Paket: unbekannt". Einmal "4. WLAN-Paket bauen", danach wird der Stand angezeigt. Ohne Windows ADK fragt das Setup, ob das vorhandene Paket weiter verwendet werden soll.
+- Keine neuen Rechte für die App-Registrierung nötig.
+
+### 🚧 Grenzen
+- Testversion: am echten Gerät und mit echtem Tenant noch nicht geprüft.
+- "Autopilot-Sync anstoßen" wirkt laut Microsoft immer für den ganzen Tenant, nicht für einzelne Geräte.
+- Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
+- Erkennung der Sticks: mit echten USB-Sticks noch nicht geprüft.
+- Paketbau mit auf den Stick: geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK. Mit einem echten Stick an einem fremden PC, mit lokalen Admins im Paket und mit älteren ADK-Versionen noch nicht.
+- Paketbau mit auf den Stick: Das Setup kennt nur ICD 10.0.28000.1. Eine neuere ICD-Version wird abgelehnt, bis HUPilot sie kennt, weil ein Teil ihrer Programmdateien schon im Original nicht signiert ist.
+
+### ✅ Qualität
+- 154 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung

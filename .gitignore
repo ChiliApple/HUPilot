@@ -11,5 +11,11 @@ Stick/HUPilot/Config/update.json
 Stick/HUPilot/Config/installed.json
 Stick/HUPilot/Config/pull-journal.json
 GitHubToken_*.xml
+# Setup: Fingerabdruck des WLAN-Pakets und Fenster-Einstellungen (lokal)
+HUPilot-WLAN.fingerprint.json
+Stick/HUPilot/Config/ui.json
 *.pullold
 *.pulltmp
+# Kopie des Paketbaus (Windows ADK, Lizenz von Microsoft) - eigene Kopie des Anwenders, nie ins Repo
+ADK-ICD/
+ADK-ICD.*/

@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HUPilot – Anleitung</title>
+<title>HUPilot - Anleitung</title>
 <style>
 :root{
   --bg:#eff1f5;--panel:#ffffff;--panel2:#e6e9ef;--text:#4c4f69;--sub:#6c6f85;--line:#ccd0da;
@@ -83,25 +83,33 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <body>
 <header>
   <img src="logo64.png" alt="">
-  <div><div class="t">HUPilot</div><div class="s">Windows Autopilot per USB-Stick – Anleitung</div></div>
+  <div><div class="t">HUPilot</div><div class="s">Windows Autopilot per USB-Stick: Anleitung</div></div>
   <div class="sp"></div>
 </header>
 <div class="wrap">
 <nav>
   <a href="#ueberblick">Überblick</a>
-  <a href="#vorbereitung">1 · Vorbereitung</a>
+  <a href="#vorbereitung">1. Vorbereitung</a>
   <a class="l2" href="#app">App-Registrierung</a>
   <a class="l2" href="#setup">Setup-Oberfläche</a>
+  <a class="l2" href="#fertig">Stick fertig machen</a>
+  <a class="l2" href="#knoepfe">Einzelne Schritte</a>
+  <a class="l2" href="#protokoll">Protokoll</a>
   <a class="l2" href="#intune">Intune</a>
-  <a href="#geraet">2 · Am Gerät</a>
-  <a href="#danach">3 · Nach dem Einsatz</a>
-  <a href="#fehler">4 · Fehlersuche</a>
+  <a href="#geraet">2. Am Gerät</a>
+  <a class="l2" href="#ablauf">Ablauf und Fragen</a>
+  <a class="l2" href="#ende">Abschlussbild und Farben</a>
+  <a class="l2" href="#home">Windows Home</a>
+  <a href="#danach">3. Nach dem Einsatz</a>
+  <a class="l2" href="#status">Status-Fenster</a>
+  <a href="#fehler">4. Fehlersuche</a>
 </nav>
 <main>
 
 <section id="ueberblick">
 <h1>Überblick</h1>
-<p class="lead">Neues Gerät im ersten Einrichtungsbildschirm → <code>Shift+F10</code> → <code>D:\go</code>. Der Hardware-Hash wird mit Group Tag in Autopilot importiert, danach setzt sich das Gerät ohne Hersteller-Programme zurück und startet die Autopilot-Anmeldung.</p>
+<p class="lead">Neues Gerät im ersten Einrichtungsbildschirm, Stick anstecken, <code>Shift+F10</code>, dann <code>D:\go</code>. Der Hardware-Hash wird mit Group Tag in Autopilot importiert, danach setzt sich das Gerät ohne Hersteller-Programme zurück und startet die Autopilot-Anmeldung.</p>
+<div class="flow"><span>Setup am PC</span><i>dann</i><span>Stick fertig machen</span><i>dann</i><span>D:\go am Gerät</span><i>dann</i><span>6. Status</span></div>
 <table>
 <tr><th>Stick</th><th>Inhalt</th></tr>
 <tr><td><code>go.cmd</code></td><td>Start am Schülergerät</td></tr>
@@ -109,94 +117,184 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td><code>HUPilot-Setup.cmd</code></td><td>Oberfläche am Admin-PC</td></tr>
 <tr><td><code>HUPilot\config.json</code></td><td>Tenant, App, Secret, Tags, WLAN</td></tr>
 <tr><td><code>HUPilot\HUPilot-WLAN.ppkg</code></td><td>WLAN für die Einrichtung nach dem Zurücksetzen</td></tr>
-<tr><td><code>HUPilot\logs\</code></td><td>Log je Gerät, <code>protokoll.csv</code>, offline gespeicherte Hashes <code>hashes.csv</code>, Diagnose-Dateien</td></tr>
+<tr><td><code>HUPilot\logs\</code></td><td>Log je Gerät, <code>protokoll.csv</code>, offline gespeicherte Hashes <code>hashes.csv</code>, Diagnose-Dateien, Protokolle des Setups</td></tr>
 </table>
 </section>
 
 <section id="vorbereitung">
 <h2><span class="n">1</span>Vorbereitung</h2>
 <h3 id="app">App-Registrierung (einmal je Tenant)</h3>
-<div class="step"><b class="k">1</b><div>Entra › App-Registrierungen › <span class="ui">Neue Registrierung</span> › Name <code>HUPilot-Upload</code>, nur dieses Verzeichnis, keine Umleitungs-URI.</div></div>
-<div class="step"><b class="k">2</b><div>API-Berechtigungen › Microsoft Graph › <b>Anwendung</b> › <code>DeviceManagementServiceConfig.ReadWrite.All</code> › <span class="ui">Administratorzustimmung erteilen</span>.<br>Optional (nur Lesen): <code>Application.Read.All</code> → Secret-Ablauf, <code>DeviceManagementManagedDevices.Read.All</code> → Benutzer in der Status-Liste. Statt dessen <code>DeviceManagementManagedDevices.ReadWrite.All</code>: go kann Geräte nach einem Mainboardtausch neu registrieren.<br>Empfohlen: <code>Group.Read.All</code> → <i>2. Tags prüfen</i> und am Gerät die Prüfung, ob das richtige Profil zugewiesen ist. Ohne dieses Recht kommt am Gerät ein gelber Hinweis, und nach einer Tag-Änderung setzt go nicht selbst zurück. Optional <code>User.Read.All</code> → den Benutzernamen (UPN) am Gerät prüfen.</div></div>
-<div class="step"><b class="k">3</b><div>Zertifikate &amp; Geheimnisse › neues Secret, <b>kurz gültig</b> (wenige Tage) › den <b>Wert</b> kopieren, nicht die ID.</div></div>
+<div class="step"><b class="k">1</b><div>Entra &gt; App-Registrierungen &gt; <span class="ui">Neue Registrierung</span> &gt; Name <code>HUPilot-Upload</code>, nur dieses Verzeichnis, keine Umleitungs-URI.</div></div>
+<div class="step"><b class="k">2</b><div>API-Berechtigungen &gt; Microsoft Graph &gt; <b>Anwendung</b> &gt; <code>DeviceManagementServiceConfig.ReadWrite.All</code> &gt; <span class="ui">Administratorzustimmung erteilen</span>. Das reicht auch für <i>Tag ändern</i> und <i>Autopilot-Sync anstoßen</i> im Status-Fenster.<br>Optional (nur Lesen): <code>Application.Read.All</code> für den Ablauf des Secrets (Setup und Hinweis am Gerät), <code>DeviceManagementManagedDevices.Read.All</code> für Benutzer, Gerätename und letzten Sync im Status. Statt dessen <code>DeviceManagementManagedDevices.ReadWrite.All</code>: go kann Geräte nach einem Mainboardtausch neu registrieren.<br>Empfohlen: <code>Group.Read.All</code> für <i>2. Tags prüfen</i> und am Gerät die Prüfung, ob das richtige Profil zugewiesen ist. Ohne dieses Recht kommt am Gerät ein gelber Hinweis, und nach einer Tag-Änderung setzt go nicht selbst zurück. Optional <code>User.Read.All</code>: den Benutzernamen (UPN) am Gerät prüfen.</div></div>
+<div class="step"><b class="k">3</b><div>Zertifikate &amp; Geheimnisse &gt; neues Secret, <b>kurz gültig</b> (wenige Tage) &gt; den <b>Wert</b> kopieren, nicht die ID.</div></div>
 
 <h3 id="setup">Setup-Oberfläche</h3>
-<p>Knöpfe in drei Zeilen nach Ablauf: <b>Vorbereiten</b> (1–4), <b>Stick</b> (5 / Sticks vorbereiten), <b>Danach</b> (6–7). Oben rechts: Desktop-Verknüpfung (nur am PC), Anleitung, Update.</p>
-<p><code>HUPilot-Setup.cmd</code> arbeitet immer mit dem Ordner, aus dem es gestartet wird (Stick oder Vorbereitungsordner am PC, z. B. je Schule einer).</p>
+<p><code>HUPilot-Setup.cmd</code> arbeitet immer mit dem Ordner, aus dem es gestartet wird (Stick oder Vorbereitungsordner am PC, z. B. je Schule einer). Oben die Felder, darunter die Einzelschritte in drei Zeilen (<b>Vorbereiten</b> 1 bis 4, <b>Stick</b> 5 und Sticks vorbereiten, <b>Danach</b> 6 und 7), ganz unten die Stick-Auswahl mit dem grünen Hauptknopf und das Protokoll. Oben rechts: Desktop-Verknüpfung (nur am PC), Anleitung (<kbd>F1</kbd>), helle oder dunkle Oberfläche, Update.</p>
+<ul>
+<li><b>Kennwörter</b> (Secret, WLAN-Kennwort, Admin-Kennwörter, MAK) sind verdeckt, das Häkchen <i>anzeigen</i> zeigt sie.</li>
+<li><b>"* ungespeichert"</b> neben <span class="ui">3. Speichern</span> und ein Stern im Fenstertitel: es gibt Änderungen, die noch nicht gespeichert sind. Bei <i>Neu laden</i>, beim Schließen und vor einem Update fragt das Setup nach.</li>
+<li><b>Secret beim Start:</b> Unter dem Titel steht, bis wann das Secret gilt. "Keine Verbindung - Secret nicht geprüft" (grau) heißt nur: kein Internet. Rot "Secret UNGÜLTIG" kommt nur, wenn es wirklich abgelaufen oder falsch ist.</li>
+<li><b>Beim Speichern geprüft:</b> Pflichtfelder, Tenant-ID und App-ID, WLAN-Kennwort (mindestens 8 Zeichen), lokale Admins, MAK, Group Tag und die Auswahl (gleiche Regeln wie am Gerät: Buchstaben, Ziffern, Punkt, Bindestrich, Unterstrich, höchstens 9 Einträge). Fehlt etwas, sagt das Protokoll, welches Feld und was zu tun ist.</li>
+<li><b>Auswahl leer lassen:</b> am Gerät gibt es dann keine Tag-Frage, es gilt der Standard-Tag.</li>
+</ul>
+
+<h3 id="fertig">Stick fertig machen</h3>
+<p>Der grüne Knopf <span class="ui g">Stick fertig machen</span> ist der normale Weg: Stick anstecken, er erscheint von selbst unten links neben dem grünen Knopf bei <b>Stick</b>. Ist er der einzige, wird er gleich gewählt, sonst den Stick auswählen. Wird der gewählte Stick abgezogen, ist die Auswahl leer, bis wieder einer gewählt ist. Knopf klicken. Das geht ohne Scrollen, auch auf kleinen Bildschirmen. Rechts neben dem Knopf steht kurz der Stand: <b>Bereit für E: HUPILOT</b>, während des Durchgangs der aktuelle Schritt, danach das Ergebnis. Abgezogene Sticks verschwinden von selbst, der kleine Knopf mit dem Kreispfeil liest die Liste von Hand neu ein. Das Setup erledigt dann alles in einem Durchgang:</p>
+<ol class="steps">
+<li>Eingaben prüfen (wie beim Speichern).</li>
+<li>Verbindung und Secret prüfen, Zugriff auf Autopilot. Ohne Internet fragt das Setup, ob der Stick trotzdem fertig gemacht werden soll.</li>
+<li>Tags prüfen: hat ein Tag kein Autopilot-Profil, gibt es nur eine Warnung.</li>
+<li>Speichern.</li>
+<li>WLAN-Paket bauen, aber nur wenn es fehlt oder veraltet ist.</li>
+<li>Rückfragen vor dem Kopieren: Secret abgelaufen (Rückfrage) oder bald abgelaufen (Hinweis mit Datum), "MAK mit auf diesen Stick?", wenn das Feld MAK (Pro) gefüllt ist.</li>
+<li>Auf den Stick kopieren und kontrollieren: <code>go.cmd</code>, <code>go.ps1</code>, <code>config.json</code> und das WLAN-Paket werden mit der Quelle verglichen.</li>
+</ol>
+<p>Am Ende steht "Stick X ist fertig und kontrolliert", der Stick kann abgezogen werden. Beim ersten echten Fehler hört das Setup auf und sagt in Klartext, was zu tun ist. Auf den Stick wird dann nichts Halbes kopiert.</p>
+<p><b>Ampeln:</b> Jeder Knopf von 1 bis 7 und der Hauptknopf haben einen Punkt. Maus darüber zeigt den Grund.</p>
+<table>
+<tr><th>Punkt</th><th>Bedeutung</th></tr>
+<tr><td><span class="c" style="background:#9e9e9e"></span>Grau</td><td>noch nicht gelaufen</td></tr>
+<tr><td><span class="c" style="background:#1e66f5"></span>Blau</td><td>läuft gerade</td></tr>
+<tr><td><span class="c" style="background:#40a02b"></span>Grün</td><td>OK</td></tr>
+<tr><td><span class="c" style="background:#df8e1d"></span>Gelb</td><td>Warnung, es geht aber weiter (z. B. Tag ohne Profil, keine Verbindung)</td></tr>
+<tr><td><span class="c" style="background:#d20f39"></span>Rot</td><td>Fehler, Grund steht im Protokoll</td></tr>
+</table>
+<p><b>MAK auf dem Stick:</b> Ist das Feld <i>MAK (Pro)</i> gefüllt, fragt das Setup bei jedem Kopieren "MAK mit auf diesen Stick?". <b>Ja</b> = mit MAK (nur für Geräte mit Windows Home nötig), <b>Nein</b> = dieser Stick bekommt keinen MAK, die Einstellungen bleiben unverändert. Bei <i>Sticks vorbereiten</i> kommt die Frage einmal für alle Sticks.</p>
+
+<h3 id="knoepfe">Einzelne Schritte</h3>
 <table>
 <tr><th>Knopf</th><th>Wirkung</th></tr>
-<tr><td><span class="ui">1. Verbindung testen</span></td><td>Anmeldung mit App + Secret, Autopilot-Zugriff, Ablauf des Secrets</td></tr>
-<tr><td><span class="ui">2. Tags prüfen</span></td><td>je Tag: Geräte in Autopilot, passende dynamische Gruppe und Autopilot-Profil – zeigt Tags ohne Profil, bevor es losgeht (Gruppen lesen: <code>Group.Read.All</code>)</td></tr>
-<tr><td><span class="ui">3. Speichern</span></td><td>schreibt <code>config.json</code></td></tr>
-<tr><td><span class="ui">4. WLAN-Paket bauen</span></td><td>baut <code>HUPilot-WLAN.ppkg</code> – braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i>. Sind <b>lokale Admins</b> eingetragen (Admin und optional Admin 2, z. B. Elternverein), kommen sie mit ins Paket: Sie werden nach jedem Zurücksetzen angelegt, Kennwort und Konto laufen nie ab. Änderung = Paket neu bauen + Gerät mit Stick zurücksetzen.</td></tr>
-<tr><td><span class="ui">5. Auf Stick kopieren</span></td><td>kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>)</td></tr>
-<tr><td><span class="ui">Sticks vorbereiten</span></td><td>nur wenn das Setup vom PC läuft: mehrere USB-Sticks formatieren (NTFS), benennen und befüllen – gleichzeitig angesteckt oder nacheinander (tauschen → <i>Neu einlesen</i>). Interne Laufwerke werden nie angeboten.</td></tr>
-<tr><td><span class="ui">6. Status</span></td><td>Liste aller Autopilot-Geräte – Filter (Tag, Stick, Zeitraum 4/24/48 h nach Registrierung oder Import), CSV, Excel, Drucken (Querformat, auch als PDF); Doppelklick = Details live</td></tr>
-<tr><td><span class="ui">7. Hashes importieren</span></td><td>lädt offline gespeicherte Hashes (<code>HUPilot\logs\hashes.csv</code>) von Quelle und Stick hoch; vorhandene Geräte bekommen nur den Tag; Erledigtes wandert nach <code>hashes-erledigt.csv</code></td></tr>
-<tr><td><span class="ui">Update</span></td><td>prüft beim Start auf GitHub, ob es eine neuere <b>freigegebene</b> Version gibt (Gold = Update da). Klick: das Setup schließt sich, ein Fenster lädt die Version, prüft <b>jede Datei</b> (Prüfsumme + Signatur des Herausgebers), ersetzt erst dann alles auf einmal und startet das Setup neu. Bei einem Fehler bleibt der alte Stand. <code>config.json</code>, WLAN-Paket und <code>logs</code> bleiben immer.<br><b>Rechtsklick:</b> andere Version / Vorversion, Kanal <i>Stabil</i> (Standard) oder <i>Test</i> (auch Vorab-Versionen), jetzt prüfen.<br>Danach Sticks neu befüllen (<span class="ui">5. Auf Stick kopieren</span> bzw. <span class="ui">Sticks vorbereiten</span>) – das Setup erinnert nach jedem Update einmal daran.</td></tr>
-<tr><td><span class="ui">Fremde Bereitstellungspakete entfernen</span></td><td>Häkchen (<code>RemoveOtherPackages</code>), noch im <b>Test</b>: Alte Pakete am Gerät (z. B. von einem früheren Schul-MDM) würden das Zurücksetzen überleben und Autopilot stören. Vor dem Zurücksetzen bleibt nur <code>HUPilot-WLAN.ppkg</code>; die anderen werden vorher nach <code>C:\Recovery\HUPilot-PPKG-Backup</code> gesichert. Erst an einem Testgerät ausprobieren.</td></tr>
-<tr><td><span class="ui">MAK (Pro)</span></td><td>Feld <code>EditionKey</code>, optional, noch im <b>Test</b>: Volumenlizenz-Schlüssel (MAK) für Windows Pro. Windows Home lässt keine Intune-Verwaltung zu, dafür braucht es Pro oder Pro Education (auch Education, Enterprise). Mit dem MAK stellt go Geräte mit <b>Windows Home</b> auf Pro um (siehe <a href="#home">Windows Home</a>). Leer = aus, Geräte mit Home bleiben dann rot. Es muss der MAK der Schule sein: Die allgemeinen Schlüssel von Microsoft aktivieren nicht und werden abgelehnt. Jede Aktivierung zählt beim MAK mit. Im Log stehen nur die letzten 5 Zeichen.<br><b>Nur für Einzelfälle:</b> Der MAK steht im Klartext in <code>config.json</code> auf jedem bespielten Stick. Nicht für Massen-Rollouts verwenden, Stick nicht aus der Hand geben und das Feld danach wieder leeren (<span class="ui">3. Speichern</span>, <span class="ui">5. Auf Stick kopieren</span>).</td></tr>
+<tr><td><span class="ui">Neu laden</span></td><td>Einstellungen neu aus <code>config.json</code> laden (fragt bei ungespeicherten Änderungen)</td></tr>
+<tr><td><span class="ui">1. Verbindung testen</span></td><td>Anmeldung mit App und Secret, Zugriff auf Autopilot, Ablauf des Secrets</td></tr>
+<tr><td><span class="ui">2. Tags prüfen</span></td><td>je Tag: Geräte in Autopilot, passende dynamische Gruppe und Autopilot-Profil. Zeigt Tags ohne Profil, bevor es losgeht (Gruppen lesen: <code>Group.Read.All</code>)</td></tr>
+<tr><td><span class="ui">3. Speichern</span></td><td>prüft die Eingaben und schreibt <code>config.json</code></td></tr>
+<tr><td><span class="ui">4. WLAN-Paket bauen</span></td><td>speichert zuerst und baut dann <code>HUPilot-WLAN.ppkg</code>. Braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i>. Sind <b>lokale Admins</b> eingetragen (Admin und optional Admin 2, z. B. Elternverein), kommen sie mit ins Paket: Sie werden nach jedem Zurücksetzen angelegt, Kennwort und Konto laufen nie ab.<br>Daneben steht der Stand des Pakets: <b>aktuell</b> (passt zu WLAN und Admins), <b>veraltet</b> (WLAN oder Admins geändert, neu bauen), <b>fehlt</b> oder <b>unbekannt</b> (mit einer älteren Version gebaut, einmal neu bauen).</td></tr>
+<tr><td><span class="ui">5. Auf Stick kopieren</span></td><td>speichert, kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>) und kontrolliert die Dateien. Mit dem gleichen Rückfragen wie der Hauptknopf: veraltetes oder fehlendes Paket (neu bauen, trotzdem kopieren, abbrechen), Secret, MAK.</td></tr>
+<tr><td><span class="ui">Sticks vorbereiten</span></td><td>nur wenn das Setup vom PC läuft: mehrere USB-Sticks formatieren (NTFS), benennen, befüllen und kontrollieren, gleichzeitig angesteckt oder nacheinander. Angesteckte und abgezogene Sticks erscheinen von selbst, eine Markierung bleibt nur beim selben Stick und wird sonst entfernt (steht im Protokoll des Fensters). Direkt vor dem Formatieren wird jeder Stick nochmal geprüft, ein getauschter wird nicht formatiert. Nach jedem Durchgang ist nichts mehr markiert. <i>Neu einlesen</i> geht weiterhin von Hand. Interne Laufwerke werden nie angeboten.</td></tr>
+<tr><td><span class="ui">Paketbau mit auf den Stick</span></td><td><b>Test.</b> Häkchen in der Zeile <b>Stick</b>, wird gemerkt. Nimmt den Paketbau (<code>ICD.exe</code> aus dem Windows ADK, rund 78 MB) mit auf den Stick, damit man damit auch an einem PC ohne ADK Pakete bauen kann. <span class="ui">Stick fertig machen</span>, <span class="ui">5. Auf Stick kopieren</span> und <span class="ui">Sticks vorbereiten</span> sehen nach, was am Stick schon liegt: gleiche Version bleibt, ältere wird aktualisiert, eine beschädigte ersetzt, eine neuere nicht überschrieben. Ohne Häkchen bleibt eine Kopie am Stick. Grau, wenn es an diesem PC kein ADK und keine Kopie gibt. Läuft das Setup vom Stick, zeigt das Häkchen, ob dieser Stick den Paketbau hat. Rechtsklick: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Vor jedem Bau werden Prüfsummen und Signaturen kontrolliert (Schutz vor beschädigten Dateien und fremden Programmdateien, nicht vor jemandem, der den Stick gezielt verändert). Das Setup kennt derzeit ICD 10.0.28000.1. Das ADK gehört Microsoft und kommt nicht mit HUPilot, die Kopie ist nur für den eigenen Gebrauch.</td></tr>
+<tr><td><span class="ui">6. Status</span></td><td>Liste aller Autopilot-Geräte mit Stand in Klartext, siehe <a href="#status">Status-Fenster</a></td></tr>
+<tr><td><span class="ui">7. Hashes importieren</span></td><td>lädt offline gespeicherte Hashes (<code>HUPilot\logs\hashes.csv</code>) von Quelle und Stick hoch. Vorhandene Geräte bekommen nur den Tag, Erledigtes wandert nach <code>hashes-erledigt.csv</code>. Schließen während des Imports fragt nach und bricht sauber ab.</td></tr>
+<tr><td><span class="ui">Update</span></td><td>prüft beim Start auf GitHub, ob es eine neuere <b>freigegebene</b> Version gibt (Gold = Update da). Klick: das Setup schließt sich, ein Fenster lädt die Version, prüft <b>jede Datei</b> (Prüfsumme und Signatur des Herausgebers), ersetzt erst dann alles auf einmal und startet das Setup neu. Bei einem Fehler bleibt der alte Stand. <code>config.json</code>, WLAN-Paket und <code>logs</code> bleiben immer.<br><b>Rechtsklick:</b> andere Version oder Vorversion, Kanal <i>Stabil</i> (Standard) oder <i>Test</i> (auch Vorab-Versionen), jetzt prüfen, <i>Info ...</i> und <i>Anleitung (F1)</i>.<br><b>Info</b> (auch per Klick auf das Logo oben links): Version und Stand, Update-Kanal, Quelle, PowerShell- und Windows-Version, Stand des Paketbaus, Protokolldatei der Sitzung und Links zu Repo, Anleitung, Änderungen und Lizenz. <i>Kopieren</i> legt diese Angaben für eine Rückfrage in die Zwischenablage, ohne Tenant, IDs und Secret.<br>Danach alle Sticks neu bespielen (<span class="ui g">Stick fertig machen</span>), das Setup erinnert nach jedem Update einmal daran.</td></tr>
+<tr><td><span class="ui">Fremde Bereitstellungspakete entfernen</span></td><td>Häkchen (<code>RemoveOtherPackages</code>), noch im <b>Test</b>: Alte Pakete am Gerät (z. B. von einem früheren Schul-MDM) würden das Zurücksetzen überleben und Autopilot stören. Vor dem Zurücksetzen bleibt nur <code>HUPilot-WLAN.ppkg</code>, die anderen werden vorher nach <code>C:\Recovery\HUPilot-PPKG-Backup</code> gesichert. Erst an einem Testgerät ausprobieren.</td></tr>
+<tr><td><span class="ui">MAK (Pro)</span></td><td>Feld <code>EditionKey</code>, optional, noch im <b>Test</b>: Volumenlizenz-Schlüssel (MAK) für Windows Pro. Windows Home lässt keine Intune-Verwaltung zu, dafür braucht es Pro oder Pro Education (auch Education, Enterprise). Mit dem MAK stellt go Geräte mit <b>Windows Home</b> auf Pro um (siehe <a href="#home">Windows Home</a>). Leer = aus, Geräte mit Home bleiben dann rot. Es muss der MAK der Schule sein: Die allgemeinen Schlüssel von Microsoft aktivieren nicht und werden abgelehnt. Jede Aktivierung zählt beim MAK mit. Im Log stehen nur die letzten 5 Zeichen.<br><b>Nur für Einzelfälle:</b> Der MAK steht im Klartext in <code>config.json</code> auf jedem Stick, der ihn bekommt. Nicht für Massen-Rollouts verwenden, Stick nicht aus der Hand geben, beim Kopieren nur dort "Ja" wählen, wo er gebraucht wird, und das Feld danach wieder leeren.</td></tr>
 </table>
-<p><b>Hersteller-Apps:</b> Vorinstallierte Store-Apps, deren Name auf <code>McAfee</code> passt, entfernt go vor dem Zurücksetzen – sonst stellt Windows sie wieder her. Anderes Muster: <code>"RemoveApps": "McAfee|Norton"</code> in <code>config.json</code>, ausschalten mit <code>"RemoveApps": ""</code>.</p>
-<div class="warn">Kein <code>.ppkg</code> ins Hauptverzeichnis des Sticks legen – Windows wendet es sonst im Einrichtungsbildschirm von selbst an. Das WLAN-Paket enthält nur das WLAN und optional die lokalen Admins, nie CleanPC. Kennwörter stehen im Klartext in <code>config.json</code> und im Paket – Stick nicht aus der Hand geben.</div>
+<p><b>Hersteller-Apps:</b> Vorinstallierte Store-Apps, deren Name auf <code>McAfee</code> passt, entfernt go vor dem Zurücksetzen, sonst stellt Windows sie wieder her. Anderes Muster: <code>"RemoveApps": "McAfee|Norton"</code> in <code>config.json</code>, ausschalten mit <code>"RemoveApps": ""</code>.</p>
+<div class="warn">Kein <code>.ppkg</code> ins Hauptverzeichnis des Sticks legen, Windows wendet es sonst im Einrichtungsbildschirm von selbst an. Das WLAN-Paket enthält nur das WLAN und optional die lokalen Admins, nie CleanPC. Kennwörter stehen im Klartext in <code>config.json</code> und im Paket: Stick nicht aus der Hand geben.</div>
+
+<h3 id="protokoll">Protokoll</h3>
+<p>Das Protokoll steht fest unten im Fenster. Die Höhe lässt sich mit dem Ziehgriff darüber einstellen und wird gemerkt. Die neueste Zeile steht oben, <span class="ui">Umkehren</span> dreht die Reihenfolge, <span class="ui">Löschen</span> leert das Fenster.</p>
+<table>
+<tr><th>Zeile</th><th>Bedeutung</th></tr>
+<tr><td><span class="c" style="background:#40a02b"></span>OK</td><td>Schritt hat geklappt</td></tr>
+<tr><td><span class="c" style="background:#df8e1d"></span>Hinweis</td><td>es geht weiter, sollte man aber wissen</td></tr>
+<tr><td><span class="c" style="background:#d20f39"></span>Fehler</td><td>Schritt hat nicht geklappt, die Zeile sagt, was zu tun ist</td></tr>
+</table>
+<p>Hat eine Zeile "(Details: Doppelklick)", steht die technische Meldung (z. B. von Microsoft oder vom Paketbau) im Tooltip und klappt per Doppelklick auf. Zeilen markieren (Klick, <kbd>Strg</kbd>+Klick, <kbd>Umschalt</kbd>+Klick) und mit <kbd>Strg</kbd>+<kbd>C</kbd> oder <span class="ui">Protokoll kopieren</span> kopieren, z. B. für eine E-Mail an den Admin. Ohne Markierung wird alles kopiert.</p>
+<p>Jede Sitzung wird zusätzlich als Datei gespeichert: <code>HUPilot\logs\setup_Datum_Uhrzeit.log</code> (steht oben rechts über dem Protokoll). Secret, Kennwörter und Schlüssel stehen nie in der Datei. Die letzten 20 Dateien bleiben, sie kommen nicht auf die Sticks.</p>
 
 <h3 id="intune">Intune</h3>
 <ul>
 <li>Dynamische Gerätegruppe je Tag, z. B. <code>(device.devicePhysicalIds -any (_ -eq "[OrderID]:SN-2026"))</code>, Autopilot-Profil zuweisen.</li>
-<li>Autopilot-Profile <b>nur über diese Tag-Gruppen</b> zuweisen. go erkennt nur sie als „richtiges Profil“. Passen mehrere Profile, gewinnt laut Microsoft das <b>älteste</b> – ein älteres Profil auf einer anderen Gruppe (z. B. alle Autopilot-Geräte) würde gewinnen, und go würde nie selbst zurücksetzen.</li>
-<li>Empfohlen: Kontoeinrichtung überspringen – benutzerdefiniertes Profil an die Gerätegruppen: <code>./Vendor/MSFT/DMClient/Provider/MS DM Server/FirstSyncStatus/SkipUserStatusPage</code>, Boolesch, <code>True</code>.</li>
+<li>Autopilot-Profile <b>nur über diese Tag-Gruppen</b> zuweisen. go erkennt nur sie als "richtiges Profil". Passen mehrere Profile, gewinnt laut Microsoft das <b>älteste</b>: ein älteres Profil auf einer anderen Gruppe (z. B. alle Autopilot-Geräte) würde gewinnen, und go würde nie selbst zurücksetzen.</li>
+<li>Empfohlen: Kontoeinrichtung überspringen, benutzerdefiniertes Profil an die Gerätegruppen: <code>./Vendor/MSFT/DMClient/Provider/MS DM Server/FirstSyncStatus/SkipUserStatusPage</code>, Boolesch, <code>True</code>.</li>
 </ul>
 </section>
 
 <section id="geraet">
 <h2><span class="n">2</span>Am Gerät</h2>
+<h3 id="ablauf">Ablauf und Fragen</h3>
 <div class="step"><b class="k">1</b><div>Gerät einschalten bis zum ersten Einrichtungsbildschirm, <b>Netzteil anstecken</b>, Stick anstecken.</div></div>
-<div class="step"><b class="k">2</b><div><code>Shift+F10</code> (ggf. <code>Fn+Shift+F10</code>) → <code>D:\go</code> (anderer Laufwerksbuchstabe: <code>E:\go</code> …).</div></div>
-<div class="step"><b class="k">3</b><div>Tag wählen (Enter = Standard, Ziffer = Auswahl), ggf. Benutzer (UPN, nur wenn im Setup eingeschaltet) und „zurücksetzen?“ (Enter = Standard, <code>N</code> = nur hochladen) – je 10 s, dann automatisch. Hat der Tag kein Autopilot-Profil, kommt eine gelbe Warnung (<code>A</code> = abbrechen).<br>Ist das Gerät schon mit einem <b>anderen Tag</b> in Autopilot (z. B. aus der Händler-Liste): Enter = vorhandenen Tag behalten, <code>J</code> = auf den gewählten Tag ändern; ohne Eingabe bleibt nach 10 s der vorhandene.</div></div>
-<div class="step"><b class="k">4</b><div>Bei <b>grün</b> Stick abziehen → nächstes Gerät. Das Gerät wartet auf das Autopilot-Profil und setzt sich selbst zurück – <b>nicht ausschalten</b>.</div></div>
-<p><b>Nur hochladen</b> (<code>N</code>): Das WLAN-Paket wird trotzdem installiert, dann wartet go auf das Profil (bis 20 Min). Im Einrichtungsbildschirm kommt danach gelb „PROFIL DA – JETZT STICK ABZIEHEN“; ist der Stick weg, startet das Gerät nach 15 s neu (<code>A</code> = nicht neu starten) und holt das Profil. Fehlt in Autopilot nur das Zuweisungsdatum, startet es spätestens nach 11 Min trotzdem neu. Im schon eingerichteten Windows: „PROFIL DA“, zurücksetzen von Hand.</p>
-<p id="home"><b>Windows Home</b> (nur mit MAK im Setup): go fragt "Auf Windows Pro umstellen?". <code>J</code> = umstellen, Enter oder 30 s ohne Eingabe = abbrechen (rot). Beim Umstellen startet Windows von selbst neu, auch mehrmals, nicht ausschalten. Danach wieder <code>Shift+F10</code> und <code>D:\go</code>: go zeigt "auf Professional umgestellt", aktiviert nach dem Verbinden mit dem MAK und läuft normal weiter. Klappt die Aktivierung nicht, kommt nur eine gelbe Warnung, Autopilot braucht keine Aktivierung. go überwacht die Umstellung 10 Minuten, versucht es dabei bis zu zweimal und startet selbst neu, falls Windows es nicht tut. Fragt Windows in einem Fenster nach, bestätigen. Kommt kein Neustart oder ist nach dem Neustart noch Home da, wird abgebrochen (rot). Von selbst versucht go es dann nicht mehr: beim nächsten <code>D:\go</code> fragt es, <code>W</code> = nochmal versuchen.</p>
-<p>Läuft Windows schon (eingerichtetes Gerät): CMD <b>als Administrator</b>, <code>D:</code>, <code>go</code> – rote Rückfrage mit <code>LÖSCHEN</code> (oder <code>LOESCHEN</code>) bestätigen. Kein Internet oder Secret abgelaufen: der Hash wird am Stick gespeichert (gelb) und später am PC mit <i>7. Hashes importieren</i> hochgeladen.</p>
+<div class="step"><b class="k">2</b><div><code>Shift+F10</code> (ggf. <code>Fn+Shift+F10</code>), dann <code>D:\go</code> (anderer Laufwerksbuchstabe: <code>E:\go</code> usw.).</div></div>
+<div class="step"><b class="k">3</b><div><b>Erst prüfen:</b> go prüft zuerst Einstellungen, Seriennummer, Windows, WLAN-Paket und Hardware-Hash. Fehlt etwas, kommt Rot sofort, noch vor der ersten Frage.</div></div>
+<div class="step"><b class="k">4</b><div><b>Dann fragen:</b> Tag wählen (<kbd>Enter</kbd> = Standard, Ziffer = Auswahl, ohne Auswahl im Setup entfällt die Frage), ggf. Benutzer (UPN, nur wenn im Setup eingeschaltet) und "zurücksetzen?" (<kbd>Enter</kbd> = Standard, <code>N</code> = nur hochladen). Jede Frage hat einen Countdown von 10 Sekunden, dann gilt der Standard.</div></div>
+<div class="step"><b class="k">5</b><div><b>Zusammenfassung:</b> Seriennummer, Tenant, Tag, Benutzer, Zurücksetzen und Windows. Danach läuft alles ohne weitere Fragen.</div></div>
+<div class="step"><b class="k">6</b><div>Bei <b>grün</b> Stick abziehen und zum nächsten Gerät. Das Gerät wartet auf das Autopilot-Profil und setzt sich selbst zurück, <b>nicht ausschalten</b>.</div></div>
+<p><b>Schritt x von 6:</b> go zeigt immer, wo es steht: 1 Prüfen, 2 Internet, 3 Anmelden, 4 Hochladen, 5 Profil, 6 Zurücksetzen (bei "nur hochladen": Neustart). Die Zeile ganz unten zeigt die gelaufene Zeit und den Countdown bis zur nächsten Prüfung.</p>
+<p><b>Countdown:</b> Eine Taste, die keine Antwort ist, hält den Countdown an. Dann zählt nur eine gültige Taste oder <kbd>Enter</kbd> für den Standard. Kommt 60 Sekunden lang keine Taste, läuft der Countdown von vorn. Alte Tastendrücke werden vor jeder Frage verworfen, ein doppeltes <kbd>Enter</kbd> beantwortet nicht die nächste Frage mit.</p>
+<p><b>Anderer Tag in Autopilot:</b> Ist das Gerät schon mit einem anderen Tag in Autopilot (z. B. aus der Händler-Liste): <kbd>Enter</kbd> = vorhandenen Tag behalten, <code>J</code> = auf den gewählten Tag ändern, ohne Eingabe bleibt nach 10 Sekunden der vorhandene. Hat ein Tag kein Autopilot-Profil, kommt eine gelbe Warnung (<code>A</code> = abbrechen).</p>
+<p><b>Noch kein Profil:</b> Kommt das Autopilot-Profil nicht in 20 Minuten, wartet go von selbst weiter, höchstens 4 Runden zu je 20 Minuten. Bei jeder Runde gilt: <kbd>Enter</kbd> oder nichts = weiter warten, <code>J</code> = trotzdem zurücksetzen (ohne Profil kommt danach das normale Windows-Setup), <code>N</code> = abbrechen. Ohne Eingabe wird nie ohne Profil zurückgesetzt. Nach 4 Runden kommt gelb "NOCH KEIN PROFIL - NICHT ZURÜCKGESETZT".</p>
+<p><b>Nur hochladen</b> (<code>N</code>): Das WLAN-Paket wird trotzdem installiert, dann wartet go auf das Profil (bis 20 Minuten). Im Einrichtungsbildschirm kommt danach gelb "PROFIL DA - JETZT STICK ABZIEHEN". Ist der Stick weg, startet das Gerät nach 15 Sekunden neu (<code>A</code> = nicht neu starten) und holt das Profil. Fehlt in Autopilot nur das Zuweisungsdatum, startet es spätestens nach 11 Minuten trotzdem neu. Im schon eingerichteten Windows: "PROFIL DA", zurücksetzen von Hand.</p>
+<p><b>Secret:</b> Steht im Setup ein Ablaufdatum, zeigt go bei Schritt 3 einen gelben Hinweis, wenn das Secret abgelaufen ist oder in weniger als 24 Stunden abläuft. Ist es abgelaufen, wird der Hash am Stick gespeichert.</p>
+<p>Läuft Windows schon (eingerichtetes Gerät): Eingabeaufforderung <b>als Administrator</b>, <code>D:</code>, <code>go</code>, rote Rückfrage mit <code>LÖSCHEN</code> (oder <code>LOESCHEN</code>) bestätigen. Kein Internet oder Secret abgelaufen: der Hash wird am Stick gespeichert (gelb) und später am PC mit <i>7. Hashes importieren</i> hochgeladen.</p>
+
+<h3 id="ende">Abschlussbild und Farben</h3>
+<p>Jedes Ende zeigt drei Sätze:</p>
+<div class="cards">
+<div class="card b"><b>Was ist passiert</b>z. B. "Das Gerät ist in Autopilot hochgeladen."</div>
+<div class="card t"><b>Was passiert jetzt</b>z. B. "Es wartet bis zu 80 Minuten auf das Profil und setzt sich erst dann selbst zurück."</div>
+<div class="card g"><b>Was musst du tun</b>z. B. "Stick abziehen und zum nächsten Gerät, dieses Gerät nicht ausschalten."</div>
+</div>
 <table>
 <tr><th>Farbe</th><th>Bedeutung</th></tr>
-<tr><td><span class="c" style="background:#40a02b"></span>Grün</td><td>Upload fertig – Stick abziehen</td></tr>
-<tr><td><span class="c" style="background:#df8e1d"></span>Gelb</td><td>Netzteil fehlt (wartet) · kein Profil für den Tag (<code>A</code> = abbrechen) · Profil nach 20 Min nicht zugewiesen · <b>Hash gespeichert</b> (offline – später <i>7. Hashes importieren</i>) · Hardware-Änderung (Rückfrage) · nur hochladen: „PROFIL DA – JETZT STICK ABZIEHEN“ bzw. „NEUSTART VON HAND“, wenn der Stick nach 5 Min noch steckt</td></tr>
-<tr><td><span class="c" style="background:#1e66f5"></span>Blau</td><td>Zurücksetzen startet</td></tr>
-<tr><td><span class="c" style="background:#d20f39"></span>Rot</td><td>Fehler – <b>nichts</b> zurückgesetzt, Grund steht am Bildschirm. Nochmal <code>D:\go</code>. Bei „Gerät ist schon eingerichtet“ nur mit <code>LÖSCHEN</code> (oder <code>LOESCHEN</code>) weiter. Ausnahme: „ZURÜCKSETZEN NICHT GESTARTET“ – das Zurücksetzen war angenommen, aber nach 15 Min kam kein Neustart; Foto an den Admin, <code>D:\diag</code>.</td></tr>
+<tr><td><span class="c" style="background:#40a02b"></span>Grün</td><td>Upload fertig, Stick abziehen</td></tr>
+<tr><td><span class="c" style="background:#df8e1d"></span>Gelb</td><td>Netzteil fehlt (wartet), kein Profil für den Tag (<code>A</code> = abbrechen), noch kein Profil (weiter warten), <b>Hash gespeichert</b> (offline, später <i>7. Hashes importieren</i>), Hardware-Änderung (Rückfrage), abgebrochen mit einer Taste, nur hochladen: "PROFIL DA - JETZT STICK ABZIEHEN" bzw. "NEUSTART VON HAND", wenn der Stick nach 5 Minuten noch steckt</td></tr>
+<tr><td><span class="c" style="background:#1e66f5"></span>Blau</td><td>Zurücksetzen startet, Windows wird auf Pro umgestellt</td></tr>
+<tr><td><span class="c" style="background:#d20f39"></span>Rot</td><td>Fehler, <b>nichts</b> zurückgesetzt. Ursache und nächster Schritt stehen am Bildschirm, meist: nochmal <code>D:\go</code>. Bei "Gerät ist schon eingerichtet" nur mit <code>LÖSCHEN</code> (oder <code>LOESCHEN</code>) weiter. Ausnahme: "ZURÜCKSETZEN NICHT GESTARTET": das Zurücksetzen war angenommen, aber nach 15 Minuten kam kein Neustart. Foto an den Admin, <code>D:\diag</code>.</td></tr>
 </table>
+
+<h3 id="home">Windows Home</h3>
+<p>Nur mit MAK (Pro) auf dem Stick. Die Frage "Auf Windows Pro umstellen?" kommt als erste Frage. <code>J</code> = umstellen, <kbd>Enter</kbd> oder 30 Sekunden ohne Eingabe = abbrechen (rot). Danach kommen Tag, Benutzer und Zurücksetzen und die Zusammenfassung.</p>
+<p>Beim Umstellen startet Windows von selbst neu, auch mehrmals, nicht ausschalten. Fragt Windows in einem Fenster nach, bestätigen. Danach wieder <code>Shift+F10</code> und <code>D:\go</code>: go zeigt "auf Professional umgestellt" und bietet die <b>Antworten vom letzten Start</b> an (<kbd>Enter</kbd> übernimmt, jede andere Taste fragt neu). Die Antworten gelten nur am selben Gerät, höchstens 24 Stunden und nur bis zum Upload. Nach dem Verbinden aktiviert go mit dem MAK und läuft normal weiter. Klappt die Aktivierung nicht, kommt nur eine gelbe Warnung, Autopilot braucht keine Aktivierung.</p>
+<p>go überwacht die Umstellung 10 Minuten, versucht es dabei bis zu zweimal und startet selbst neu, falls Windows es nicht tut. Kommt kein Neustart oder ist nach dem Neustart noch Home da, wird abgebrochen (rot). Von selbst versucht go es dann nicht mehr: beim nächsten <code>D:\go</code> fragt es, <code>W</code> = nochmal versuchen. Der Mindest-Akku aus dem Setup gilt auch hier.</p>
 </section>
 
 <section id="danach">
 <h2><span class="n">3</span>Nach dem Einsatz</h2>
 <ul>
-<li><span class="ui">6. Status</span> im Setup: welche Geräte registriert sind (neueste oben), welche noch offen – als CSV, Excel-Datei oder Ausdruck.</li>
+<li><span class="ui">6. Status</span> im Setup: welcher Stand jedes Gerät hat und was zu tun ist, siehe unten.</li>
 <li><span class="ui">7. Hashes importieren</span>: offline gespeicherte Hashes von den Sticks hochladen, dann die Geräte nochmal mit <code>go</code> zurücksetzen.</li>
 <li>Secret erneuern (QS-Script oder Entra), alte Secrets löschen.</li>
-<li>Per Intune-Wartung: Config-WLAN und WLAN-Paket (bleibt sonst bei jedem Zurücksetzen erhalten – auch die lokalen Admins) sowie <code>C:\Recovery\HUPilot-OEM-Backup</code> und <code>C:\Recovery\HUPilot-PPKG-Backup</code> entfernen; Hersteller-Store-Apps ggf. deinstallieren.</li>
+<li>Per Intune-Wartung: Config-WLAN und WLAN-Paket (bleibt sonst bei jedem Zurücksetzen erhalten, auch die lokalen Admins) sowie <code>C:\Recovery\HUPilot-OEM-Backup</code> und <code>C:\Recovery\HUPilot-PPKG-Backup</code> entfernen, Hersteller-Store-Apps ggf. deinstallieren.</li>
+</ul>
+
+<h3 id="status">Status-Fenster</h3>
+<p>Das Fenster öffnet sofort und lädt die Geräte aus Autopilot und Intune (grüner Punkt und "lade Autopilot-Geräte, Seite 1"). Oben stehen Kacheln mit Zahlen: <b>Geräte gesamt</b>, <b>Fertig</b>, <b>Wartet auf Profil</b>, <b>Profil da, noch nicht angemeldet</b>, <b>Problem</b>. Ein Klick auf eine Kachel zeigt nur diese Geräte, ein zweiter Klick wieder alle.</p>
+<table>
+<tr><th>Stand</th><th>Was tun</th></tr>
+<tr><td><span class="c" style="background:#40a02b"></span>Fertig</td><td>Nichts, das Gerät ist in Intune angemeldet.</td></tr>
+<tr><td><span class="c" style="background:#df8e1d"></span>Wartet auf Profil</td><td>Nichts, läuft. Das Profil kommt meist in 5 bis 15 Minuten. Ist es nicht synchron: Autopilot-Sync anstoßen und ein paar Minuten warten.</td></tr>
+<tr><td><span class="c" style="background:#df8e1d"></span>Profil da, Gerät noch nicht angemeldet</td><td>Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.</td></tr>
+<tr><td><span class="c" style="background:#d20f39"></span>Kein Profil für diesen Tag</td><td>Tag prüfen (<i>2. Tags prüfen</i>) oder mit <i>Tag ändern</i> einen Tag mit Profil wählen.</td></tr>
+<tr><td><span class="c" style="background:#d20f39"></span>Fehler</td><td>Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen. Blockiert: Admin fragen.</td></tr>
+</table>
+<ul>
+<li><b>Filter:</b> Tag, <i>nur Geräte aus dem Stick-Protokoll</i> (voreingestellt, wenn ein Stick-Protokoll da ist), <i>heute</i>, <i>nur Probleme</i>, <i>nur letzte</i> 4, 24 oder 48 Stunden oder heute (nach Registrierung oder Autopilot-Import), Suche nach Seriennummer, Gerätename oder Benutzer.</li>
+<li><b>Aktualisieren:</b> mit dem Knopf oder alle 60 Sekunden von selbst (Häkchen, wird gemerkt). Neben dem Häkchen steht "Stand: Uhrzeit". Auswahl, Sortierung und Filter bleiben.</li>
+<li><b>Spalten:</b> Das Fenster ist so breit wie die Spalten, auf einem zu schmalen Bildschirm bricht "Was tun" um. Spalten lassen sich verschieben und breiter ziehen, das wird gemerkt. Profil und Intune stehen weiter hinten. Der Stand steht als farbiges Schild in der ersten Spalte.</li>
+<li><b>Details:</b> Doppelklick auf eine Zeile oder <span class="ui">Details ...</span>: alle Angaben zum Gerät mit dem Autopilot-Profil und dem ganzen Verlauf vom Stick. <span class="ui">Kopieren</span> legt den Text in die Zwischenablage.</li>
+<li><b>Tag ändern ...</b>: Geräte markieren (<kbd>Strg</kbd>+Klick, <kbd>Umschalt</kbd>+Klick), Tag aus Standard- und Auswahl-Tags wählen. Die Rückfrage nennt die Seriennummern. Die Geräte wechseln danach in die Gruppe des neuen Tags und bekommen dessen Profil, bereits eingerichtete Geräte erst beim nächsten Zurücksetzen.</li>
+<li><b>Autopilot-Sync anstoßen</b>: Microsoft gleicht Autopilot neu ab, laut Microsoft immer für den ganzen Tenant. Geht höchstens alle 10 Minuten, sonst kommt ein Hinweis "läuft bereits".</li>
+<li><b>CSV speichern, Excel speichern, Drucken</b> (Querformat vorgewählt, auch als PDF): die angezeigten Zeilen mit denselben Spalten wie im Fenster, Stand eingefärbt. Excel muss nicht installiert sein. Beim Drucken fallen leere Spalten weg und die Schrift wird bei Bedarf kleiner; nur "Was tun" und "Benutzer" brechen notfalls um. Kopfzeile auf jeder Seite, unten die Seitenzahl.</li>
 </ul>
 </section>
 
 <section id="fehler">
 <h2><span class="n">4</span>Fehlersuche</h2>
+<p>Im Setup sagt das Protokoll bei jedem Fehler, was zu tun ist. Die technischen Details stehen per Doppelklick in der Zeile und in der Protokolldatei.</p>
 <table>
 <tr><th>Meldung / Problem</th><th>Lösung</th></tr>
-<tr><td>Secret ABGELAUFEN / FALSCH</td><td>Hash wird am Stick gespeichert (gelb). Neues Secret (Wert, nicht ID) im Setup eintragen, speichern, auf Stick kopieren, dann <i>7. Hashes importieren</i></td></tr>
-<tr><td>Kein Internet nach 2 Min</td><td>Hash wird am Stick gespeichert (gelb). WLAN-Reichweite, Kennwort, Firewall prüfen (Autopilot/Intune-Adressen; <code>D:\diag</code> › 5 zeigt, was erreichbar ist); LAN mit 802.1X geht nicht. Die Uhrzeit stellt go selbst.</td></tr>
-<tr><td>Gerät ist in einem anderen Tenant</td><td>beim anderen Tenant/Händler aus Autopilot entfernen lassen</td></tr>
-<tr><td>Hängt bei „Kontoeinrichtung“</td><td>SkipUserStatusPage (siehe Intune), Gerät neu starten</td></tr>
-<tr><td>Gelb „HASH GESPEICHERT“</td><td>kein Internet oder Secret abgelaufen/falsch: Hash liegt am Stick, Gerät nicht zurückgesetzt. Am PC <i>7. Hashes importieren</i>, danach Gerät nochmal mit <code>go</code> (wird dann nur zurückgesetzt).</td></tr>
-<tr><td>Gelb „KEIN Autopilot-Profil“ für den Tag</td><td>dynamische Gruppe/Profil für den Tag fehlt – <i>2. Tags prüfen</i>; mit <b>A</b> abbrechen oder trotzdem hochladen</td></tr>
+<tr><td>Secret abgelaufen oder falsch</td><td>Am Gerät wird der Hash am Stick gespeichert (gelb). Neues Secret (Wert, nicht ID) im Setup eintragen, <i>Stick fertig machen</i>, dann <i>7. Hashes importieren</i>.</td></tr>
+<tr><td>"Keine Verbindung - Secret nicht geprüft" im Setup</td><td>Kein Internet am PC. Das Secret kann trotzdem gültig sein, später <i>1. Verbindung testen</i>.</td></tr>
+<tr><td>"Paket: veraltet" oder "unbekannt"</td><td><i>4. WLAN-Paket bauen</i> (oder <i>Stick fertig machen</i>, das baut es selbst). Ohne Windows ADK auf einem anderen PC bauen, oder den Stick dort mit dem Häkchen <i>Paketbau mit auf den Stick</i> bespielen (Test).</td></tr>
+<tr><td>"Die Kopie des Paketbaus ist nicht in Ordnung"</td><td>Eine Datei der Kopie fehlt, ist verändert oder nicht von Microsoft signiert. Es wurde nichts gebaut. Den Stick an einem PC mit Windows ADK mit dem Häkchen <i>Paketbau mit auf den Stick</i> neu bespielen und nochmal bauen.</td></tr>
+<tr><td>"Stick X: Kontrolle nicht bestanden"</td><td>Stick neu anstecken und nochmal versuchen. Hilft das nicht: anderen Stick nehmen oder <i>Sticks vorbereiten</i> (formatiert).</td></tr>
+<tr><td>Kein Internet nach 2 Minuten (Gerät)</td><td>Hash wird am Stick gespeichert (gelb). WLAN-Reichweite, Kennwort, Firewall prüfen (Autopilot- und Intune-Adressen, <code>D:\diag</code> &gt; 5 zeigt, was erreichbar ist). LAN mit 802.1X geht nicht. Die Uhrzeit stellt go selbst.</td></tr>
+<tr><td>Gerät ist in einem anderen Tenant</td><td>beim anderen Tenant oder Händler aus Autopilot entfernen lassen</td></tr>
+<tr><td>Hängt bei "Kontoeinrichtung"</td><td>SkipUserStatusPage (siehe Intune), Gerät neu starten</td></tr>
+<tr><td>Gelb "HASH GESPEICHERT"</td><td>kein Internet oder Secret abgelaufen oder falsch: Hash liegt am Stick, Gerät nicht zurückgesetzt. Am PC <i>7. Hashes importieren</i>, danach Gerät nochmal mit <code>go</code> (wird dann nur zurückgesetzt).</td></tr>
+<tr><td>Gelb "KEIN Autopilot-Profil" für den Tag</td><td>dynamische Gruppe oder Profil für den Tag fehlt: <i>2. Tags prüfen</i>. Mit <b>A</b> abbrechen oder trotzdem hochladen.</td></tr>
+<tr><td>Gelb "NOCH KEIN PROFIL"</td><td>Microsoft hat das Profil noch nicht zugewiesen. Einfach weiter warten lassen (Enter oder nichts drücken). Im Setup im Status-Fenster nachsehen, ggf. <i>Autopilot-Sync anstoßen</i>.</td></tr>
 <tr><td>WLAN-Paket von Intune gesperrt (gelb)</td><td>Richtlinie <code>AllowAddProvisioningPackage = 0</code> am bereits eingerichteten Gerät: vorhandenes WLAN-Paket bleibt, neues (z. B. mit lokalem Admin) kommt nicht mit. Frische Geräte im Einrichtungsbildschirm betrifft das nicht.</td></tr>
-<tr><td>Fehler am Gerät</td><td><code>D:\diag</code> (Shift+F10 bzw. Admin-CMD) – Menü: Log, Fehler, Zurücksetzen, Gerät, Netzwerk, WLAN-Paket/Intune-Sperre; jede Seite abfotografieren. <b>7</b> speichert alles in <code>HUPilot\logs\diag-….txt</code> am Stick.</td></tr>
+<tr><td>Fehler am Gerät</td><td><code>D:\diag</code> (Shift+F10 bzw. Admin-Eingabeaufforderung), Menü: Log, Fehler, Zurücksetzen, Gerät, Netzwerk, WLAN-Paket und Intune-Sperre. Jede Seite abfotografieren. <b>7</b> speichert alles in <code>HUPilot\logs\diag-Datum.txt</code> am Stick.</td></tr>
 <tr><td>Setup startet nicht</td><td><code>C:\Users\Public\HUPilot-Setup-Start.log</code></td></tr>
-<tr><td>Rot "Edition ... lässt keine Intune-Verwaltung zu"</td><td>Windows Home, nötig ist Pro oder Pro Education (auch Education, Enterprise). Mit MAK (Pro) im Setup stellt go auf Pro um (<a href="#home">Windows Home</a>). Ohne MAK: Gerät auf Pro/Education bringen oder den Hash anders hochladen.</td></tr>
+<tr><td>Rot "Edition ... lässt keine Intune-Verwaltung zu"</td><td>Windows Home, nötig ist Pro oder Pro Education (auch Education, Enterprise). Mit MAK (Pro) auf dem Stick stellt go auf Pro um (<a href="#home">Windows Home</a>). Ohne MAK: Gerät auf Pro oder Education bringen oder den Hash anders hochladen.</td></tr>
 <tr><td>Rot "Umstellung auf Pro hat nicht geklappt"</td><td>Ein früherer Versuch an diesem Gerät ist gescheitert. Noch ein Versuch: <code>D:\go</code> und bei der Frage <code>W</code> drücken. Sonst über Windows: Einrichtung mit lokalem Konto abschließen, Einstellungen, Aktivierung, "Product Key ändern" mit dem MAK, danach HUPilot erneut.</td></tr>
-<tr><td>Gelb „Profil kann nicht geprüft werden“</td><td>der App fehlt <code>Group.Read.All</code> (siehe App-Registrierung). go lädt trotzdem hoch; nach einer Tag-Änderung wird aber nicht selbst zurückgesetzt.</td></tr>
-<tr><td>Gelb „HARDWARE-ÄNDERUNG“ (Autopilot: „Fix ausstehend“ / „Achtung erforderlich“)</td><td>Gerät kam z. B. mit neuem Mainboard vom Support, der gespeicherte Hash passt nicht mehr. <b>N</b> drücken: go löscht Intune- und Autopilot-Eintrag, wartet bis zu 30 Min und lädt den neuen Hash hoch (braucht <code>DeviceManagementManagedDevices.ReadWrite.All</code>, sonst den Intune-Eintrag vorher im Portal löschen).</td></tr>
-<tr><td>„Das letzte Update wurde abgebrochen“</td><td>Setup bietet Pull an: <b>Ja</b> stellt den alten Stand wieder her und lädt die Version neu. Am Gerät startet <code>go</code> in diesem Zustand nicht – Stick am PC mit <code>HUPilot-Setup.cmd</code> reparieren.</td></tr>
-<tr><td>Update: „kein signiertes Release“</td><td>neue Version ist noch nicht freigegeben – später erneut prüfen (Rechtsklick › Jetzt nach Updates suchen)</td></tr>
+<tr><td>Gelb "Profil kann nicht geprüft werden"</td><td>der App fehlt <code>Group.Read.All</code> (siehe App-Registrierung). go lädt trotzdem hoch, nach einer Tag-Änderung wird aber nicht selbst zurückgesetzt.</td></tr>
+<tr><td>Gelb "HARDWARE-ÄNDERUNG" (Autopilot: "Fix ausstehend" oder "Achtung erforderlich")</td><td>Gerät kam z. B. mit neuem Mainboard vom Support, der gespeicherte Hash passt nicht mehr. <b>N</b> drücken: go löscht Intune- und Autopilot-Eintrag, wartet bis zu 30 Minuten und lädt den neuen Hash hoch (braucht <code>DeviceManagementManagedDevices.ReadWrite.All</code>, sonst den Intune-Eintrag vorher im Portal löschen).</td></tr>
+<tr><td>"Das letzte Update wurde abgebrochen"</td><td>Setup bietet Pull an: <b>Ja</b> stellt den alten Stand wieder her und lädt die Version neu. Am Gerät startet <code>go</code> in diesem Zustand nicht, Stick am PC mit <code>HUPilot-Setup.cmd</code> reparieren.</td></tr>
+<tr><td>Update: "kein signiertes Release"</td><td>neue Version ist noch nicht freigegeben, später erneut prüfen (Rechtsklick &gt; Jetzt nach Updates suchen)</td></tr>
 </table>
-<p>Logs am Gerät: <code>C:\Windows\Temp\HUPilot.log</code>, <code>HUPilot-Wipe.log</code> · am Stick: <code>HUPilot\logs\</code></p>
+<p>Logs am Gerät: <code>C:\Windows\Temp\HUPilot.log</code>, <code>HUPilot-Wipe.log</code>. Am Stick: <code>HUPilot\logs\</code>.</p>
 </section>
 
 </main>

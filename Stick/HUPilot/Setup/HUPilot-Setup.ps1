@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.17'
+$SetupVer = '2.7.18'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -74,15 +74,373 @@ if (Test-Path -LiteralPath (Join-Path $CfgDirHU 'pull-journal.json')) {
     exit 0
 }
 $srcPkg   = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
-$icd      = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe'
+$icdInst  = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe'
+# Paketbau (ICD.exe): zuerst das installierte Windows ADK, sonst die eigene Kopie des Anwenders in der Quelle (Test).
+# HUPilot\ADK-ICD kommt nie ins Repo und nie ins Update (Lizenz von Microsoft), Pull.ps1 laesst ihn unberuehrt.
+$icdCopyRoot = Join-Path $srcHU 'ADK-ICD'
+$icdCopyDir  = Join-Path $icdCopyRoot 'x86'
+$icdCopyMan  = Join-Path $icdCopyRoot 'HUPilot-ICD.json'
+$script:Icd  = $null
 $tplXml   = Join-Path $PSScriptRoot 'WCD-Vorlage\HUPilot-WLAN\customizations.xml'
 $enc      = New-Object System.Text.UTF8Encoding($false)
 $script:Extra = @{}
 
+# ---------- Oberflaeche dunkel oder hell nach dem HU-GUI-Standard (Stile aus HU-MultiTenant, XAML\Theme.xaml) ----------
+#   $script:HuThemeXaml: Stile. Farben stehen NUR in den beiden Farb-Woerterbuechern (gleiche Schluessel) und werden
+#   ueberall mit DynamicResource bezogen, dadurch wechselt die Oberflaeche sofort und ohne Neustart (Set-HuTheme).
+#   Beides wird beim Laden jedes Fensters als zusammengefuehrte Woerterbuecher eingesetzt (Add-HuTheme).
+#   Eigene Stile eines Fensters (z. B. die 14-px-Bildlaufleiste des Hauptfensters) haben Vorrang.
+$script:HuColorsDark = @'
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="HuBg" Color="#FF1E1E1E"/>
+  <SolidColorBrush x:Key="HuPanel" Color="#FF2D2D2D"/>
+  <SolidColorBrush x:Key="HuPanel2" Color="#FF252526"/>
+  <SolidColorBrush x:Key="HuText" Color="#FFCCCCCC"/>
+  <SolidColorBrush x:Key="HuTitle" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="HuMuted" Color="#FF858585"/>
+  <SolidColorBrush x:Key="HuBorder" Color="#FF3E3E42"/>
+  <SolidColorBrush x:Key="HuGroupLine" Color="#FF4A4A50"/>
+  <SolidColorBrush x:Key="HuInputBg" Color="#FF1E1E1E"/>
+  <SolidColorBrush x:Key="HuInputBorder" Color="#FF555555"/>
+  <SolidColorBrush x:Key="HuControl" Color="#FF3E3E42"/>
+  <SolidColorBrush x:Key="HuControlHover" Color="#FF505058"/>
+  <SolidColorBrush x:Key="HuButtonText" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="HuSel" Color="#FF094771"/>
+  <SolidColorBrush x:Key="HuSelText" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="HuTextSel" Color="#FF264F78"/>
+  <SolidColorBrush x:Key="HuAccent" Color="#FF4CAF50"/>
+  <SolidColorBrush x:Key="HuReadOnlyText" Color="#FFAAAAAA"/>
+  <SolidColorBrush x:Key="HuListLine" Color="#FF2D2D30"/>
+  <SolidColorBrush x:Key="HuListHover" Color="#FF2A2D2E"/>
+  <SolidColorBrush x:Key="HuGridAlt" Color="#FF232323"/>
+  <SolidColorBrush x:Key="HuHeaderBg" Color="#FF2D2D2D"/>
+  <SolidColorBrush x:Key="HuHeaderText" Color="#FFAAAAAA"/>
+  <SolidColorBrush x:Key="HuThumb" Color="#FF5A5A5A"/>
+  <SolidColorBrush x:Key="HuThumbHover" Color="#FF787878"/>
+  <SolidColorBrush x:Key="HuThumbDrag" Color="#FF9A9A9A"/>
+  <SolidColorBrush x:Key="HuScrollBg" Color="#FF252526"/>
+  <SolidColorBrush x:Key="HuDisabledText" Color="#FF6A6A6A"/>
+  <SolidColorBrush x:Key="HuOk" Color="#FF4CAF50"/>
+  <SolidColorBrush x:Key="HuWarn" Color="#FFFF9800"/>
+  <SolidColorBrush x:Key="HuErr" Color="#FFE57373"/>
+  <SolidColorBrush x:Key="HuRun" Color="#FF42A5F5"/>
+  <SolidColorBrush x:Key="HuLampOpen" Color="#FF6A6A6A"/>
+  <SolidColorBrush x:Key="HuMainBg" Color="#FF2E7D32"/>
+  <SolidColorBrush x:Key="HuMainHover" Color="#FF388E3C"/>
+  <SolidColorBrush x:Key="HuMainPressed" Color="#FF1B5E20"/>
+  <SolidColorBrush x:Key="HuStandOkBg" Color="#FF2E7D32"/>
+  <SolidColorBrush x:Key="HuStandWarnBg" Color="#FF8A6D00"/>
+  <SolidColorBrush x:Key="HuStandErrBg" Color="#FFB23B3B"/>
+  <SolidColorBrush x:Key="HuStandText" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="HuRowOkBg" Color="#1A4CAF50"/>
+  <SolidColorBrush x:Key="HuRowWarnBg" Color="#1AFF9800"/>
+  <SolidColorBrush x:Key="HuRowErrBg" Color="#24E57373"/>
+  <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#FF094771"/>
+  <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#FFFFFFFF"/>
+</ResourceDictionary>
+'@
+$script:HuColorsLight = @'
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="HuBg" Color="#FFF3F3F3"/>
+  <SolidColorBrush x:Key="HuPanel" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="HuPanel2" Color="#FFE9E9EC"/>
+  <SolidColorBrush x:Key="HuText" Color="#FF1E1E1E"/>
+  <SolidColorBrush x:Key="HuTitle" Color="#FF1E1E1E"/>
+  <SolidColorBrush x:Key="HuMuted" Color="#FF5F6368"/>
+  <SolidColorBrush x:Key="HuBorder" Color="#FFC8C8CC"/>
+  <SolidColorBrush x:Key="HuGroupLine" Color="#FFC0C0C6"/>
+  <SolidColorBrush x:Key="HuInputBg" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="HuInputBorder" Color="#FFAFAFB5"/>
+  <SolidColorBrush x:Key="HuControl" Color="#FFE1E1E6"/>
+  <SolidColorBrush x:Key="HuControlHover" Color="#FFD0D0D8"/>
+  <SolidColorBrush x:Key="HuButtonText" Color="#FF1E1E1E"/>
+  <SolidColorBrush x:Key="HuSel" Color="#FFCCE4F7"/>
+  <SolidColorBrush x:Key="HuSelText" Color="#FF000000"/>
+  <SolidColorBrush x:Key="HuTextSel" Color="#FFADD6FF"/>
+  <SolidColorBrush x:Key="HuAccent" Color="#FF2E7D32"/>
+  <SolidColorBrush x:Key="HuReadOnlyText" Color="#FF444444"/>
+  <SolidColorBrush x:Key="HuListLine" Color="#FFE3E3E6"/>
+  <SolidColorBrush x:Key="HuListHover" Color="#FFEAF2FB"/>
+  <SolidColorBrush x:Key="HuGridAlt" Color="#FFF8F8F9"/>
+  <SolidColorBrush x:Key="HuHeaderBg" Color="#FFE9E9EC"/>
+  <SolidColorBrush x:Key="HuHeaderText" Color="#FF333333"/>
+  <SolidColorBrush x:Key="HuThumb" Color="#FFB4B4BA"/>
+  <SolidColorBrush x:Key="HuThumbHover" Color="#FF94949A"/>
+  <SolidColorBrush x:Key="HuThumbDrag" Color="#FF74747A"/>
+  <SolidColorBrush x:Key="HuScrollBg" Color="#FFE9E9EC"/>
+  <SolidColorBrush x:Key="HuDisabledText" Color="#FF9A9A9A"/>
+  <SolidColorBrush x:Key="HuOk" Color="#FF2E7D32"/>
+  <SolidColorBrush x:Key="HuWarn" Color="#FFA85400"/>
+  <SolidColorBrush x:Key="HuErr" Color="#FFC62828"/>
+  <SolidColorBrush x:Key="HuRun" Color="#FF1565C0"/>
+  <SolidColorBrush x:Key="HuLampOpen" Color="#FF9E9E9E"/>
+  <SolidColorBrush x:Key="HuMainBg" Color="#FF2E7D32"/>
+  <SolidColorBrush x:Key="HuMainHover" Color="#FF388E3C"/>
+  <SolidColorBrush x:Key="HuMainPressed" Color="#FF1B5E20"/>
+  <SolidColorBrush x:Key="HuStandOkBg" Color="#FF2E7D32"/>
+  <SolidColorBrush x:Key="HuStandWarnBg" Color="#FFA85400"/>
+  <SolidColorBrush x:Key="HuStandErrBg" Color="#FFC62828"/>
+  <SolidColorBrush x:Key="HuStandText" Color="#FFFFFFFF"/>
+  <SolidColorBrush x:Key="HuRowOkBg" Color="#FFF1F8F1"/>
+  <SolidColorBrush x:Key="HuRowWarnBg" Color="#FFFFF8E6"/>
+  <SolidColorBrush x:Key="HuRowErrBg" Color="#FFFDECEC"/>
+  <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#FFCCE4F7"/>
+  <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#FF000000"/>
+</ResourceDictionary>
+'@
+$script:HuThemeXaml = @'
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style x:Key="DarkButton" TargetType="Button">
+    <Setter Property="Foreground" Value="{DynamicResource HuButtonText}"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Padding" Value="14,6"/>
+    <Setter Property="Cursor" Value="Hand"/><Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+      <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="Opacity" Value="0.85"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="border" Property="Opacity" Value="0.4"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="DarkCheckBox" TargetType="CheckBox"><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="Margin" Value="0,4"/></Style>
+  <Style x:Key="DarkComboBoxItem" TargetType="ComboBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="Background" Value="{DynamicResource HuControl}"/><Setter Property="Padding" Value="6,3"/>
+    <Style.Triggers>
+      <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="{DynamicResource HuControlHover}"/><Setter Property="Foreground" Value="{DynamicResource HuTitle}"/></Trigger>
+      <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource HuControlHover}"/><Setter Property="Foreground" Value="{DynamicResource HuTitle}"/></Trigger>
+    </Style.Triggers>
+  </Style>
+  <Style x:Key="DarkComboBox" TargetType="ComboBox">
+    <Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="Background" Value="{DynamicResource HuControl}"/><Setter Property="BorderBrush" Value="{DynamicResource HuInputBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="FontSize" Value="10"/><Setter Property="MinWidth" Value="150"/>
+    <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItem}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+      <Grid>
+        <ToggleButton x:Name="ToggleButton" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" ClickMode="Press">
+          <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
+            <Border x:Name="Border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="2">
+              <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="18"/></Grid.ColumnDefinitions>
+                <Path x:Name="Arrow" Grid.Column="1" Fill="{DynamicResource HuText}" HorizontalAlignment="Center" VerticalAlignment="Center" Data="M 0 0 L 4 4 L 8 0 Z"/></Grid>
+            </Border>
+          </ControlTemplate></ToggleButton.Template>
+        </ToggleButton>
+        <ContentPresenter x:Name="ContentSite" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                          Margin="6,2,20,2" VerticalAlignment="Center" HorizontalAlignment="Left" IsHitTestVisible="False"/>
+        <TextBox x:Name="PART_EditableTextBox" Style="{x:Null}" Visibility="Hidden" Margin="4,1,20,1" Padding="1,0" VerticalAlignment="Center" HorizontalAlignment="Stretch"
+                 Background="Transparent" BorderThickness="0" Foreground="{TemplateBinding Foreground}" CaretBrush="{DynamicResource HuText}"
+                 SelectionBrush="{DynamicResource HuTextSel}" FontSize="{TemplateBinding FontSize}" IsReadOnly="{TemplateBinding IsReadOnly}"/>
+        <Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+          <Grid x:Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+            <Border x:Name="DropDownBorder" Background="{DynamicResource HuControl}" BorderBrush="{DynamicResource HuInputBorder}" BorderThickness="1" CornerRadius="0,0,2,2"/>
+            <ScrollViewer Margin="2" SnapsToDevicePixels="True"><StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
+          </Grid>
+        </Popup>
+      </Grid>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsEditable" Value="True">
+          <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/><Setter TargetName="ContentSite" Property="Visibility" Value="Hidden"/><Setter Property="IsTabStop" Value="False"/>
+        </Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="DarkTextBox" TargetType="TextBox">
+    <Setter Property="Background" Value="{DynamicResource HuInputBg}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="6,4"/><Setter Property="CaretBrush" Value="{DynamicResource HuText}"/><Setter Property="SelectionBrush" Value="{DynamicResource HuTextSel}"/>
+    <Style.Triggers>
+      <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource HuAccent}"/></Trigger>
+      <Trigger Property="IsReadOnly" Value="True"><Setter Property="Foreground" Value="{DynamicResource HuReadOnlyText}"/></Trigger>
+    </Style.Triggers>
+  </Style>
+  <Style x:Key="DarkPasswordBox" TargetType="PasswordBox">
+    <Setter Property="Background" Value="{DynamicResource HuInputBg}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="6,4"/><Setter Property="CaretBrush" Value="{DynamicResource HuText}"/>
+  </Style>
+  <Style x:Key="DarkListBox" TargetType="ListBox">
+    <Setter Property="Background" Value="{DynamicResource HuInputBg}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+  </Style>
+  <Style x:Key="DarkListBoxItem" TargetType="ListBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="Padding" Value="6,4"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+      <Border x:Name="bd" Background="Transparent" Padding="{TemplateBinding Padding}" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource HuListLine}"><ContentPresenter/></Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="{DynamicResource HuListHover}"/></Trigger>
+        <Trigger Property="IsSelected" Value="True"><Setter TargetName="bd" Property="Background" Value="{DynamicResource HuSel}"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="ToolTip"><Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/></Style>
+  <Style TargetType="ContextMenu">
+    <Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
+      <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="3"><StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/></Border>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="MenuItem">
+    <Setter Property="Foreground" Value="{DynamicResource HuText}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem">
+      <Border x:Name="bd" Background="Transparent" CornerRadius="3" Padding="12,5">
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock x:Name="chk" Text="&#x2713;" Foreground="{DynamicResource HuAccent}" Width="16" Visibility="Hidden" VerticalAlignment="Center"/>
+          <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+          <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="{DynamicResource HuMuted}" Margin="24,0,0,0" VerticalAlignment="Center"/></Grid>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsChecked" Value="True"><Setter TargetName="chk" Property="Visibility" Value="Visible"/></Trigger>
+        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="bd" Property="Background" Value="{DynamicResource HuSel}"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{DynamicResource HuDisabledText}"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Background="{DynamicResource HuBorder}" Margin="6,3"/></ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="DarkDataGrid" TargetType="DataGrid">
+    <Setter Property="Background" Value="{DynamicResource HuInputBg}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="RowBackground" Value="{DynamicResource HuInputBg}"/>
+    <Setter Property="AlternatingRowBackground" Value="{DynamicResource HuGridAlt}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/><Setter Property="GridLinesVisibility" Value="Horizontal"/>
+    <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource HuListLine}"/><Setter Property="HeadersVisibility" Value="Column"/><Setter Property="CanUserAddRows" Value="False"/>
+    <Setter Property="IsReadOnly" Value="True"/><Setter Property="SelectionMode" Value="Single"/><Setter Property="ColumnWidth" Value="Auto"/>
+    <Setter Property="MinRowHeight" Value="26"/>
+    <Setter Property="CellStyle"><Setter.Value>
+      <Style TargetType="DataGridCell">
+        <Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="8,3,8,3"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridCell">
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+            <ContentPresenter VerticalAlignment="Center" SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+          </Border>
+        </ControlTemplate></Setter.Value></Setter>
+        <Style.Triggers>
+          <Trigger Property="IsSelected" Value="True">
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+          </Trigger>
+          <MultiTrigger>
+            <MultiTrigger.Conditions><Condition Property="IsSelected" Value="True"/><Condition Property="Selector.IsSelectionActive" Value="False"/></MultiTrigger.Conditions>
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.InactiveSelectionHighlightBrushKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.InactiveSelectionHighlightBrushKey}}"/>
+          </MultiTrigger>
+          <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource {x:Static DataGrid.FocusBorderBrushKey}}"/></Trigger>
+        </Style.Triggers>
+      </Style>
+    </Setter.Value></Setter>
+    <Setter Property="ColumnHeaderStyle"><Setter.Value>
+      <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{DynamicResource HuHeaderBg}"/><Setter Property="Foreground" Value="{DynamicResource HuHeaderText}"/><Setter Property="Padding" Value="8,5,8,5"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/><Setter Property="BorderThickness" Value="0,0,1,1"/>
+      </Style>
+    </Setter.Value></Setter>
+  </Style>
+  <Style x:Key="HUScrollThumb" TargetType="Thumb">
+    <Setter Property="OverridesDefaultStyle" Value="True"/><Setter Property="IsTabStop" Value="False"/><Setter Property="Focusable" Value="False"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
+      <Border x:Name="b" Background="{DynamicResource HuThumb}" CornerRadius="4" Margin="2"/>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource HuThumbHover}"/></Trigger>
+        <Trigger Property="IsDragging" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource HuThumbDrag}"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="HUScrollPage" TargetType="RepeatButton">
+    <Setter Property="OverridesDefaultStyle" Value="True"/><Setter Property="IsTabStop" Value="False"/><Setter Property="Focusable" Value="False"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="ScrollBar">
+    <Setter Property="OverridesDefaultStyle" Value="True"/><Setter Property="SnapsToDevicePixels" Value="True"/><Setter Property="Background" Value="{DynamicResource HuScrollBg}"/>
+    <Style.Triggers>
+      <Trigger Property="Orientation" Value="Vertical">
+        <Setter Property="Width" Value="12"/><Setter Property="MinWidth" Value="12"/><Setter Property="Height" Value="Auto"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+          <Border Background="{TemplateBinding Background}"><Track x:Name="PART_Track" IsDirectionReversed="True">
+            <Track.DecreaseRepeatButton><RepeatButton Style="{StaticResource HUScrollPage}" Command="ScrollBar.PageUpCommand"/></Track.DecreaseRepeatButton>
+            <Track.Thumb><Thumb Style="{StaticResource HUScrollThumb}" MinHeight="24"/></Track.Thumb>
+            <Track.IncreaseRepeatButton><RepeatButton Style="{StaticResource HUScrollPage}" Command="ScrollBar.PageDownCommand"/></Track.IncreaseRepeatButton>
+          </Track></Border>
+        </ControlTemplate></Setter.Value></Setter>
+      </Trigger>
+      <Trigger Property="Orientation" Value="Horizontal">
+        <Setter Property="Height" Value="12"/><Setter Property="MinHeight" Value="12"/><Setter Property="Width" Value="Auto"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+          <Border Background="{TemplateBinding Background}"><Track x:Name="PART_Track" IsDirectionReversed="False">
+            <Track.DecreaseRepeatButton><RepeatButton Style="{StaticResource HUScrollPage}" Command="ScrollBar.PageLeftCommand"/></Track.DecreaseRepeatButton>
+            <Track.Thumb><Thumb Style="{StaticResource HUScrollThumb}" MinWidth="24"/></Track.Thumb>
+            <Track.IncreaseRepeatButton><RepeatButton Style="{StaticResource HUScrollPage}" Command="ScrollBar.PageRightCommand"/></Track.IncreaseRepeatButton>
+          </Track></Border>
+        </ControlTemplate></Setter.Value></Setter>
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+  <!-- Gruppenrahmen: eine duenne graue Linie, Ueberschrift sitzt in der Linie (statt des doppelten weissen Standardrahmens) -->
+  <Style TargetType="GroupBox">
+    <Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuGroupLine}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="GroupBox">
+      <Grid SnapsToDevicePixels="True">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Border Grid.Row="0" Grid.RowSpan="2" Margin="0,9,0,0" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="4"/>
+        <Border Grid.Row="0" HorizontalAlignment="Left" Margin="10,0,0,0" Padding="5,0" Background="{DynamicResource HuBg}">
+          <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" TextElement.Foreground="{DynamicResource HuMuted}"/>
+        </Border>
+        <ContentPresenter Grid.Row="1" Margin="{TemplateBinding Padding}"/>
+      </Grid>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <!-- Standard fuer alle Steuerelemente der HUPilot-Fenster (ohne eigenen Stil) -->
+  <Style TargetType="Button" BasedOn="{StaticResource DarkButton}"><Setter Property="Background" Value="{DynamicResource HuControl}"/></Style>
+  <Style TargetType="TextBox" BasedOn="{StaticResource DarkTextBox}"><Setter Property="Padding" Value="4,2"/></Style>
+  <Style TargetType="PasswordBox" BasedOn="{StaticResource DarkPasswordBox}"><Setter Property="Padding" Value="4,2"/></Style>
+  <Style TargetType="CheckBox" BasedOn="{StaticResource DarkCheckBox}"/>
+  <Style TargetType="ComboBox" BasedOn="{StaticResource DarkComboBox}"><Setter Property="FontSize" Value="12"/><Setter Property="MinWidth" Value="0"/><Setter Property="Padding" Value="4,3"/></Style>
+  <Style TargetType="ListBox" BasedOn="{StaticResource DarkListBox}"/>
+  <Style TargetType="ListBoxItem" BasedOn="{StaticResource DarkListBoxItem}"/>
+  <Style TargetType="DataGrid" BasedOn="{StaticResource DarkDataGrid}"/>
+</ResourceDictionary>
+'@
+# Aktuelles Theme (hell oder dunkel), gemerkt in ui.json "Theme". Fehlt oder unlesbar = dunkel.
+$script:HuTheme = 'dunkel'
+$script:HuWindows = New-Object System.Collections.ArrayList
+function Get-HuColorsXaml([string]$Name) { if ($Name -eq 'hell') { return $script:HuColorsLight } return $script:HuColorsDark }
+function Add-HuTheme([xml]$Doc) {
+    $ns = 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+    $root = $Doc.DocumentElement
+    foreach ($a in @(@('Background', '{DynamicResource HuBg}'), @('Foreground', '{DynamicResource HuText}'), @('UseLayoutRounding', 'True'), @('TextOptions.TextFormattingMode', 'Display'))) { if (-not $root.HasAttribute($a[0])) { $root.SetAttribute($a[0], $a[1]) } }
+    $res = $null
+    foreach ($ch in @($root.ChildNodes)) { if ($ch.LocalName -eq 'Window.Resources') { $res = $ch } }
+    if (-not $res) { $res = $Doc.CreateElement('Window.Resources', $ns); [void]$root.PrependChild($res) }
+    $rd = $Doc.CreateElement('ResourceDictionary', $ns)
+    $md = $Doc.CreateElement('ResourceDictionary.MergedDictionaries', $ns)
+    [void]$md.AppendChild($Doc.ImportNode(([xml](Get-HuColorsXaml $script:HuTheme)).DocumentElement, $true))
+    [void]$md.AppendChild($Doc.ImportNode(([xml]$script:HuThemeXaml).DocumentElement, $true))
+    [void]$rd.AppendChild($md)
+    foreach ($ch in @($res.ChildNodes)) { [void]$rd.AppendChild($res.RemoveChild($ch)) }
+    [void]$res.AppendChild($rd)
+}
+# Fenster fuer die Umschaltung merken (Hauptfenster und jedes Unterfenster), beim Schliessen wieder vergessen
+function Register-HuWindow($w) {
+    [void]$script:HuWindows.Add($w)
+    $w.Add_Closed({ try { [void]$script:HuWindows.Remove($this) } catch { } })
+}
+# Theme wechseln: in jedem offenen Fenster das Farb-Woerterbuch tauschen (DynamicResource zieht sofort nach)
+function Set-HuTheme([string]$Name) {
+    if ($Name -ne 'hell') { $Name = 'dunkel' }
+    $script:HuTheme = $Name
+    foreach ($w in @($script:HuWindows)) {
+        try {
+            $md = $w.Resources.MergedDictionaries
+            for ($i = 0; $i -lt $md.Count; $i++) {
+                if ($md[$i].Contains('HuBg')) { $md[$i] = [Windows.Markup.XamlReader]::Parse((Get-HuColorsXaml $Name)); break }
+            }
+        } catch { }
+    }
+}
+
+# Gemerktes Theme laden (ui.json liegt in HUPilot\Config, fehlend oder unlesbar = dunkel)
+try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ([string]$tj.Theme -eq 'hell') { $script:HuTheme = 'hell' } } catch { }
+
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="890" Height="880" MinWidth="640" MinHeight="420" WindowStartupLocation="CenterScreen" FontSize="13" ResizeMode="CanResizeWithGrip">
+        Title="HUPilot-Setup" Width="890" Height="1060" MinWidth="640" MinHeight="420" WindowStartupLocation="CenterScreen" FontSize="13" ResizeMode="CanResizeWithGrip">
   <Window.Resources>
     <Style x:Key="HuThumb" TargetType="Thumb">
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
@@ -119,20 +477,64 @@ $script:Extra = @{}
         </Trigger>
       </Style.Triggers>
     </Style>
+    <Style x:Key="HuMain" TargetType="Button">
+      <Setter Property="Background" Value="{DynamicResource HuMainBg}"/><Setter Property="Foreground" Value="White"/><Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="{DynamicResource HuMainHover}"/></Trigger>
+          <Trigger Property="IsPressed" Value="True"><Setter TargetName="bd" Property="Background" Value="{DynamicResource HuMainPressed}"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter TargetName="bd" Property="Opacity" Value="0.5"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="HuLamp" TargetType="Ellipse">
+      <Setter Property="Width" Value="10"/><Setter Property="Height" Value="10"/><Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Fill" Value="{DynamicResource HuLampOpen}"/><Setter Property="ToolTip" Value="Stand: offen"/>
+    </Style>
   </Window.Resources>
   <DockPanel Margin="14">
   <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
       <Button VerticalAlignment="Center" x:Name="bLnk" FontFamily="Segoe MDL2 Assets" Content="&#xE718;" Width="32" Padding="0,5" Margin="0,0,8,0" ToolTip="Desktop-Verknüpfung zu diesem Ordner anlegen (öffentlicher Desktop, mit HUPilot-Symbol)." ToolTipService.ShowDuration="30000"/>
       <Button VerticalAlignment="Center" x:Name="bHelp" ToolTip="Anleitung öffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="0,0,0,0"/>
-      <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prüft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfügbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unverändert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
+      <Button VerticalAlignment="Center" x:Name="bTheme" FontFamily="Segoe MDL2 Assets" Content="&#xE793;" Width="32" Padding="0,5" Margin="8,0,0,0" ToolTip="Helle / dunkle Oberfläche umschalten (wirkt sofort in allen Fenstern und wird gemerkt)." ToolTipService.ShowDuration="30000"/>
+      <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prüft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfügbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unverändert.&#x0a;Rechtsklick: andere Version, Kanal, Info, Anleitung, GitHub-Token." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
-    <Image x:Name="iLogo" Width="44" Height="44"/>
+    <Image x:Name="iLogo" Width="44" Height="44" Cursor="Hand" Focusable="True" FocusVisualStyle="{x:Null}" ToolTip="Info zu HUPilot (Version, Quelle, Links)" ToolTipService.ShowDuration="30000"/>
     <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-      <TextBlock Text="HUPilot" FontSize="20" FontWeight="SemiBold"/>
-      <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="Gray"/>
+      <TextBlock Text="HUPilot" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource HuTitle}"/>
+      <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="{DynamicResource HuMuted}"/>
     </StackPanel>
   </DockPanel>
+  <!-- Protokoll fest unten (nicht im Scrollbereich), Hoehe per Ziehgriff, gemerkt in HUPilot\Config\ui.json -->
+  <DockPanel x:Name="pLog" DockPanel.Dock="Bottom" Margin="0,4,0,0">
+    <Thumb x:Name="thLog" DockPanel.Dock="Top" Height="10" Cursor="SizeNS" ToolTip="Höhe des Protokolls anpassen (ziehen) - wird gemerkt." ToolTipService.ShowDuration="30000">
+      <Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="Transparent"><Border Background="{DynamicResource HuBorder}" Height="4" Width="80" CornerRadius="2" VerticalAlignment="Center"/></Border></ControlTemplate></Thumb.Template>
+    </Thumb>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+      <Button x:Name="bLogClear" DockPanel.Dock="Right" Content="Löschen" Padding="8,1" Margin="6,0,0,0" ToolTip="Protokoll im Fenster leeren (die Protokolldatei in HUPilot\logs bleibt unverändert)." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bLogRev" DockPanel.Dock="Right" Content="Umkehren" Padding="8,1" Margin="6,0,0,0" ToolTip="Reihenfolge umkehren: neueste Zeile oben oder unten (wird gemerkt)." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bLogCopy" DockPanel.Dock="Right" Content="Protokoll kopieren" Padding="8,1" ToolTip="Markierte Zeilen (sonst das ganze Protokoll) mit den technischen Details in die Zwischenablage kopieren.&#x0a;Markieren: Klick, Strg+Klick, Umschalt+Klick. Kopieren geht auch mit Strg+C." ToolTipService.ShowDuration="30000"/>
+      <TextBlock x:Name="tLogFile" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource HuMuted}" FontSize="11" ToolTip="Jede Sitzung wird zusätzlich als Datei gespeichert (ohne Kennwörter und Schlüssel). Die letzten 20 Dateien bleiben." ToolTipService.ShowDuration="30000"/>
+      <TextBlock Text="Protokoll" FontWeight="SemiBold" VerticalAlignment="Center" ToolTip="Was das Setup in dieser Sitzung gemacht hat: OK (grün), Hinweis (gelb), Fehler (rot)." ToolTipService.ShowDuration="30000"/>
+    </DockPanel>
+    <ListBox x:Name="lLog" Height="120" SelectionMode="Extended" FontFamily="Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ToolTip="Protokoll dieser Sitzung. Zeilen mit technischen Details: Maus darüber zeigt das Original, Doppelklick klappt es auf." ToolTipService.ShowDuration="30000"/>
+  </DockPanel>
+  <!-- Hauptknopf: alles in einem Durchgang -->
+  <Border x:Name="bdReady" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource HuAccent}" Background="{DynamicResource HuPanel2}">
+    <DockPanel>
+      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+        <TextBlock Text="Stick" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource HuMuted}" ToolTip="Ziel-Stick für Stick fertig machen, 5. Auf Stick kopieren und die Stick-Protokolle in Status und Hashes importieren." ToolTipService.ShowDuration="30000"/>
+        <ComboBox x:Name="cDrive" Width="190" VerticalAlignment="Center" ToolTip="Ziel-Stick für Stick fertig machen und 5. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten.&#x0a;Angesteckte und abgezogene Sticks erscheinen von selbst, die Auswahl bleibt dabei erhalten." ToolTipService.ShowDuration="30000"/>
+        <Button x:Name="bReload" Content="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="12" Padding="6,4" Margin="4,0,0,0" VerticalAlignment="Center" ToolTip="Sticks neu einlesen.&#x0a;Angesteckte und abgezogene Sticks erkennt das Setup von selbst, dieser Knopf ist nur der Rückfall." ToolTipService.ShowDuration="30000"/>
+      </StackPanel>
+      <Button x:Name="bReady" DockPanel.Dock="Left" Style="{StaticResource HuMain}" Padding="18,8" FontSize="15" FontWeight="Bold" ToolTip="Macht den gewählten Stick in einem Durchgang fertig:&#x0a;Felder prüfen, Verbindung und Secret prüfen, Tags prüfen (nur Warnung), speichern,&#x0a;WLAN-Paket bauen, wenn es fehlt oder veraltet ist, auf den Stick kopieren und die kopierten Dateien kontrollieren.&#x0a;Bricht beim ersten echten Fehler ab und sagt, was zu tun ist." ToolTipService.ShowDuration="60000">
+        <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="13" Height="13" Margin="0,0,8,0" Stroke="White" StrokeThickness="1.5"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
+      </Button>
+      <TextBlock x:Name="tReady" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="" ToolTip="Stand für den gewählten Stick: bereit, aktueller Schritt oder Ergebnis des letzten Durchgangs.&#x0a;Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
+    </DockPanel>
+  </Border>
   <ScrollViewer x:Name="svMain" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
   <Grid Margin="0,0,8,0">
     <Grid.RowDefinitions>
@@ -164,7 +566,8 @@ $script:Extra = @{}
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="WLAN-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tSsid" ToolTip="Name des Konfigurations-WLANs (WPA2-Personal).&#x0a;go.ps1 verbindet sich damit zum Hochladen; das WLAN-Paket bringt es nach dem Zurücksetzen wieder mit." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <TextBlock Grid.Row="1" Text="Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tKey" ToolTip="Kennwort des Konfigurations-WLANs (mind. 8 Zeichen).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Kennwort" VerticalAlignment="Center"/>
+        <DockPanel Grid.Row="1" Grid.Column="1"><CheckBox x:Name="cShowKey" ToolTip="WLAN-Kennwort im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pKey" ToolTip="Kennwort des Konfigurations-WLANs (mind. 8 Zeichen).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tKey" ToolTip="WLAN-Kennwort im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
         <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cRmPkg" IsChecked="False" Margin="2,4,0,0" Content="Fremde Bereitstellungspakete beim Zurücksetzen entfernen (Test)" ToolTip="Alte Pakete am Gerät (z. B. ein früheres Schul-MDM-Paket) würden das Zurücksetzen überleben und im Einrichtungsbildschirm erneut angewendet - das kann Autopilot stören.&#x0a;Bleibt nur HUPilot-WLAN.ppkg. Die entfernten Pakete werden vorher nach C:\Recovery\HUPilot-PPKG-Backup\&lt;Datum&gt; gesichert.&#x0a;Noch nicht an einem Gerät bestätigt - erst an einem Testgerät ausprobieren." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
@@ -174,7 +577,7 @@ $script:Extra = @{}
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="MAK (Pro)" VerticalAlignment="Center"/>
         <DockPanel Grid.Row="0" Grid.Column="1"><CheckBox x:Name="cShowEd" ToolTip="MAK im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pEdKey" ToolTip="Volumenlizenz-Schlüssel (MAK) für Windows Pro, Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX.&#x0a;Windows Home lässt keine Intune-Verwaltung zu, dafür braucht es Pro oder Pro Education (auch Education, Enterprise).&#x0a;Nur für Geräte mit Windows Home: go.ps1 fragt am Gerät nach, stellt auf Pro um (Neustart) und aktiviert danach mit diesem Schlüssel.&#x0a;Jede Aktivierung zählt beim MAK mit. Geräte mit Pro, Pro Education, Education oder Enterprise werden nicht angefasst.&#x0a;ACHTUNG: Der MAK steht im Klartext in config.json auf jedem Stick. Nur für Einzelfälle eintragen, nicht für Massen-Rollouts,&#x0a;Stick nicht aus der Hand geben und das Feld danach wieder leeren (3. Speichern, 5. Auf Stick kopieren). Leer = Funktion aus." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tEdKey" ToolTip="MAK für Windows Pro im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
-        <TextBlock Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Foreground="#FFC0392B" TextWrapping="Wrap" Text="Nur für Einzelfälle: Der MAK liegt im Klartext auf dem Stick. Nicht für Massen-Rollouts, danach wieder leeren." ToolTip="Der Schlüssel steht unverschlüsselt in HUPilot\config.json auf jedem bespielten Stick. Wer den Stick hat, kann ihn lesen." ToolTipService.ShowDuration="30000"/>
+        <TextBlock Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Foreground="{DynamicResource HuErr}" TextWrapping="Wrap" Text="Nur für Einzelfälle: Der MAK liegt im Klartext auf dem Stick. Nicht für Massen-Rollouts, danach wieder leeren." ToolTip="Der Schlüssel steht unverschlüsselt in HUPilot\config.json auf jedem bespielten Stick. Wer den Stick hat, kann ihn lesen." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="4" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
@@ -182,58 +585,168 @@ $script:Extra = @{}
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="Admin-Name" VerticalAlignment="Center"/><TextBox Grid.Row="0" Grid.Column="1" x:Name="tAdmName" ToolTip="Lokales Administratorkonto für die Kustoden (max. 20 Zeichen, z. B. kustode).&#x0a;Kommt mit 4. WLAN-Paket bauen ins Paket und wird nach JEDEM Zurücksetzen neu angelegt.&#x0a;Kennwort und Konto laufen nie ab. Leer lassen = kein lokaler Admin.&#x0a;Änderung wirkt erst nach neuem Paket + Zurücksetzen mit dem Stick." ToolTipService.ShowDuration="30000" Margin="2"/>
-        <TextBlock Grid.Row="1" Text="Admin-Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="1" Grid.Column="1" x:Name="tAdmPw" ToolTip="Kennwort des lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="1" Text="Admin-Kennwort" VerticalAlignment="Center"/>
+        <DockPanel Grid.Row="1" Grid.Column="1"><CheckBox x:Name="cShowAdm" ToolTip="Admin-Kennwort im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pAdmPw" ToolTip="Kennwort des lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tAdmPw" ToolTip="Admin-Kennwort im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
         <TextBlock Grid.Row="2" Text="Admin 2 - Name" VerticalAlignment="Center" Margin="0,6,0,0"/><TextBox Grid.Row="2" Grid.Column="1" x:Name="tAdm2Name" ToolTip="Zweites lokales Administratorkonto, z. B. für den Elternverein (max. 20 Zeichen, z. B. elternadmin).&#x0a;Gleiche Regeln wie Admin 1: kommt ins WLAN-Paket, nach JEDEM Zurücksetzen neu angelegt, Kennwort und Konto laufen nie ab.&#x0a;Leer lassen = kein zweiter Admin." ToolTipService.ShowDuration="30000" Margin="2,8,2,2"/>
-        <TextBlock Grid.Row="3" Text="Admin 2 - Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="3" Grid.Column="1" x:Name="tAdm2Pw" ToolTip="Kennwort des zweiten lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
+        <TextBlock Grid.Row="3" Text="Admin 2 - Kennwort" VerticalAlignment="Center"/>
+        <DockPanel Grid.Row="3" Grid.Column="1"><CheckBox x:Name="cShowAdm2" ToolTip="Kennwort von Admin 2 im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pAdm2Pw" ToolTip="Kennwort des zweiten lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tAdm2Pw" ToolTip="Kennwort von Admin 2 im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
       </Grid>
     </GroupBox>
-    <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Vorbereiten" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
-      <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup läuft)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,0,0"/>
-      <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Content="1. Verbindung testen" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geräte in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob für einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Content="2. Tags prüfen" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Content="3. Speichern" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="4. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
-    </StackPanel>
-    <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
-      <ComboBox x:Name="cDrive" ToolTip="Ziel-Stick für 5. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000" Width="180" Margin="0,0,0,0"/>
-      <Button x:Name="bReload" ToolTip="USB-Laufwerke neu einlesen." ToolTipService.ShowDuration="30000" Content="Aktualisieren" Padding="8,2" Margin="6,0,0,0"/>
-      <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen." ToolTipService.ShowDuration="30000" Content="5. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,0"/>
-    </StackPanel>
-    <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
-      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV oder Excel, Drucken (auch als PDF)." ToolTipService.ShowDuration="30000" Content="6. Status" Padding="10,4" Margin="0,0,0,0"/>
-      <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Content="7. Hashes importieren" Padding="10,4" Margin="8,0,0,0"/>
-    </StackPanel>
-    <TextBox Grid.Row="8" x:Name="tLog" Height="160" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+    <WrapPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
+      <TextBlock Text="Vorbereiten" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Einzelschritte zum Vorbereiten der Quelle. Der Knopf &quot;Stick fertig machen&quot; unten erledigt sie in einem Durchgang." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup läuft).&#x0a;Ungespeicherte Änderungen gehen dabei verloren (mit Rückfrage)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,0,4"/>
+      <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTest" Style="{StaticResource HuLamp}"/><TextBlock Text="1. Verbindung testen"/></StackPanel></Button>
+      <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geräte in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob für einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTags" Style="{StaticResource HuLamp}"/><TextBlock Text="2. Tags prüfen"/></StackPanel></Button>
+      <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eWrite" Style="{StaticResource HuLamp}"/><TextBlock Text="3. Speichern"/></StackPanel></Button>
+      <TextBlock x:Name="tDirty" Text="* ungespeichert" Foreground="{DynamicResource HuWarn}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,0,4" Visibility="Collapsed" ToolTip="Es gibt Änderungen, die noch nicht in config.json stehen.&#x0a;3. Speichern oder Stick fertig machen speichert sie." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: die Kopie aus dem Häkchen &quot;Paketbau mit auf den Stick&quot; (Test), oder Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md.&#x0a;Welche ICD.exe benutzt wird, steht im Tooltip der Ampel." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
+      <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="6,0,0,4" Foreground="{DynamicResource HuMuted}" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut&#x0a;unbekannt = gebaut mit einer älteren Version, neu bauen empfohlen" ToolTipService.ShowDuration="30000"/>
+    </WrapPanel>
+    <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
+      <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Kopieren auf den Stick, der unten beim grünen Knopf ausgewählt ist." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen. Danach Kontrolle der kopierten Dateien." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eCopy" Style="{StaticResource HuLamp}"/><TextBlock Text="5. Auf Stick kopieren"/></StackPanel></Button>
+      <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,4"/>
+      <CheckBox x:Name="cIcdStick" Content="Paketbau mit auf den Stick" VerticalAlignment="Center" Margin="12,0,0,4" ToolTipService.ShowDuration="60000" ToolTipService.ShowOnDisabled="True" ContextMenuService.ShowOnDisabled="True" ToolTip="Paketbau mit auf den Stick"/>
+    </WrapPanel>
+    <WrapPanel Grid.Row="7" Orientation="Horizontal" Margin="0,8,0,0">
+      <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Nach dem Einsatz der Sticks: Stand in Autopilot ansehen, offline gespeicherte Hashes hochladen." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV oder Excel, Drucken (auch als PDF)." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eStatus" Style="{StaticResource HuLamp}"/><TextBlock Text="6. Status"/></StackPanel></Button>
+      <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eHash" Style="{StaticResource HuLamp}"/><TextBlock Text="7. Hashes importieren"/></StackPanel></Button>
+    </WrapPanel>
   </Grid>
   </ScrollViewer>
   </DockPanel>
 </Window>
 '@
+Add-HuTheme $xaml
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+Register-HuWindow $win
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog','svMain') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick') { $ui[$n] = $win.FindName($n) }
 
 # Fenster an den Bildschirm anpassen: nie groesser als der Arbeitsbereich (ohne Taskleiste) und ganz sichtbar.
 # Auf kleinen Notebooks (z. B. 1366x768 oder hohe Skalierung) ragte das Fenster sonst unter die Taskleiste.
+# Unterfenster (mit Owner), die schon passen, bleiben mittig ueber dem Hauptfenster.
+# Unterfenster stehen mittig ueber dem Hauptfenster, aber immer ganz im Arbeitsbereich (nie ueber den Rand hinaus).
 function Set-WinFit($w) {
     try {
         $wa = [System.Windows.SystemParameters]::WorkArea
         if ($w.Height -gt $wa.Height) { $w.Height = [math]::Max($w.MinHeight, $wa.Height) }
         if ($w.Width -gt $wa.Width) { $w.Width = [math]::Max($w.MinWidth, $wa.Width) }
+        $ww = $(if ($w.ActualWidth -gt 0 -and [double]::IsNaN($w.Width)) { $w.ActualWidth } else { $w.Width })
+        $wh = $(if ($w.ActualHeight -gt 0 -and [double]::IsNaN($w.Height)) { $w.ActualHeight } else { $w.Height })
+        $left = $wa.Left + ($wa.Width - $ww) / 2; $top = $wa.Top + ($wa.Height - $wh) / 2
+        $o = $w.Owner
+        if ($o -and $o.IsLoaded) { $left = $o.Left + ($o.ActualWidth - $ww) / 2; $top = $o.Top + ($o.ActualHeight - $wh) / 2 }
         $w.WindowStartupLocation = 'Manual'
-        $w.Left = $wa.Left + [math]::Max(0, ($wa.Width - $w.Width) / 2)
-        $w.Top = $wa.Top + [math]::Max(0, ($wa.Height - $w.Height) / 2)
+        $w.Left = [math]::Max($wa.Left, [math]::Min($left, $wa.Right - $ww))
+        $w.Top = [math]::Max($wa.Top, [math]::Min($top, $wa.Bottom - $wh))
+    } catch { }
+}
+# Arbeitsbereich (ohne Taskleiste) des Bildschirms, auf dem das Fenster steht, in WPF-Einheiten. Rueckfall: Hauptbildschirm
+function Get-WinWorkArea($w) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        $h = (New-Object System.Windows.Interop.WindowInteropHelper($w)).Handle
+        $src = [System.Windows.PresentationSource]::FromVisual($w)
+        if ($h -eq [IntPtr]::Zero -or -not $src) { return [System.Windows.SystemParameters]::WorkArea }
+        $wa = [System.Windows.Forms.Screen]::FromHandle($h).WorkingArea
+        $m = $src.CompositionTarget.TransformFromDevice
+        return New-Object System.Windows.Rect($m.Transform((New-Object System.Windows.Point($wa.Left, $wa.Top))), $m.Transform((New-Object System.Windows.Point($wa.Right, $wa.Bottom))))
+    } catch { return [System.Windows.SystemParameters]::WorkArea }
+}
+# Linker Rand nach einer Breitenaenderung: bleibt, nur wenn das Fenster rechts oder links aus dem Arbeitsbereich ragt,
+# so weit verschieben wie noetig
+function Get-KeptLeft([double]$Left, [double]$Width, [double]$AreaLeft, [double]$AreaRight) {
+    if ($Left + $Width -gt $AreaRight) { $Left = $AreaRight - $Width }
+    if ($Left -lt $AreaLeft) { $Left = $AreaLeft }
+    return $Left
+}
+# ---------- Spaltenbreite = breitester Inhalt (Kopf eingeschlossen) plus ein festes Stueck Luft, nie mehr ----------
+#   Gemessen wird der Text selbst ueber ALLE Zeilen (die Auto-Breite der Tabelle misst nur sichtbare Zeilen und wird nie kleiner).
+#   Keine Stern-Breite, keine gemerkten Breiten. Obergrenze je Spalte, darueber Auslassung mit Tooltip auf den vollen Text.
+# $Content/$Header: gemessene Breite in Pixeln. $Air: Zellabstand links und rechts plus Rahmen. Kopf mit Platz fuer den Sortierpfeil.
+function Get-FitWidth([double]$Content, [double]$Header, [double]$Air = 18, [double]$Max = 320) {
+    $w = [math]::Max($Content, $Header + 12) + $Air
+    return [math]::Ceiling([math]::Min($w, $Max))
+}
+# Gemessen wird im selben Modus wie die Anzeige: Add-HuTheme stellt TextFormattingMode=Display ein (Zeichen auf ganze
+# Pixel gerundet, breiter als die ideale Messung). Dazu 2 px Reserve fuer Rundung, sonst wird der letzte Buchstabe angeschnitten.
+$script:TextWidthCache = @{}
+function Measure-TextWidth([string]$Text, $Typeface, [double]$Size) {
+    if (-not $Text) { return 0.0 }
+    # Zwischenspeicher: gleicher Text, gleiche Schrift (Familie, Gewicht) und Groesse = gleiche Breite
+    $ck = $null
+    try { $ck = [string]$Typeface.FontFamily + '|' + [string]$Typeface.Weight + '|' + $Size + '|' + $Text } catch { }
+    if ($ck -and $null -ne $script:TextWidthCache -and $script:TextWidthCache.ContainsKey($ck)) { return $script:TextWidthCache[$ck] }
+    if ($null -eq $script:TextWidthCache -or $script:TextWidthCache.Count -gt 20000) { $script:TextWidthCache = @{} }
+    $wv = Measure-TextWidthRaw $Text $Typeface $Size
+    if ($ck) { $script:TextWidthCache[$ck] = $wv }
+    return $wv
+}
+function Measure-TextWidthRaw([string]$Text, $Typeface, [double]$Size) {
+    $ft = $null
+    try { $ft = New-Object System.Windows.Media.FormattedText($Text, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $Typeface, $Size, [System.Windows.Media.Brushes]::Black, $null, [System.Windows.Media.TextFormattingMode]::Display, 1.0) } catch { $ft = $null }
+    if (-not $ft) { $ft = New-Object System.Windows.Media.FormattedText($Text, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $Typeface, $Size, [System.Windows.Media.Brushes]::Black); return [math]::Ceiling($ft.WidthIncludingTrailingWhitespace * 1.06) + 2 }
+    return [math]::Ceiling($ft.WidthIncludingTrailingWhitespace) + 2
+}
+# Zellen kuerzen mit "..." und den vollen Text als Tooltip zeigen (nur sichtbar, wenn gekuerzt wurde, sonst ist er gleich)
+$script:TrimStyles = @{}
+function Get-TrimStyle([string]$Path) {
+    if (-not $script:TrimStyles.ContainsKey($Path)) {
+        $script:TrimStyles[$Path] = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding Path=' + $Path + '}"/></Style>')
+    }
+    return $script:TrimStyles[$Path]
+}
+# Alle Spalten einer Tabelle setzen. $Max: Obergrenze je Bindungspfad (Standard 320), $Extra: Zusatz je Pfad (z. B. Schild),
+# $Bold: Pfade, deren Inhalt halbfett steht. $Skip: Pfade, die unveraendert bleiben (von Hand gezogen).
+# $rows: genau die ANGEZEIGTEN Zeilen (nach allen Filtern). Ist eine Spalte darin leer, ist sie so breit wie ihre Ueberschrift.
+function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Extra = @{}, [string[]]$Bold = @(), [string[]]$Skip = @()) {
+    try {
+        $ff = $grid.FontFamily; $fs = $grid.FontSize
+        $tfN = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
+        $tfB = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::SemiBold, [System.Windows.FontStretches]::Normal)
+        $rows = @($rows)
+        foreach ($c in @($grid.Columns)) {
+            $path = ''; try { $path = [string]$c.Binding.Path.Path } catch { }
+            if (-not $path -or $Skip -contains $path) { continue }
+            $tf = $(if ($Bold -contains $path) { $tfB } else { $tfN })
+            $m = 0.0; $seen = @{}
+            foreach ($r in $rows) {
+                $v = [string]$r.$path
+                if (-not $v -or $seen.ContainsKey($v)) { continue }
+                $seen[$v] = $true
+                $x = Measure-TextWidth $v $tf $fs
+                if ($x -gt $m) { $m = $x }
+            }
+            $h = Measure-TextWidth ([string]$c.Header) $tfN $fs
+            $mx = $(if ($Max.ContainsKey($path)) { [double]$Max[$path] } else { 320 })
+            $ex = $(if ($Extra.ContainsKey($path)) { [double]$Extra[$path] } else { 0 })
+            # Luft: Zellabstand 8 + 8, Rahmen 1 + 1 und der feste Textrand der Textspalte 2 + 2 (gilt auch mit eigenem Stil)
+            $c.Width = New-Object System.Windows.Controls.DataGridLength((Get-FitWidth ($m + $ex) $h 22 $mx))
+            if ($c -is [System.Windows.Controls.DataGridTextColumn] -and $null -eq $c.ElementStyle) { $c.ElementStyle = Get-TrimStyle $path }
+        }
+    } catch { }
+}
+# Fenster so breit wie die Spalten der Tabelle (Inhalt plus Luft aus dem Zellabstand), mindestens $Min, hoechstens der
+# Arbeitsbereich; danach wieder ganz in den Bildschirm. Nur wenn der Bildschirm zu schmal ist, bleibt der Querbalken.
+function Set-GridWindowWidth($w, $grid, [double]$Min = 0) {
+    try {
+        $w.UpdateLayout()
+        $cols = 0.0; foreach ($c in $grid.Columns) { if ([string]$c.Visibility -eq 'Visible') { $cols += $c.ActualWidth } }
+        if ($cols -le 0) { return }
+        $chrome = $w.ActualWidth - $grid.ActualWidth
+        $need = [math]::Ceiling($cols + $chrome + 20)
+        $wa = [System.Windows.SystemParameters]::WorkArea
+        $w.Width = [math]::Min($wa.Width, [math]::Max([math]::Max($Min, $w.MinWidth), $need))
+        Set-WinFit $w
     } catch { }
 }
 Set-WinFit $win
 # Mausrad scrollt immer das ganze Formular (ausser im Protokoll und in einer offenen Auswahlliste)
 $ui.svMain.Add_PreviewMouseWheel({
     param($s, $e)
-    if ($ui.tLog.IsMouseOver -or $ui.cDrive.IsDropDownOpen) { return }
+    if ($ui.lLog.IsMouseOver -or $ui.cDrive.IsDropDownOpen) { return }
     $ui.svMain.ScrollToVerticalOffset($ui.svMain.VerticalOffset - ($e.Delta / 120.0 * 48))
     $e.Handled = $true
 })
@@ -247,7 +760,175 @@ try {
     if (Test-Path $png) { $ui.iLogo.Source = New-Object System.Windows.Media.Imaging.BitmapImage((New-Object System.Uri($png))) }
 } catch { }
 
-function Out-Log([string]$m) { $ui.tLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $ui.tLog.ScrollToEnd() }
+# ---------- Oberflaechen-Einstellungen (HUPilot\Config\ui.json, lokal, uebersteht Updates) ----------
+$script:UiJson = Join-Path $CfgDirHU 'ui.json'
+function Get-UiSetting([string]$Name, $Default) {
+    try {
+        if (Test-Path -LiteralPath $script:UiJson) {
+            $u = Get-Content -LiteralPath $script:UiJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($u -and ($u.PSObject.Properties.Name -contains $Name)) { return $u.$Name }
+        }
+    } catch { }
+    return $Default
+}
+function Set-UiSetting([string]$Name, $Value) {
+    try {
+        $o = [ordered]@{}
+        if (Test-Path -LiteralPath $script:UiJson) { try { $u = Get-Content -LiteralPath $script:UiJson -Raw -Encoding UTF8 | ConvertFrom-Json; foreach ($p in $u.PSObject.Properties) { $o[$p.Name] = $p.Value } } catch { } }
+        $o[$Name] = $Value
+        if (-not (Test-Path -LiteralPath $CfgDirHU)) { New-Item -ItemType Directory -Path $CfgDirHU -Force | Out-Null }
+        [System.IO.File]::WriteAllText($script:UiJson, ([pscustomobject]$o | ConvertTo-Json), $enc)
+    } catch { }
+}
+
+# ---------- Protokoll: Liste mit drei Stufen (OK, Hinweis, Fehler), neueste Zeile oben (umkehrbar), Datei je Sitzung ----------
+#   Sichtbar ist der Klartext, technische Details (rohe Graph- oder ICD-Meldung) im Tooltip der Zeile, per Doppelklick und immer in der Datei.
+#   Datei: HUPilot\logs\setup_<yyyyMMdd_HHmm>.log (UTF-8), ohne Secret, Kennwoerter und Schluessel, die letzten 20 bleiben. logs kommt nie auf den Stick.
+$script:LogTop = ([string](Get-UiSetting 'LogNewestTop' $true) -ne 'False')
+$script:LogFile = $null; $script:LogFileFailed = $false
+$script:LogColor = @{ OK = 'HuOk'; Hinweis = 'HuWarn'; Fehler = 'HuErr' }
+# Stufe aus einem alten Zeilenanfang ableiten (FEHLER, FEHLT, ACHTUNG, WARNUNG, HINWEIS, ABBRUCH), Rest ohne Praefix
+function Split-LogLevel([string]$m) {
+    if ($m -cmatch '^\s*(FEHLER|FEHLT|ABBRUCH)\b\s*:?\s*(.*)$') { return @('Fehler', $Matches[2]) }
+    if ($m -cmatch '^\s*(ACHTUNG|WARNUNG|HINWEIS)\b\s*:?\s*(.*)$') { return @('Hinweis', $Matches[2]) }
+    return @('', $m)
+}
+# Geheimes ausblenden: bekannte Werte (Secret, Kennwoerter) durch ***, Produktschluessel bis auf die letzten 5 Zeichen
+function Hide-LogSecrets([string]$Text, [string[]]$Values) {
+    if (-not $Text) { return $Text }
+    foreach ($v in @($Values | Where-Object { $_ -and $_.Length -ge 4 } | Sort-Object Length -Descending)) { $Text = $Text.Replace($v, '***') }
+    return [regex]::Replace($Text, '\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-([A-Za-z0-9]{5})\b', '*****-*****-*****-*****-$1')
+}
+function Get-LogSecretValues {
+    try { return @((Get-Secret), (Get-Masked 'Key'), (Get-Masked 'AdmPw'), (Get-Masked 'Adm2Pw'), (Get-EdKey)) } catch { return @() }
+}
+function Write-LogFile([string]$Line) {
+    if ($SmokeTest -or $script:LogFileFailed) { return }
+    try {
+        if (-not $script:LogFile) {
+            $d = Join-Path $srcHU 'logs'
+            if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+            foreach ($o in @(Get-ChildItem -LiteralPath $d -Filter 'setup_*.log' -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -Skip 19)) { Remove-Item -LiteralPath $o.FullName -Force -ErrorAction SilentlyContinue }
+            $script:LogFile = Join-Path $d ('setup_' + (Get-Date -Format 'yyyyMMdd_HHmm') + '.log')
+            try { $ui.tLogFile.Text = 'Datei: logs\' + (Split-Path $script:LogFile -Leaf) } catch { }
+        }
+        [System.IO.File]::AppendAllText($script:LogFile, $Line + "`r`n", $enc)
+    } catch { $script:LogFileFailed = $true }
+}
+# Eine Zeile in eine Protokoll-Liste (Hauptfenster oder Unterfenster)
+function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '', [bool]$Top = $false) {
+    $it = New-Object System.Windows.Controls.ListBoxItem
+    $sp = New-Object System.Windows.Controls.StackPanel
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.Text = $Text + $(if ($Detail) { '   (Details: Doppelklick)' } else { '' }); $tb.TextWrapping = 'Wrap'
+    if ($script:LogColor.ContainsKey($Level)) { try { $tb.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $script:LogColor[$Level]) } catch { } }
+    [void]$sp.Children.Add($tb)
+    if ($Detail) {
+        $dt = New-Object System.Windows.Controls.TextBlock
+        $dt.Text = 'Details: ' + $Detail; $dt.TextWrapping = 'Wrap'; $dt.Visibility = 'Collapsed'; $dt.Margin = '70,0,0,2'
+        $dt.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, 'HuMuted')
+        [void]$sp.Children.Add($dt)
+        $it.ToolTip = $Detail
+        $it.Add_MouseDoubleClick({ $d = $this.Content.Children[1]; $d.Visibility = $(if ([string]$d.Visibility -eq 'Visible') { 'Collapsed' } else { 'Visible' }) })
+    }
+    $it.Content = $sp; $it.Padding = '4,1'
+    $it.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail }
+    if ($Top) { $List.Items.Insert(0, $it) } else { [void]$List.Items.Add($it) }
+    try { $List.ScrollIntoView($it) } catch { }
+}
+# -FileText: abweichender Text fuer die Protokolldatei (z. B. ohne Secret-Kennung). $script:QuietDedupe: beim stillen
+# Aktualisieren im Status jede gleiche Zeile nur einmal (Hashtabelle der schon geschriebenen Zeilen), sonst $null.
+$script:QuietDedupe = $null
+function Out-Log([string]$m, [string]$Level = '', [string]$Detail = '', [string]$FileText = '') {
+    if (-not $Level) { $sl = Split-LogLevel $m; $Level = $sl[0]; $m = $sl[1] }
+    if ($null -ne $script:QuietDedupe) { $qk = $Level + '|' + $m; if ($script:QuietDedupe.ContainsKey($qk)) { return }; $script:QuietDedupe[$qk] = $Level }
+    $sec = Get-LogSecretValues
+    $m = Hide-LogSecrets $m $sec; $Detail = Hide-LogSecrets $Detail $sec
+    $time = Get-Date -Format 'HH:mm:ss'
+    $text = $(if ($Level) { $Level + ': ' + $m } else { $m })
+    $ftext = $(if ($FileText) { $(if ($Level) { $Level + ': ' } else { '' }) + (Hide-LogSecrets $FileText $sec) } else { $text })
+    Write-LogFile ((Get-Date -Format 'yyyy-MM-dd ') + $time + '  ' + $ftext + $(if ($Detail) { "`r`n                     Details: " + ($Detail -replace "`r?`n", ' | ') } else { '' }))
+    Add-LogItem $ui.lLog $Level ($time + '  ' + $text) $Detail $script:LogTop
+}
+# Protokoll eines Unterfensters: gleiche Stufen und Farben, auch in die Datei (mit Fensternamen)
+function Out-SubLog($List, $Window, [string]$Source, [string]$m, [string]$Level = '', [string]$Detail = '') {
+    if (-not $Level) { $sl = Split-LogLevel $m; $Level = $sl[0]; $m = $sl[1] }
+    $sec = Get-LogSecretValues
+    $m = Hide-LogSecrets $m $sec; $Detail = Hide-LogSecrets $Detail $sec
+    $time = Get-Date -Format 'HH:mm:ss'
+    $text = $(if ($Level) { $Level + ': ' + $m } else { $m })
+    Write-LogFile ((Get-Date -Format 'yyyy-MM-dd ') + $time + '  [' + $Source + '] ' + $text + $(if ($Detail) { "`r`n                     Details: " + ($Detail -replace "`r?`n", ' | ') } else { '' }))
+    Add-LogItem $List $Level ($time + '  ' + $text) $Detail $false
+    try { $Window.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) } catch { }
+}
+# Markierte Zeilen (sonst alle) mit Details in die Zwischenablage, in der angezeigten Reihenfolge
+function Copy-LogItems($List) {
+    $items = @($List.Items | Where-Object { $_.IsSelected })
+    if (-not $items.Count) { $items = @($List.Items) }
+    $txt = ($items | ForEach-Object { $_.Tag.Text + $(if ($_.Tag.Detail) { "`r`n          Details: " + $_.Tag.Detail } else { '' }) }) -join "`r`n"
+    try { if ($txt) { [System.Windows.Clipboard]::SetText($txt) }; return $items.Count } catch { return 0 }
+}
+# Protokollhoehe: gemerkter Wunsch in ui.json (LogHeight). Angezeigt wird hoechstens so viel, dass dem Formular etwa 200 px bleiben,
+# mindestens etwa 3 Zeilen. Wird das Fenster kleiner, schrumpft das Protokoll mit, ohne den gemerkten Wert zu aendern.
+$script:LogWanted = 120
+try { $h = [double](Get-UiSetting 'LogHeight' 120); if ($h -ge 60 -and $h -le 800) { $script:LogWanted = $h } } catch { }
+$ui.lLog.Height = $script:LogWanted
+# Automatisch: das Formular bekommt so viel, wie es braucht; das Protokoll nimmt den Rest, mindestens etwa 4 Zeilen.
+function Get-LogMax {
+    $avail = $ui.svMain.ActualHeight + $ui.lLog.ActualHeight
+    if ($avail -le 0) { return 800 }
+    $form = $ui.svMain.ExtentHeight; if ($form -le 0) { $form = 200 }
+    return [math]::Max(80, [math]::Min(800, $avail - $form))
+}
+# Von Hand (Ziehgriff): bis dem Formular noch etwa 200 px bleiben
+function Get-LogDragMax {
+    $avail = $ui.svMain.ActualHeight + $ui.lLog.ActualHeight
+    if ($avail -le 0) { return 800 }
+    return [math]::Max(80, [math]::Min(800, $avail - 200))
+}
+function Update-LogFit { try { $ui.lLog.Height = [math]::Max(80, [math]::Min($script:LogWanted, (Get-LogMax))) } catch { } }
+$ui.thLog.Add_DragDelta({
+    param($s, $e)
+    $ui.lLog.Height = [math]::Max(80, [math]::Min((Get-LogDragMax), $ui.lLog.Height - $e.VerticalChange))
+    $script:LogWanted = $ui.lLog.Height
+})
+$ui.thLog.Add_DragCompleted({ Set-UiSetting 'LogHeight' ([int]$script:LogWanted) })
+$win.Add_SizeChanged({ Update-LogFit })
+$win.Add_ContentRendered({ Update-LogFit })
+$ui.bLogRev.Add_Click({
+    $a = @($ui.lLog.Items); $ui.lLog.Items.Clear()
+    [array]::Reverse($a)
+    foreach ($it in $a) { [void]$ui.lLog.Items.Add($it) }
+    $script:LogTop = -not $script:LogTop
+    Set-UiSetting 'LogNewestTop' $script:LogTop
+    if ($ui.lLog.Items.Count) { $ui.lLog.ScrollIntoView($ui.lLog.Items[$(if ($script:LogTop) { 0 } else { $ui.lLog.Items.Count - 1 })]) }
+})
+$ui.bLogClear.Add_Click({ $ui.lLog.Items.Clear() })
+$ui.bLogCopy.Add_Click({ $n = Copy-LogItems $ui.lLog; $ui.bLogCopy.ToolTip = ('' + $n + ' Zeile(n) kopiert. ' + 'Markierte Zeilen (sonst das ganze Protokoll) mit den technischen Details in die Zwischenablage kopieren. Strg+C geht auch.') })
+$ui.lLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $ui.lLog); $e.Handled = $true } })
+
+# ---------- Ampeln je Schritt (offen, laeuft, ok, Warnung, Fehler) ----------
+$script:LampColor = @{ open = 'HuLampOpen'; run = 'HuRun'; ok = 'HuOk'; warn = 'HuWarn'; err = 'HuErr' }
+$script:LampText  = @{ open = 'offen'; run = 'läuft ...'; ok = 'OK'; warn = 'Warnung'; err = 'Fehler' }
+$script:LampNote = @{}
+function Set-Step([string]$Step, [string]$State, [string]$Note = '') {
+    $e = $ui['e' + $Step]
+    if (-not $e -or -not $script:LampColor.ContainsKey($State)) { return }
+    $script:LampNote[$Step] = $Note
+    try {
+        $e.SetResourceReference([System.Windows.Shapes.Shape]::FillProperty, $script:LampColor[$State])
+        $e.ToolTip = 'Stand: ' + $script:LampText[$State] + $(if ($Note) { ' - ' + $Note } else { '' }) + '  (' + (Get-Date -Format 'HH:mm') + ')'
+    } catch { }
+}
+# Waehrend Stick fertig machen, Kopieren und Paketbau: alle Knoepfe sperren, die verschachtelt mitlaufen koennten (zaehlt Ebenen)
+$script:Busy = $false; $script:BusyDepth = 0
+function Set-UiBusy([bool]$On) {
+    if ($On) { $script:BusyDepth++ } else { $script:BusyDepth = [math]::Max(0, $script:BusyDepth - 1) }
+    $script:Busy = ($script:BusyDepth -gt 0)
+    foreach ($n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd', 'bStatus', 'bHash', 'bReload', 'cDrive', 'bLnk') { try { $ui[$n].IsEnabled = -not $script:Busy } catch { } }
+    # Haekchen Paketbau: grau auch ohne Herkunft (kein ADK, keine Kopie)
+    try { $ui.cIcdStick.IsEnabled = (-not $script:Busy) -and $script:IcdCanUse } catch { }
+}
 function Get-Drive { if ($ui.cDrive.SelectedItem) { return ([string]$ui.cDrive.SelectedItem).Substring(0, 2) } return $null }
 # Gewaehlter Stick nur, wenn er noch da ist. Prueft ueber .NET (nicht ueber PowerShell-Laufwerke): ein abgezogener oder
 # neu eingehaengter Stick fehlt sonst als PS-Laufwerk, und Join-Path/Import-Csv brechen mit "Laufwerk D nicht vorhanden" ab.
@@ -255,49 +936,186 @@ function Get-ReadyDrive {
     $d = Get-Drive
     if (-not $d) { return $null }
     try { if ([System.IO.Directory]::Exists($d + '\')) { return $d } } catch { }
-    Out-Log ('Stick ' + $d + ' nicht mehr vorhanden - Stick einstecken und "Aktualisieren" drücken')
+    Out-Log ('Stick ' + $d + ' ist nicht mehr da. Stick wieder anstecken, er wird von selbst erkannt.') 'Fehler'
     return $null
 }
-function Update-Drives {
-    $ui.cDrive.Items.Clear()
-    foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
-        try { if ($d.IsReady -and $d.DriveType -eq 'Removable' -and $d.Name.Substring(0, 2).ToUpper() -ne $srcDrive) { [void]$ui.cDrive.Items.Add(('{0} {1} ({2:N1} GB)' -f $d.Name.TrimEnd('\'), $d.VolumeLabel, ($d.TotalSize / 1GB))) } } catch { }
-    }
-    if ($ui.cDrive.Items.Count) {
-        $ui.cDrive.SelectedIndex = 0
-    } else { Out-Log 'Kein Ziel-Stick gefunden (nur für 5. nötig).' }
+# Volume-Seriennummer guenstig ueber GetVolumeInformationW (kein WMI). Nur fuer bereite Laufwerke aufrufen. '' = unbekannt
+try { Add-Type -Name Vol -Namespace HUPilot -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool GetVolumeInformationW(string root, System.Text.StringBuilder name, int nameSize, out uint serial, out uint maxComp, out uint flags, System.Text.StringBuilder fs, int fsSize);' -ErrorAction Stop } catch { }
+function Get-VolSerial([string]$Letter) {
+    try {
+        $sn = [uint32]0; $mc = [uint32]0; $fl = [uint32]0
+        if ([HUPilot.Vol]::GetVolumeInformationW(($Letter.Substring(0, 2) + '\'), $null, 0, [ref]$sn, [ref]$mc, [ref]$fl, $null, 0)) { return ('{0:X8}' -f $sn) }
+    } catch { }
+    return ''
 }
+# ---------- Ziel-Sticks: von selbst erkennen ----------
+#   Ein Timer (alle 2 s) liest nur [System.IO.DriveInfo]::GetDrives() und baut die Liste nur bei einer Aenderung neu auf.
+#   Pause, solange ein Vorgang laeuft, die Auswahlliste offen ist oder ein Unterfenster (Status, Tags, Hashes, Sticks
+#   vorbereiten) offen ist: dort wird der gewaehlte Stick benutzt, er soll sich nicht im Hintergrund aendern.
+#   IsReady steht im try, VolumeLabel nur bei bereitem Laufwerk (leere Kartenleser bremsen nicht).
+function Get-UsbDriveList {
+    $res = @()
+    foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
+        try {
+            if ([string]$d.DriveType -ne 'Removable') { continue }
+            $l = $d.Name.Substring(0, 2).ToUpper()
+            if ($l -eq $srcDrive -or -not $d.IsReady) { continue }
+            $res += [pscustomobject]@{ Letter = $l; Label = [string]$d.VolumeLabel; Size = [int64]$d.TotalSize; Serial = (Get-VolSerial $l); Text = ('{0} {1} ({2:N1} GB)' -f $l, $d.VolumeLabel, ($d.TotalSize / 1GB)) }
+        } catch { }
+    }
+    return $res
+}
+# Reine Auswahl-Logik: alte Liste, neue Liste (Laufwerksbuchstaben), bisherige Auswahl -> neue Auswahl und Ereignisse.
+#   Gewaehlter Stick noch da: bleibt. Automatisch gewaehlt wird nur, wenn die Liste von leer auf genau einen Stick wechselt.
+#   Gewaehlter abgezogen: Auswahl leer (nie still ein anderer Stick, config.json mit Secret soll nur auf den gewaehlten).
+#   Lost = der gewaehlte Stick ist verschwunden.
+function Get-DriveSelection([string[]]$Old, [string[]]$New, [string]$Sel) {
+    $Old = @($Old | Where-Object { $_ }); $New = @($New | Where-Object { $_ })
+    $added = @($New | Where-Object { $Old -notcontains $_ })
+    $removed = @($Old | Where-Object { $New -notcontains $_ })
+    $s = ''; $lost = ''
+    if ($Sel -and $New -contains $Sel) { $s = $Sel }
+    elseif ($Sel) { $lost = $Sel }
+    elseif (-not $Old.Count -and $New.Count -eq 1) { $s = $New[0] }
+    return [pscustomobject]@{ Sel = $s; Added = $added; Removed = $removed; Lost = $lost }
+}
+$script:DriveList = @(); $script:DriveSig = $null; $script:DriveRebuild = $false; $script:HintDrive = '?'; $script:LostDrive = ''
+function Update-Drives([switch]$Auto) {
+    $list = @(Get-UsbDriveList)
+    $sig = (@($list | ForEach-Object { $_.Letter + '|' + $_.Label + '|' + $_.Size + '|' + $_.Serial }) -join ';')
+    if ($Auto -and $sig -eq $script:DriveSig) { return }
+    $first = ($null -eq $script:DriveSig)
+    $letters = @($list | ForEach-Object { $_.Letter })
+    $r = Get-DriveSelection @($script:DriveList | ForEach-Object { $_.Letter }) $letters (Get-Drive)
+    $script:DriveRebuild = $true
+    try {
+        $ui.cDrive.Items.Clear()
+        foreach ($x in $list) { [void]$ui.cDrive.Items.Add($x.Text) }
+        $i = [array]::IndexOf($letters, $r.Sel); if ($i -ge 0) { $ui.cDrive.SelectedIndex = $i }
+    } finally { $script:DriveRebuild = $false }
+    $script:DriveList = $list; $script:DriveSig = $sig
+    if ($r.Lost) { $script:LostDrive = $r.Lost }
+    if (-not $first) {
+        foreach ($a in $r.Added) { $x = @($list | Where-Object { $_.Letter -eq $a })[0]; Out-Log ('Stick ' + $a + $(if ($x.Label) { ' ' + $x.Label } else { '' }) + ' erkannt') }
+        foreach ($a in $r.Removed) { Out-Log ('Stick ' + $a + ' entfernt') }
+    } elseif (-not $list.Count) { Out-Log 'Kein Ziel-Stick erkannt. Für "Stick fertig machen" und "5. Auf Stick kopieren" einen Stick anstecken, er wird von selbst erkannt.' 'Hinweis' }
+    Update-ReadyLabel
+    Update-ReadyHint
+    try { Update-IcdUi } catch { }
+}
+# Hauptknopf zeigt den gewaehlten Stick
+function Update-ReadyLabel {
+    $d = Get-Drive
+    $ui.tReadyBtn.Text = 'Stick fertig machen' + $(if ($d) { '  (' + $d + ')' } else { '' })
+}
+# Kurzer Text rechts neben dem Hauptknopf (eine Zeile, Rest im Tooltip). $Color: Farbschluessel, $Tip: ganzer Text fuer den Tooltip
+function Set-ReadyText([string]$Text, [string]$Color = 'HuText', [string]$Tip = '') {
+    $ui.tReady.Text = $Text; $script:ReadyColor = $Color
+    try { $ui.tReady.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $Color) } catch { }
+    $ui.tReady.ToolTip = $(if ($Tip) { $Tip } else { $Text })
+}
+# Ausgangszustand je Stick: kein Stick oder "Bereit fuer ...". Nur bei einem anderen Stick, damit ein Ergebnis stehen bleibt.
+# Ein Ergebnis gilt nur fuer genau den Stick, der bespielt wurde: Schluessel aus Buchstabe, Groesse und Volume-Seriennummer.
+function Get-ReadyHintKey([string]$Drive) {
+    if (-not $Drive) { return '' }
+    $x = @($script:DriveList | Where-Object { $_.Letter -eq $Drive })[0]
+    if (-not $x) { return $Drive }
+    return ($x.Letter + '|' + $x.Size + '|' + $x.Serial)
+}
+function Update-ReadyHint {
+    $d = Get-Drive
+    $key = Get-ReadyHintKey $d
+    if ($key -eq [string]$script:HintDrive) { return }
+    $script:HintDrive = $key
+    if (-not $d) {
+        if (@($script:DriveList).Count -and $script:LostDrive) { Set-ReadyText ('Stick ' + $script:LostDrive + ' entfernt. Bitte Stick wählen.') 'HuWarn' }
+        elseif (@($script:DriveList).Count) { Set-ReadyText 'Bitte Stick wählen.' 'HuWarn' }
+        else { Set-ReadyText 'Kein Stick erkannt. Stick anstecken.' 'HuWarn' }
+        return
+    }
+    $script:LostDrive = ''
+    $x = @($script:DriveList | Where-Object { $_.Letter -eq $d })[0]
+    Set-ReadyText ('Bereit für ' + $d + $(if ($x -and $x.Label) { ' ' + $x.Label } else { '' }))
+}
+# Aus einer Fehlermeldung (Problem, Leerzeile, was zu tun ist) der eine Satz, was zu tun ist, ohne Anfuehrungszeichen
+function Get-ReadyTodo([string]$Msg) {
+    $paras = @(($Msg -replace "`r", '') -split "`n\s*`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if (-not $paras.Count) { return '' }
+    $p = $(if ($paras.Count -gt 1) { $paras[-1] } else { $paras[0] })
+    $line = @($p -split "`n" | Where-Object { $_.Trim() })[0]
+    # Satzende: nicht nach einer Ziffer ("4. WLAN-Paket") und nicht bei Abkuerzungen wie z. B., ggf., bzw.
+    $m = [regex]::Match($line, '^.*?(?<!\d)(?<!\bz)(?<!\bB)(?<!ggf)(?<!bzw)(?<!ca)[.!?](?=\s|$)')
+    $s = $(if ($m.Success) { $m.Value } else { $line })
+    return ($s -replace '"', '').Trim()
+}
+$ui.cDrive.Add_SelectionChanged({ if (-not $script:DriveRebuild) { Update-ReadyLabel; Update-ReadyHint } })
+$script:DriveTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:DriveTimer.Interval = [TimeSpan]::FromSeconds(2)
+$script:DriveTimer.Add_Tick({
+    if ($script:Busy -or $ui.cDrive.IsDropDownOpen -or @($win.OwnedWindows).Count) { return }
+    try { Update-Drives -Auto } catch { }
+})
 function Get-Cfg {
     $choices = @($ui.tTagChoices.Text -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $o = [ordered]@{
         Tenant = $ui.tTenant.Text.Trim(); TenantId = $ui.tTenantId.Text.Trim(); ClientId = $ui.tClientId.Text.Trim()
         ClientSecret = (Get-Secret); GroupTag = $ui.tTag.Text.Trim(); TagChoices = $choices
-        WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = $ui.tKey.Text; WlanPackage = 'HUPilot-WLAN.ppkg'
-        AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = $ui.tAdmPw.Text
-        Admin2Name = $ui.tAdm2Name.Text.Trim(); Admin2Password = $ui.tAdm2Pw.Text; AskUser = [bool]$ui.cAskUser.IsChecked; RemoveOtherPackages = [bool]$ui.cRmPkg.IsChecked
+        WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = (Get-Masked 'Key'); WlanPackage = 'HUPilot-WLAN.ppkg'
+        AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = (Get-Masked 'AdmPw')
+        Admin2Name = $ui.tAdm2Name.Text.Trim(); Admin2Password = (Get-Masked 'Adm2Pw'); AskUser = [bool]$ui.cAskUser.IsChecked; RemoveOtherPackages = [bool]$ui.cRmPkg.IsChecked
         EditionKey = (Get-EdKey)
     }
     foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
     return $o
 }
-function Test-Fields([string[]]$Names) {
+# Muster fuer Group Tags: wie go.ps1 (TagPattern aus config.json, sonst Standard)
+function Get-TagPattern($c) {
+    $p = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+    if ($c -and $c.TagPattern) { $p = [string]$c.TagPattern }
+    return $p
+}
+# Feldfehler: ins Protokoll und fuer Meldungen merken (Stick fertig machen zeigt ihn im Klartext)
+function Stop-Field([string]$m) { Out-Log $m 'Fehler'; $script:FieldErr = $m; return $false }
+# Pruefungen sind an den Aufrufer gebunden:
+#   immer:        Pflichtfelder aus -Names, GUIDs, WLAN-Kennwort (wenn verlangt)
+#   -Admin:       lokale Admins (nur Speichern und Paketbau) - sonst blockiert ein halb ausgefuellter Admin
+#                 Verbindungstest, Tags, Status, Hashes und die Secret-Pruefung beim Start
+#   GroupTag in -Names (nur beim Speichern): MAK, Group Tag und Auswahl (gleiches Muster wie go.ps1, hoechstens 9)
+function Test-Fields([string[]]$Names, [switch]$Admin) {
+    $script:FieldErr = ''
     $c = Get-Cfg
-    $miss = @($Names | Where-Object { -not $c[$_] })
-    if ($miss.Count) { Out-Log ('FEHLT: ' + ($miss -join ', ')); return $false }
-    if ($Names -contains 'TenantId' -and $c.TenantId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'Tenant-ID ist keine GUID'; return $false }
-    if ($Names -contains 'ClientId' -and $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'App-ID ist keine GUID'; return $false }
-    if ($Names -contains 'WlanKey' -and $c.WlanKey.Length -lt 8) { Out-Log 'WLAN-Kennwort kürzer als 8 Zeichen'; return $false }
-    foreach ($a in @(@('Admin', $c.AdminName, $c.AdminPassword), @('Admin 2', $c.Admin2Name, $c.Admin2Password))) {
-        if (-not $a[1]) { if ($a[2]) { Out-Log ($a[0] + ': Kennwort ohne Name - Name eintragen oder Kennwort leeren'); return $false }; continue }
-        if ($a[1].Length -gt 20 -or $a[1] -match '["/\\\[\]:;|=,+*?<>@ ]') { Out-Log ($a[0] + '-Name ungültig (max. 20 Zeichen, keine Leer- oder Sonderzeichen wie / \ [ ] : ; | = , + * ? < > @)'); return $false }
-        if ([string]$a[2] -eq '' -or $a[2].Length -lt 8) { Out-Log ($a[0] + '-Kennwort kürzer als 8 Zeichen'); return $false }
+    # Namen der Felder wie im Fenster (nicht wie in config.json)
+    $label = @{ Tenant = 'Anzeigename'; TenantId = 'Tenant-ID'; ClientId = 'App-ID (Client)'; ClientSecret = 'Secret (Wert)'; GroupTag = 'Group Tag (Standard)'; WlanSsid = 'WLAN-Name'; WlanKey = 'WLAN-Kennwort' }
+    $miss = @($Names | Where-Object { -not $c[$_] } | ForEach-Object { $(if ($label.ContainsKey($_)) { $label[$_] } else { $_ }) })
+    if ($miss.Count -eq 1) { return (Stop-Field ($miss[0] + ' fehlt. Bitte oben eintragen.')) }
+    if ($miss.Count) { return (Stop-Field ('Es fehlen: ' + ($miss -join ', ') + '. Bitte oben eintragen.')) }
+    if ($Names -contains 'TenantId' -and $c.TenantId -notmatch '^[0-9a-fA-F-]{36}$') { return (Stop-Field 'Tenant-ID hat nicht die Form xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx. Bitte die Mandanten-ID aus dem Entra Admin Center kopieren.') }
+    if ($Names -contains 'ClientId' -and $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$') { return (Stop-Field 'App-ID (Client) hat nicht die Form xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx. Bitte die Anwendungs-ID der App-Registrierung kopieren.') }
+    if ($Names -contains 'WlanKey' -and $c.WlanKey.Length -lt 8) { return (Stop-Field 'WLAN-Kennwort ist kürzer als 8 Zeichen. Bitte das richtige Kennwort eintragen.') }
+    if ($Admin) {
+        foreach ($a in @(@('Admin-Name', 'Admin-Kennwort', $c.AdminName, $c.AdminPassword), @('Admin 2 - Name', 'Admin 2 - Kennwort', $c.Admin2Name, $c.Admin2Password))) {
+            if (-not $a[2]) { if ($a[3]) { return (Stop-Field ($a[1] + ' ist eingetragen, aber ' + $a[0] + ' fehlt. Namen eintragen oder das Kennwort leeren.')) }; continue }
+            if ($a[2].Length -gt 20 -or $a[2] -match '["/\\\[\]:;|=,+*?<>@ ]') { return (Stop-Field ($a[0] + ' ist ungültig: höchstens 20 Zeichen, keine Leer- oder Sonderzeichen wie / \ [ ] : ; | = , + * ? < > @. Bitte ändern.')) }
+            if ([string]$a[3] -eq '' -or $a[3].Length -lt 8) { return (Stop-Field ($a[1] + ' ist kürzer als 8 Zeichen. Bitte ein längeres Kennwort eintragen.')) }
+        }
+        if ($c.AdminName -and $c.Admin2Name -and $c.AdminName -eq $c.Admin2Name) { return (Stop-Field 'Admin-Name und Admin 2 - Name sind gleich. Bitte zwei verschiedene Namen eintragen.') }
     }
-    if ($c.AdminName -and $c.Admin2Name -and $c.AdminName -eq $c.Admin2Name) { Out-Log 'Admin und Admin 2 haben denselben Namen'; return $false }
     # MAK nur beim Speichern pruefen (dort ist GroupTag Pflicht): sonst scheitern Verbindungstest und Secret-Pruefung an einem falschen MAK
     $chkEd = $Names -contains 'GroupTag'
-    if ($chkEd -and $c.EditionKey -and $c.EditionKey -notmatch '^[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}$') { Out-Log 'MAK (Pro) ungültig - Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX, oder Feld leeren'; return $false }
+    if ($chkEd -and $c.EditionKey -and $c.EditionKey -notmatch '^[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}$') { return (Stop-Field 'MAK (Pro) hat nicht die Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX. Bitte korrigieren oder das Feld leeren.') }
     # Allgemeine Schluessel von Microsoft (Installation/KMS-Client) aktivieren nicht - gleiche Liste wie in go.ps1
-    if ($chkEd -and $c.EditionKey -and @('VK7JG-NPHTM-C97JM-9MPGT-3V66T', '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT', 'YTMG3-N6DKC-DKB77-7M9GH-8HVX7', 'W269N-WFGWX-YVC9B-4J6C9-T83GX', 'MH37W-N47XK-V7XM9-C7227-GCQG9') -contains $c.EditionKey) { Out-Log 'MAK (Pro): das ist der allgemeine Schlüssel von Microsoft, der aktiviert nicht. Den MAK der Schule eintragen (Volumenlizenz), oder Feld leeren'; return $false }
+    if ($chkEd -and $c.EditionKey -and @('VK7JG-NPHTM-C97JM-9MPGT-3V66T', '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT', 'YTMG3-N6DKC-DKB77-7M9GH-8HVX7', 'W269N-WFGWX-YVC9B-4J6C9-T83GX', 'MH37W-N47XK-V7XM9-C7227-GCQG9') -contains $c.EditionKey) { return (Stop-Field 'MAK (Pro): das ist der allgemeine Schlüssel von Microsoft, der aktiviert nicht. Bitte den MAK der Schule (Volumenlizenz) eintragen oder das Feld leeren.') }
+    # Group Tag und Auswahl: go.ps1 bricht am Geraet sonst rot ab bzw. zeigt nur die ersten 9
+    if ($chkEd) {
+        $tp = Get-TagPattern $c
+        $std = ($tp -eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+        $rule = $(if ($std) { 'erlaubt: Buchstaben, Ziffern, Punkt, Bindestrich, Unterstrich, am Anfang Buchstabe oder Ziffer, höchstens 64 Zeichen' } else { 'Muster aus config.json (TagPattern): ' + $tp })
+        try { [void][regex]::new($tp) } catch { return (Stop-Field ('TagPattern in config.json ist kein gültiges Muster: ' + $tp + '. Bitte in config.json korrigieren oder die Zeile entfernen.')) }
+        if ($c.GroupTag -notmatch $tp) { return (Stop-Field ('Group Tag (Standard) "' + $c.GroupTag + '" ist ungültig - ' + $rule + '. Bitte oben ändern.')) }
+        $badC = @(@($c.TagChoices) | Where-Object { [string]$_ -notmatch $tp })
+        if ($badC.Count) { return (Stop-Field ('Auswahl (Komma): ungültige(r) Eintrag/Einträge "' + ($badC -join '", "') + '" - ' + $rule + '. Bitte oben ändern.')) }
+        if (@($c.TagChoices).Count -gt 9) { return (Stop-Field ('Auswahl (Komma) hat ' + @($c.TagChoices).Count + ' Einträge, am Gerät sind nur 9 wählbar (Taste 1 bis 9). Bitte auf höchstens 9 kürzen.')) }
+    }
     return $true
 }
 
@@ -309,11 +1127,21 @@ function Get-EdKey { $v = $(if ($ui.cShowEd.IsChecked) { $ui.tEdKey.Text } else 
 function Set-EdKey([string]$v) { $ui.pEdKey.Password = $v; $ui.tEdKey.Text = $v }
 $ui.cShowEd.Add_Checked({ $ui.tEdKey.Text = $ui.pEdKey.Password; $ui.pEdKey.Visibility = 'Collapsed'; $ui.tEdKey.Visibility = 'Visible' })
 $ui.cShowEd.Add_Unchecked({ $ui.pEdKey.Password = $ui.tEdKey.Text; $ui.tEdKey.Visibility = 'Collapsed'; $ui.pEdKey.Visibility = 'Visible' })
+# WLAN-Kennwort und Admin-Kennwoerter: gleiches Muster wie Secret und MAK (Kennwortfeld + Klartextfeld + "anzeigen"), Wert ungekuerzt
+$script:Masked = @{ Key = 'cShowKey'; AdmPw = 'cShowAdm'; Adm2Pw = 'cShowAdm2' }
+function Get-Masked([string]$Id) { if ($ui[$script:Masked[$Id]].IsChecked) { return [string]$ui['t' + $Id].Text } return [string]$ui['p' + $Id].Password }
+function Set-Masked([string]$Id, [string]$v) { $ui['p' + $Id].Password = $v; $ui['t' + $Id].Text = $v }
+foreach ($mk in @($script:Masked.Keys)) {
+    $cb = $ui[$script:Masked[$mk]]; $cb.Tag = $mk
+    $cb.Add_Checked({ $i = [string]$this.Tag; $ui['t' + $i].Text = $ui['p' + $i].Password; $ui['p' + $i].Visibility = 'Collapsed'; $ui['t' + $i].Visibility = 'Visible' })
+    $cb.Add_Unchecked({ $i = [string]$this.Tag; $ui['p' + $i].Password = $ui['t' + $i].Text; $ui['t' + $i].Visibility = 'Collapsed'; $ui['p' + $i].Visibility = 'Visible' })
+}
 $ShowHelp = {
     $f = Join-Path $PSScriptRoot 'Anleitung.html'
-    if (Test-Path $f) { Start-Process -FilePath $f } else { Out-Log ('Anleitung fehlt: ' + $f) }
+    if (Test-Path $f) { Start-Process -FilePath $f } else { Out-Log 'Die Anleitung fehlt in HUPilot\Setup. Mit "Update" neu laden.' 'Hinweis' $f }
 }
 $ui.bHelp.Add_Click($ShowHelp)
+$ui.bTheme.Add_Click({ Set-HuTheme $(if ($script:HuTheme -eq 'hell') { 'dunkel' } else { 'hell' }); Set-UiSetting 'Theme' $script:HuTheme })
 
 # ---------- Sticks vorbereiten (nur wenn das Setup vom PC laeuft): formatieren + benennen + befuellen ----------
 $script:SrcOnUsb = $false
@@ -327,15 +1155,46 @@ try {
 if ($srcDrive -and ([System.IO.DriveInfo]::new($srcDrive)).DriveType -eq 'Removable') { $script:SrcOnUsb = $true }
 if ($script:SrcOnUsb) { $ui.bPrep.Visibility = 'Collapsed' }
 
+# Signatur der Laufwerke fuer die Erkennung: Buchstabe, Typ, bei bereiten Wechsel- und festen Laufwerken Groesse und
+# Volume-Seriennummer. Netzlaufwerke und CD-Laufwerke bleiben aussen vor (koennen langsam sein).
+function Get-DriveSig {
+    return (@([System.IO.DriveInfo]::GetDrives() | ForEach-Object {
+        try {
+            $ty = [string]$_.DriveType
+            if ($ty -ne 'Removable' -and $ty -ne 'Fixed') { return }
+            $r = $_.Name + $ty
+            if ($_.IsReady) { $r += '|' + $_.TotalSize + '|' + (Get-VolSerial $_.Name) }
+            $r
+        } catch { }
+    }) -join ';')
+}
+# Identitaet eines Sticks. USB-Sticks liefern als SerialNumber oft Unsinn (z. B. 0000000005), die UniqueId des Datentraegers
+# enthaelt dagegen die Seriennummer des Geraets. Deshalb eine Kombination: UniqueId, SerialNumber, Groesse und Signatur bzw.
+# GUID des Datentraegers, Lage der Partition, UniqueId, Seriennummer und Groesse des Volumes, Laufwerksbuchstabe.
+function New-StickId($Disk, $Part, $Vol, [string]$Letter) {
+    return [pscustomobject][ordered]@{
+        Letter = $Letter.Substring(0, 1).ToUpper(); DiskUid = [string]$Disk.UniqueId; DiskSerial = ([string]$Disk.SerialNumber).Trim()
+        DiskSize = [int64]$Disk.Size; DiskSig = ('' + $Disk.Signature + '|' + $Disk.Guid); PartOffset = [int64]$Part.Offset
+        VolUid = [string]$Vol.UniqueId; VolSerial = (Get-VolSerial ($Letter.Substring(0, 1) + ':')); VolSize = [int64]$Vol.Size
+    }
+}
+$script:StickIdFields = @('Letter', 'DiskUid', 'DiskSerial', 'DiskSize', 'DiskSig', 'PartOffset', 'VolUid', 'VolSerial', 'VolSize')
+# Vergleich zweier Identitaeten. Rueckgabe: Namen der abweichenden Merkmale (leer = derselbe Stick)
+function Compare-StickId($Old, $New) {
+    if (-not $Old -or -not $New) { return @('Stick nicht lesbar') }
+    return @($script:StickIdFields | Where-Object { [string]$Old.$_ -ne [string]$New.$_ })
+}
+function Get-StickKey($Id) { return (@($script:StickIdFields | ForEach-Object { [string]$Id.$_ }) -join '|') }
 function Get-UsbSticks {
     $res = @()
     foreach ($v in @(Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter })) {
         try {
             $dl = ([string]$v.DriveLetter).ToUpper()
-            $disk = Get-Partition -DriveLetter $dl -ErrorAction Stop | Get-Disk -ErrorAction Stop
+            $part = Get-Partition -DriveLetter $dl -ErrorAction Stop
+            $disk = $part | Get-Disk -ErrorAction Stop
             if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { continue }
             $res += [pscustomobject]@{
-                Letter = $dl; Disk = [int]$disk.Number
+                Letter = $dl; Disk = [int]$disk.Number; Id = (New-StickId $disk $part $v $dl)
                 Text   = ('{0}:  {1,-12} {2,-6} {3,6:N1} GB   {4}' -f $dl, $(if ($v.FileSystemLabel) { $v.FileSystemLabel } else { '(ohne Name)' }), $v.FileSystem, ($v.Size / 1GB), $disk.FriendlyName)
             }
         } catch { }
@@ -343,6 +1202,13 @@ function Get-UsbSticks {
     return $res
 }
 
+# Reine Logik fuer "Sticks vorbereiten": Markierte Sticks nach neuem Einlesen. Schluessel = Identitaet des Sticks (Get-StickKey),
+# nie die Listenposition. Keep = bleibt markiert, Dropped = Markierung entfernt (Stick weg, getauscht oder veraendert).
+function Get-PrepKeep([string[]]$SelKeys, [string[]]$NewKeys) {
+    $SelKeys = @($SelKeys | Where-Object { $_ }); $NewKeys = @($NewKeys | Where-Object { $_ })
+    return [pscustomobject]@{ Keep = @($SelKeys | Where-Object { $NewKeys -contains $_ }); Dropped = @($SelKeys | Where-Object { $NewKeys -notcontains $_ }) }
+}
+function Get-PrepKey($Stick) { return (Get-StickKey $Stick.Id) }
 function Show-PrepSticks {
     [xml]$px = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -376,50 +1242,89 @@ function Show-PrepSticks {
     </Style>
   </Window.Resources>
   <DockPanel Margin="12">
-    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="Firebrick" FontWeight="SemiBold" Margin="0,0,0,8"
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="{DynamicResource HuErr}" FontWeight="SemiBold" Margin="0,0,0,8"
       Text="ACHTUNG: Die gewählten USB-Sticks werden FORMATIERT - alle Daten darauf gehen verloren. Interne Laufwerke und der Quell-Datenträger werden nie angezeigt."/>
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
       <TextBlock Text="Name:" VerticalAlignment="Center"/>
       <TextBox x:Name="tLabel" Width="120" Margin="6,0,0,0" MaxLength="11" ToolTip="Laufwerksname (max. 11 Zeichen, keine Sonderzeichen)."/>
       <TextBlock Text="Dateisystem:" VerticalAlignment="Center" Margin="16,0,0,0"/>
       <ComboBox x:Name="cFs" Width="90" Margin="6,0,0,0" ToolTip="NTFS empfohlen. FAT32 nur bis 32 GB."/>
-      <Button x:Name="bScan" Content="Neu einlesen" Padding="8,2" Margin="16,0,0,0" ToolTip="Sticks tauschen, dann neu einlesen."/>
-      <Button x:Name="bAll" Content="Alle wählen" Padding="8,2" Margin="6,0,0,0"/>
+      <Button x:Name="bScan" Content="Neu einlesen" Padding="8,2" Margin="16,0,0,0" ToolTip="Angesteckte und abgezogene Sticks erkennt das Fenster von selbst, Markierungen bleiben dabei erhalten.&#x0a;Dieser Knopf liest die Liste von Hand neu ein (Rückfall)."/>
+      <Button x:Name="bAll" Content="Alle wählen" Padding="8,2" Margin="6,0,0,0" ToolTip="Alle angezeigten USB-Sticks auswählen."/>
     </StackPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button x:Name="bGo" Content="Gewählte formatieren + befüllen" Padding="10,4" FontWeight="SemiBold"/>
-      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bGo" Content="Gewählte formatieren + befüllen" Padding="10,4" FontWeight="SemiBold" ToolTip="Speichert, fragt nach WLAN-Paket, Secret und MAK (einmal für alle), dann werden die gewählten Sticks nach einer Rückfrage formatiert, befüllt und kontrolliert."/>
+      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen."/>
     </StackPanel>
-    <TextBox x:Name="tPLog" DockPanel.Dock="Bottom" Height="150" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
-    <ListBox x:Name="lSticks" SelectionMode="Multiple" FontFamily="Consolas"/>
+    <ListBox x:Name="tPLog" ToolTip="Protokoll dieses Fensters: OK (grün), Hinweis (gelb), Fehler (rot). Steht auch in der Protokolldatei." DockPanel.Dock="Bottom" Height="150" Margin="0,8,0,0" SelectionMode="Extended" ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontFamily="Consolas" FontSize="12"/>
+    <ListBox x:Name="lSticks" SelectionMode="Multiple" FontFamily="Consolas" ToolTip="Gefundene USB-Sticks - anklicken zum Auswählen (mehrere möglich)."/>
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $px
     $pw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $px))
+    Register-HuWindow $pw
     $pw.Owner = $win
     if ($win.Icon) { $pw.Icon = $win.Icon }
+    Set-WinFit $pw
     $g = @{}; foreach ($n in 'tLabel','cFs','bScan','bAll','bGo','bClose','tPLog','lSticks') { $g[$n] = $pw.FindName($n) }
     foreach ($f in 'NTFS', 'exFAT', 'FAT32') { [void]$g.cFs.Items.Add($f) }
     $g.cFs.SelectedIndex = 0
     $g.tLabel.Text = 'HUPILOT'
     $script:PrepList = @()
-    $plog = { param($m) $g.tPLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $g.tPLog.ScrollToEnd(); $pw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+    $plog = { param($m, $lv = '', $dt = '') Out-SubLog $g.tPLog $pw 'Sticks vorbereiten' $m $lv $dt }
+    $g.tPLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $g.tPLog); $e.Handled = $true } })
+    # Neu einlesen. Markierungen bleiben nur fuer genau denselben Stick (Identitaet aus Datentraeger, Partition und Volume,
+    # siehe New-StickId), sonst werden sie entfernt und das steht im Protokoll. $Auto: von selbst erkannt (nur Aenderungen ins Protokoll)
+    $pst = @{ Sig = $null; Busy = $false }
     $scan = {
+        param([bool]$Auto = $false)
+        $selKeys = @(foreach ($i in @($g.lSticks.SelectedItems)) { foreach ($st in @($script:PrepList | Where-Object { $_.Text -eq [string]$i })) { Get-PrepKey $st } })
+        $oldKeys = @($script:PrepList | ForEach-Object { Get-PrepKey $_ })
+        $new = @(Get-UsbSticks)
+        $newKeys = @($new | ForEach-Object { Get-PrepKey $_ })
+        $k = Get-PrepKeep $selKeys $newKeys
         $g.lSticks.Items.Clear()
-        $script:PrepList = @(Get-UsbSticks)
-        foreach ($st in $script:PrepList) { [void]$g.lSticks.Items.Add($st.Text) }
-        & $plog ('' + $script:PrepList.Count + ' USB-Stick(s) gefunden')
+        $script:PrepList = $new
+        $g.lSticks.UnselectAll()
+        foreach ($st in $new) { [void]$g.lSticks.Items.Add($st.Text); if ($k.Keep -contains (Get-PrepKey $st)) { [void]$g.lSticks.SelectedItems.Add($st.Text) } }
+        if (-not @($k.Keep).Count) { $g.lSticks.SelectedIndex = -1 }
+        foreach ($d in $k.Dropped) { & $plog ('Markierung für ' + ($d -split '\|')[0] + ': entfernt, der Stick ist nicht mehr da oder ein anderer.') 'Hinweis' }
+        if ($Auto) {
+            foreach ($st in @($new | Where-Object { $oldKeys -notcontains (Get-PrepKey $_) })) { & $plog ('Stick ' + $st.Letter + ': erkannt') }
+            foreach ($o in @($oldKeys | Where-Object { $newKeys -notcontains $_ })) { & $plog ('Stick ' + ($o -split '\|')[0] + ': entfernt oder getauscht') }
+        } else { & $plog ('' + $script:PrepList.Count + ' USB-Stick(s) gefunden') }
     }
-    $g.bScan.Add_Click($scan)
+    # Von selbst erkennen: alle 2 s Buchstabe, Typ, Groesse und Volume-Seriennummer lesen (guenstig, erkennt auch einen
+    # Tausch unter demselben Buchstaben), die teure Abfrage nur bei einer Aenderung. Nie waehrend des Formatierens und Befuellens.
+    $prepSig = { Get-DriveSig }
+    $ptm = New-Object System.Windows.Threading.DispatcherTimer
+    $ptm.Interval = [TimeSpan]::FromSeconds(2)
+    $ptm.Add_Tick({
+        param($tmr, $e)
+        try {
+            if (-not $pw -or -not $pw.IsVisible) { $tmr.Stop(); return }
+            if ($pst.Busy -or $script:Busy) { return }
+            $s = & $prepSig; if ($s -ne $pst.Sig) { $pst.Sig = $s; & $scan $true }
+        } catch { }
+    })
+    $g.bScan.Add_Click({ if (-not $pst.Busy) { $pst.Sig = & $prepSig; & $scan $false } })
     $g.bAll.Add_Click({ $g.lSticks.SelectAll() })
     $g.bClose.Add_Click({ $pw.Close() })
     $g.bGo.Add_Click({
+      if ($pst.Busy) { return }
+      $pst.Busy = $true; Set-UiBusy $true
+      try {
         $sel = @(); foreach ($i in @($g.lSticks.SelectedItems)) { $sel += @($script:PrepList | Where-Object { $_.Text -eq [string]$i }) }
-        if (-not $sel.Count) { & $plog 'Keinen Stick gewählt (anklicken).'; return }
+        if (-not $sel.Count) { & $plog 'Keinen Stick gewählt. Sticks in der Liste anklicken.' 'Hinweis'; return }
         $label = $g.tLabel.Text.Trim(); $fs = [string]$g.cFs.SelectedItem
-        if ($label -notmatch '^[A-Za-z0-9_-]{1,11}$') { & $plog 'Name ungültig (1-11 Zeichen: Buchstaben, Ziffern, - _)'; return }
-        if (-not (Save-Cfg)) { & $plog 'Config nicht gespeichert - siehe Hauptfenster'; return }
-        if (-not (Test-Path $srcPkg)) { & $plog 'Hinweis: kein WLAN-Paket in der Quelle (4. WLAN-Paket bauen)' }
+        if ($label -notmatch '^[A-Za-z0-9_-]{1,11}$') { & $plog 'Name ungültig: 1 bis 11 Zeichen, nur Buchstaben, Ziffern, - und _. Bitte oben ändern.' 'Fehler'; return }
+        if (-not (Save-Cfg)) { & $plog ('Nicht gespeichert: ' + $script:FieldErr + ' (im Hauptfenster)') 'Fehler'; return }
+        if (-not (Confirm-PkgForCopy $pw)) { & $plog 'Abgebrochen (WLAN-Paket).'; return }
+        # Secret und MAK einmal fuer den ganzen Durchgang
+        $pre = Confirm-CopyPrereqs ('die gewählten Sticks (' + $sel.Count + ')') $pw
+        if (-not $pre) { & $plog 'Abgebrochen.'; return }
+        # Rueckfrage nennt je Stick Buchstabe, Name, Dateisystem, Groesse und Modell
         $list = ($sel | ForEach-Object { '   ' + $_.Text }) -join "`r`n"
         $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning')
         if ($q -ne 'Yes') { return }
@@ -427,21 +1332,37 @@ function Show-PrepSticks {
         foreach ($st in $sel) {
             $dl = $st.Letter
             try {
+                # Direkt vor dem Formatieren: Datentraeger neu lesen und mit dem markierten Stick vergleichen (Tausch erkennen)
+                $part = Get-Partition -DriveLetter $dl -ErrorAction Stop
+                $disk = $part | Get-Disk -ErrorAction Stop
+                $vol = $part | Get-Volume -ErrorAction Stop
+                $diff = @(Compare-StickId $st.Id (New-StickId $disk $part $vol $dl))
+                if ($diff.Count) { & $plog ($dl + ': Stick wurde getauscht, nicht formatiert. Bitte neu markieren.') 'Fehler' ('abweichend: ' + ($diff -join ', ')); continue }
                 # Sicherheitscheck direkt vor dem Formatieren erneut
-                $disk = Get-Partition -DriveLetter $dl -ErrorAction Stop | Get-Disk -ErrorAction Stop
                 if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { throw 'kein reiner USB-Stick mehr - übersprungen' }
-                if ($fs -eq 'FAT32' -and (Get-Volume -DriveLetter $dl).Size -gt 32GB) { throw 'FAT32 nur bis 32 GB - NTFS wählen' }
+                if ($fs -eq 'FAT32' -and $vol.Size -gt 32GB) { throw 'FAT32 nur bis 32 GB - NTFS wählen' }
                 & $plog ($dl + ': formatiere ...')
-                Format-Volume -DriveLetter $dl -FileSystem $fs -NewFileSystemLabel $label -Force -Confirm:$false -ErrorAction Stop | Out-Null
+                # ueber die gepruefte Partition, nicht ueber den Buchstaben
+                Format-Volume -Partition $part -FileSystem $fs -NewFileSystemLabel $label -Force -Confirm:$false -ErrorAction Stop | Out-Null
                 & $plog ($dl + ': kopiere HUPilot ...')
-                if (Copy-ToStick ($dl + ':')) { & $plog ($dl + ': OK - fertig, abziehen'); $ok++ } else { & $plog ($dl + ': FEHLER beim Kopieren') }
-            } catch { & $plog ($dl + ': FEHLER ' + $_.Exception.Message) }
+                if (Copy-ToStick ($dl + ':') $pre.WithMak) { & $plog ($dl + ': fertig, kopiert und kontrolliert. Stick abziehen.') 'OK'; $ok++ } else { & $plog ($dl + ': Kopieren fehlgeschlagen. Stick neu anstecken und nochmal versuchen.') 'Fehler' $script:CopyErr }
+            } catch { & $plog ($dl + ': nicht bearbeitet. ' + $(if ("$($_.Exception.Message)" -match 'FAT32|USB-Stick') { $_.Exception.Message } else { 'Stick neu anstecken und nochmal versuchen.' })) 'Fehler' $_.Exception.Message }
         }
-        & $plog ('Fertig: ' + $ok + ' von ' + $sel.Count + ' Stick(s). Nächste Sticks anstecken -> Neu einlesen.')
-        Out-Log ('Sticks vorbereitet: ' + $ok + ' von ' + $sel.Count)
-        & $scan
+        & $plog ('Fertig: ' + $ok + ' von ' + $sel.Count + ' Stick(s). Nächste Sticks anstecken, sie erscheinen von selbst.') $(if ($ok -eq $sel.Count) { 'OK' } else { 'Hinweis' })
+        Out-Log ('Sticks vorbereitet: ' + $ok + ' von ' + $sel.Count) $(if ($ok -eq $sel.Count) { 'OK' } else { 'Hinweis' })
+        $g.lSticks.UnselectAll()
+        $pst.Sig = & $prepSig; & $scan $false
+      } finally { $pst.Busy = $false; Set-UiBusy $false; try { $g.lSticks.UnselectAll() } catch { } }
     })
-    & $scan
+    $pst.Sig = & $prepSig; & $scan $false
+    if (-not $SmokeTest) { $pw.Add_ContentRendered({ $ptm.Start() }) }
+    # Fokus auf das Namensfeld, nicht auf die Liste (keine Zeile darf wie ausgewaehlt aussehen)
+    $pw.Add_ContentRendered({ try { [void]$g.tLabel.Focus() } catch { } })
+    $pw.Add_Closing({
+        param($s, $e)
+        if ($pst.Busy) { $e.Cancel = $true; [void][System.Windows.MessageBox]::Show($pw, 'Der Durchgang läuft noch. Bitte warten, bis alle gewählten Sticks fertig sind.', 'HUPilot - Sticks vorbereiten', 'OK', 'Information') }
+    })
+    $pw.Add_Closed({ $ptm.Stop() })
     [void]$pw.ShowDialog()
     Update-Drives
 }
@@ -474,13 +1395,13 @@ function Read-GhToken {
 function Save-GhToken([string]$File, [string]$Message) {
     $c = $null
     try { $c = Get-Credential -UserName 'github' -Message $Message } catch { $c = $null }
-    if (-not $c -or -not $c.GetNetworkCredential().Password.Trim()) { Out-Log 'Kein Token eingegeben'; return $false }
+    if (-not $c -or -not $c.GetNetworkCredential().Password.Trim()) { Out-Log 'Kein Token eingegeben.' 'Hinweis'; return $false }
     try {
         $d = Split-Path $File -Parent
         if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
         $c | Export-Clixml -Path $File -Force -ErrorAction Stop
         return $true
-    } catch { Out-Log ('Token nicht gespeichert: ' + $_.Exception.Message); return $false }
+    } catch { Out-Log 'Token konnte nicht gespeichert werden.' 'Fehler' $_.Exception.Message; return $false }
 }
 # update.json schreiben (vorhandene Einstellungen bleiben)
 function Set-UpdSetting([string]$Name, $Value) {
@@ -495,10 +1416,12 @@ function Set-UpdButton([string]$RemoteVer = '', [bool]$Pre = $false, [string]$Te
     if ($RemoteVer) {
         $ui.bUpd.Content = 'Update v' + $RemoteVer + $(if ($Pre) { ' (Test)' })
         $ui.bUpd.Background = [System.Windows.Media.Brushes]::Gold
+        $ui.bUpd.Foreground = [System.Windows.Media.Brushes]::Black
         $ui.bUpd.FontWeight = 'Bold'
     } else {
         $ui.bUpd.Content = $(if ($Text) { $Text } else { 'Aktuell v' + $SetupVer })
         $ui.bUpd.ClearValue([System.Windows.Controls.Control]::BackgroundProperty)
+        $ui.bUpd.ClearValue([System.Windows.Controls.Control]::ForegroundProperty)
         $ui.bUpd.ClearValue([System.Windows.Controls.Control]::FontWeightProperty)
     }
 }
@@ -506,7 +1429,7 @@ function Get-HttpCode($e) { $code = 0; try { $code = [int]$e.Exception.Response.
 
 function Invoke-UpdateCheck([switch]$Quiet) {
     $c = Get-UpdCfg
-    if (-not $c) { Set-UpdButton -Text 'Update ...'; Out-Log 'Update-Prüfung: HUPilot\Setup\Core-Update.ps1 fehlt'; return }
+    if (-not $c) { Set-UpdButton -Text 'Update ...'; Out-Log 'Update-Prüfung nicht möglich: HUPilot\Setup\Core-Update.ps1 fehlt. HUPilot neu installieren (Pull.ps1).' 'Fehler'; return }
     $ui.bUpd.Content = 'Prüfe ...'; Step-Ui
     $chan = $(if ($c.UseBranch) { 'Branch ' + $c.Branch } else { 'Kanal ' + (Format-Channel $c.Channel) })
     try {
@@ -530,28 +1453,34 @@ function Invoke-UpdateCheck([switch]$Quiet) {
         if ($cmp -gt 0) {
             $script:UpdRemote = $rv
             Set-UpdButton $rv $pre
-            Out-Log ('NEUE VERSION v' + $rv + ' verfügbar (installiert: v' + $SetupVer + ', ' + $chan + ') - Knopf "Update" klicken')
+            Out-Log ('Neue Version v' + $rv + ' verfügbar (installiert: v' + $SetupVer + ', ' + $chan + '). Oben rechts auf "Update" klicken.') 'Hinweis'
         } else {
             $script:UpdRemote = ''
             Set-UpdButton
-            if (-not $Quiet) { Out-Log ('Version aktuell: v' + $SetupVer + ' (' + $chan + $(if ($c.RequireSignature) { ', nur signierte Updates' }) + ')') }
+            if (-not $Quiet) { Out-Log ('Version aktuell: v' + $SetupVer + ' (' + $chan + $(if ($c.RequireSignature) { ', nur signierte Updates' }) + ')') 'OK' }
         }
     } catch {
         $code = Get-HttpCode $_
         Set-UpdButton -Text 'Update: offline'
-        if ($code -in 401, 403, 404) { Out-Log ('Update-Prüfung: ' + $c.Owner + '/' + $c.Repo + ' nicht erreichbar (HTTP ' + $code + ')') }
-        else { Out-Log ('Versionsprüfung nicht möglich: ' + $_.Exception.Message) }
+        if ($code -in 401, 403, 404) { Out-Log ('Update-Prüfung: ' + $c.Owner + '/' + $c.Repo + ' nicht erreichbar. Später nochmal versuchen.') 'Hinweis' ('HTTP ' + $code) }
+        else { Out-Log 'Update-Prüfung nicht möglich (keine Verbindung zu GitHub?). Später nochmal versuchen.' 'Hinweis' $_.Exception.Message }
     }
 }
 
 # Pull.ps1 starten (eigenes Fenster), Setup beenden - Pull wartet, bis das Setup zu ist, und startet es danach neu
 function Start-Pull([string]$Version = '') {
-    if (-not (Test-Path -LiteralPath $script:PullPs)) { Out-Log ('Pull.ps1 nicht gefunden: ' + $script:PullPs); return }
+    if (-not (Test-Path -LiteralPath $script:PullPs)) { Out-Log 'Update nicht möglich: Pull.ps1 fehlt in HUPilot\Setup.' 'Fehler' $script:PullPs; return }
     $c = Get-UpdCfg
     $what = $(if ($Version) { 'Version ' + $Version } elseif ($script:UpdRemote) { 'v' + $script:UpdRemote } else { 'die neueste Version im Kanal ' + (Format-Channel $(if ($c) { $c.Channel } else { 'Stable' })) })
     $chk = $(if ($c -and $c.RequireSignature) { 'Prüfsumme + Signatur werden geprüft' } else { 'Prüfsumme wird geprüft' })
     $q = [System.Windows.MessageBox]::Show($win, ('HUPilot-Setup schließen, ' + $what + ' von GitHub laden und neu starten?' + "`r`n`r`n" + '  Ziel:         ' + $srcStick + "`r`n" + '  Installiert:  v' + $SetupVer + "`r`n" + '  ' + $chk + "`r`n`r`n" + 'config.json, WLAN-Paket und logs bleiben unverändert.'), 'HUPilot - Update', 'YesNo', 'Question')
     if ($q -ne 'Yes') { return }
+    # Ungespeicherte Aenderungen vor dem Update sichern (Pull.ps1 laesst config.json unveraendert)
+    if ($script:Dirty) {
+        $q = [System.Windows.MessageBox]::Show($win, ('Es gibt ungespeicherte Änderungen. Vor dem Update speichern?' + "`r`n`r`n" + 'Ja = speichern, Nein = verwerfen, Abbrechen = kein Update'), 'HUPilot - Update', 'YesNoCancel', 'Question')
+        if ($q -eq 'Cancel' -or $q -eq 'None') { return }
+        if ($q -eq 'Yes' -and -not (Save-Cfg)) { Show-Msg ('Nicht gespeichert: ' + $script:FieldErr + "`r`n`r`n" + 'Update abgebrochen.') 'HUPilot - Update' 'Warning'; return }
+    }
     try {
         $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $argLine = '-NoProfile -ExecutionPolicy Bypass -File "' + $script:PullPs + '" -Target "' + $srcStick.TrimEnd('\') + '" -WaitPid ' + $PID
@@ -559,12 +1488,13 @@ function Start-Pull([string]$Version = '') {
         Start-Process -FilePath $exe -ArgumentList $argLine -WorkingDirectory $env:TEMP | Out-Null
         Start-Log ('Pull gestartet: ' + $argLine)
         try { $script:Mutex.ReleaseMutex() } catch { }
+        $script:NoClosePrompt = $true
         $win.Close()
-    } catch { Out-Log ('Update-Start fehlgeschlagen: ' + $_.Exception.Message) }
+    } catch { Out-Log 'Update konnte nicht gestartet werden.' 'Fehler' $_.Exception.Message }
 }
 
 # Liste zur Auswahl (Versionen). Rueckgabe: gewaehlte Zeile oder $null
-function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkText) {
+function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkText, $Owner = $null) {
     [xml]$vx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -599,16 +1529,19 @@ function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkTe
   <DockPanel Margin="12">
     <TextBlock x:Name="tHint" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button x:Name="bOk" Padding="10,4" FontWeight="SemiBold"/>
-      <Button x:Name="bNo" Content="Abbrechen" Padding="10,4" Margin="8,0,0,0" IsCancel="True"/>
+      <Button x:Name="bOk" Padding="10,4" FontWeight="SemiBold" ToolTip="Markierte Zeile übernehmen (auch Doppelklick)."/>
+      <Button x:Name="bNo" Content="Abbrechen" Padding="10,4" Margin="8,0,0,0" IsCancel="True" ToolTip="Ohne Auswahl schließen (Esc)."/>
     </StackPanel>
-    <DataGrid x:Name="gV" AutoGenerateColumns="True" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"/>
+    <DataGrid x:Name="gV" ToolTip="Zeile markieren, dann übernehmen - Doppelklick geht auch." AutoGenerateColumns="True" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $vx
     $vw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $vx))
-    $vw.Owner = $win; if ($win.Icon) { $vw.Icon = $win.Icon }
+    Register-HuWindow $vw
+    $vw.Owner = $(if ($Owner) { $Owner } else { $win }); if ($win.Icon) { $vw.Icon = $win.Icon }
     $vw.Title = $Title
+    Set-WinFit $vw
     $g = @{}; foreach ($n in 'tHint', 'bOk', 'bNo', 'gV') { $g[$n] = $vw.FindName($n) }
     $g.tHint.Text = $Hint; $g.bOk.Content = $OkText
     $g.gV.ItemsSource = @($Rows)
@@ -616,16 +1549,17 @@ function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkTe
     $g.bOk.Add_Click({ if ($g.gV.SelectedItem) { $st.Sel = $g.gV.SelectedItem; $vw.Close() } })
     $g.gV.Add_MouseDoubleClick({ if ($g.gV.SelectedItem) { $st.Sel = $g.gV.SelectedItem; $vw.Close() } })
     $g.bNo.Add_Click({ $vw.Close() })
+    $vw.Add_ContentRendered({ Set-GridColumnsFit $g.gV @($Rows); Set-GridWindowWidth $vw $g.gV 600 })
     [void]$vw.ShowDialog()
     return $st.Sel
 }
 function Show-VersionPicker {
     $c = Get-UpdCfg
-    if (-not $c) { Out-Log 'HUPilot\Setup\Core-Update.ps1 fehlt'; return }
+    if (-not $c) { Out-Log 'Versionsliste nicht möglich: HUPilot\Setup\Core-Update.ps1 fehlt.' 'Fehler'; return }
     Out-Log 'Versionen werden von GitHub gelesen ...'; Step-Ui
     try { $list = @(Get-HMReleases $c.Owner $c.Repo (Read-GhToken)) }
-    catch { Out-Log ('Versionen nicht lesbar: ' + $_.Exception.Message); return }
-    if (-not $list.Count) { Out-Log 'Keine Releases gefunden.'; return }
+    catch { Out-Log 'Versionen konnten nicht von GitHub gelesen werden. Später nochmal versuchen.' 'Fehler' $_.Exception.Message; return }
+    if (-not $list.Count) { Out-Log 'Keine Versionen auf GitHub gefunden.' 'Hinweis'; return }
     $rows = foreach ($x in $list) {
         $cmp = 0; try { $cmp = $x.Version.CompareTo([version]$SetupVer) } catch { }
         $first = @("$($x.Notes)" -split "`r?`n" | Where-Object { "$_".Trim() -and "$_" -notmatch '^\s*#' } | ForEach-Object { ("$_".Trim().TrimStart('-', ' ', '*') -replace '\*\*|`', '') })[0]
@@ -659,18 +1593,18 @@ function Test-CanSign {
     if (-not $c -or -not (Get-Command Get-HMSigningCert -ErrorAction SilentlyContinue)) { return $false }
     return [bool](Get-HMSigningCert $c.SignerThumbprint)
 }
-function Show-Msg([string]$Text, [string]$Title, [string]$Icon = 'Information') { [void][System.Windows.MessageBox]::Show($win, $Text, $Title, 'OK', $Icon) }
+function Show-Msg([string]$Text, [string]$Title, [string]$Icon = 'Information', $Owner = $null) { if (-not $Owner) { $Owner = $win }; [void][System.Windows.MessageBox]::Show($Owner, $Text, $Title, 'OK', $Icon) }
 
 function Start-ReleaseSigning {
     $c = Get-UpdCfg; if (-not $c) { return }
     Out-Log ('=== Release signieren (' + $c.Owner + '/' + $c.Repo + ') ===')
     $cert = Get-HMSigningCert $c.SignerThumbprint
-    if (-not $cert) { $m = 'Signatur-Zertifikat ' + $c.SignerThumbprint + ' mit privatem Schlüssel ist auf diesem PC nicht vorhanden (oder abgelaufen).'; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
+    if (-not $cert) { $m = 'Signatur-Zertifikat ' + $c.SignerThumbprint + ' mit privatem Schlüssel ist auf diesem PC nicht vorhanden (oder abgelaufen).'; Out-Log $m 'Fehler'; Show-Msg $m 'Release signieren' 'Error'; return }
     Out-Log ('Zertifikat: ' + $cert.Subject + ' - gültig bis ' + $cert.NotAfter.ToString('dd.MM.yyyy'))
     $tok = Get-SignToken $c
     if (-not $tok) { Out-Log 'Abgebrochen: kein GitHub-Token mit Schreibrecht.'; return }
     Step-Ui
-    try { $all = @(Get-HMReleases $c.Owner $c.Repo $tok) } catch { $m = 'Releases nicht lesbar: ' + $_.Exception.Message; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
+    try { $all = @(Get-HMReleases $c.Owner $c.Repo $tok) } catch { $m = 'Releases nicht lesbar: ' + $_.Exception.Message; Out-Log $m 'Fehler'; Show-Msg $m 'Release signieren' 'Error'; return }
     $tags = @($all | Where-Object { $_.ManifestUrl -and -not $_.SignatureUrl } | ForEach-Object { "$($_.Tag)" })
     $noMan = @($all | Where-Object { -not $_.ManifestUrl } | Select-Object -First 5 | ForEach-Object { "$($_.Tag)" })
     if ($noMan.Count) { Out-Log ('Ohne Prüfsummen-Datei (automatische Tests noch nicht fertig oder fehlgeschlagen): ' + ($noMan -join ', ')) }
@@ -679,8 +1613,8 @@ function Start-ReleaseSigning {
     if ($q -ne 'Yes') { Out-Log 'Signieren abgebrochen.'; return }
     Out-Log ('Signiere ' + ($tags -join ', ') + ' ...'); Step-Ui
     try { $res = @(Invoke-HMReleaseSigning $c.Owner $c.Repo $c.SignerThumbprint $tok ([string[]]$tags)) }
-    catch { $m = 'Signieren fehlgeschlagen: ' + $_.Exception.Message; Out-Log $m; Show-Msg $m 'Release signieren' 'Error'; return }
-    foreach ($x in $res) { Out-Log ($x.Tag + ': ' + $x.Text) }
+    catch { $m = 'Signieren fehlgeschlagen: ' + $_.Exception.Message; Out-Log $m 'Fehler'; Show-Msg $m 'Release signieren' 'Error'; return }
+    foreach ($x in $res) { Out-Log ($x.Tag + ': ' + $x.Text) $(if ($x.Ok) { 'OK' } else { 'Fehler' }) }
     $sum = ($res | ForEach-Object { $_.Tag + ': ' + $_.Text }) -join "`r`n"
     if (@($res | Where-Object { -not $_.Ok }).Count) {
         Show-Msg ('Signieren mit Fehlern:' + "`r`n`r`n" + $sum) 'Release signieren' 'Error'
@@ -695,41 +1629,143 @@ function Start-ReleasePublish {
     $tok = Get-SignToken $c
     if (-not $tok) { Out-Log 'Abgebrochen: kein GitHub-Token mit Schreibrecht.'; return }
     Step-Ui
-    try { $l = @(Get-HMReleases $c.Owner $c.Repo $tok) } catch { $m = 'Releases nicht lesbar: ' + $_.Exception.Message; Out-Log $m; Show-Msg $m 'Release freigeben' 'Error'; return }
+    try { $l = @(Get-HMReleases $c.Owner $c.Repo $tok) } catch { $m = 'Releases nicht lesbar: ' + $_.Exception.Message; Out-Log $m 'Fehler'; Show-Msg $m 'Release freigeben' 'Error'; return }
     $stable = @($l | Where-Object { -not $_.Prerelease } | Select-Object -First 1)[0]
     $cand = @($l | Where-Object { $_.Prerelease -and $_.ManifestUrl -and $_.SignatureUrl -and (-not $stable -or $_.Version -gt $stable.Version) } | Select-Object -First 1)[0]
     $uns = @($l | Where-Object { $_.Prerelease -and -not $_.SignatureUrl -and (-not $stable -or $_.Version -gt $stable.Version) } | ForEach-Object { $_.Tag })
     $stTxt = $(if ($stable) { $stable.Tag } else { '-' })
     Out-Log ('Bisher freigegeben: ' + $stTxt)
-    if (-not $cand) { $m = 'Kein signiertes Vorab-Release neuer als ' + $stTxt + '.' + $(if ($uns.Count) { ' Noch nicht signiert: ' + ($uns -join ', ') + " - zuerst 'Release signieren'." }); Out-Log $m; Show-Msg $m 'Release freigeben' 'Warning'; return }
+    if (-not $cand) { $m = 'Kein signiertes Vorab-Release neuer als ' + $stTxt + '.' + $(if ($uns.Count) { ' Noch nicht signiert: ' + ($uns -join ', ') + " - zuerst 'Release signieren'." }); Out-Log $m 'Hinweis'; Show-Msg $m 'Release freigeben' 'Warning'; return }
     $q = [System.Windows.MessageBox]::Show($win, ($cand.Tag + ' jetzt freigeben?' + "`r`n`r`n" + 'Danach ist es im Kanal Stabil die neueste Version und wird ALLEN Installationen als Update angeboten.' + "`r`n" + 'Bisher freigegeben: ' + $stTxt), 'Release freigeben', 'YesNo', 'Question')
     if ($q -ne 'Yes') { Out-Log 'Freigabe abgebrochen.'; return }
     Out-Log ('Gebe ' + $cand.Tag + ' frei ... (Signatur wird vorher erneut geprüft)'); Step-Ui
     try {
         Publish-HMRelease $c.Owner $c.Repo $cand.Tag $c.SignerThumbprint $tok
-        Out-Log ($cand.Tag + ': freigegeben (Kanal Stabil)')
+        Out-Log ($cand.Tag + ': freigegeben (Kanal Stabil)') 'OK'
         Show-Msg ($cand.Tag + ' ist freigegeben (Kanal Stabil) und wird allen Installationen als Update angeboten.') 'Release freigeben'
         Invoke-UpdateCheck -Quiet
     } catch {
         $code = Get-HttpCode $_
         if ($code -in 401, 403, 404) { Remove-Item -LiteralPath (Get-SignTokenFile) -Force -ErrorAction SilentlyContinue; $m = 'Freigabe fehlgeschlagen: kein Schreibrecht (HTTP ' + $code + ') - gespeicherter Token wurde gelöscht, beim nächsten Versuch neu eingeben.' }
         else { $m = 'Freigabe fehlgeschlagen: ' + $_.Exception.Message }
-        Out-Log $m; Show-Msg $m 'Release freigeben' 'Error'
+        Out-Log $m 'Fehler'; Show-Msg $m 'Release freigeben' 'Error'
     }
 }
 
 $ui.bUpd.Add_Click({ if ($script:UpdRemote) { Start-Pull } else { Invoke-UpdateCheck } })
+# ---------- Info-Fenster (Vorbild HU-MultiTenant Show-HUAbout: Rechtsklick auf Update > Info ...) ----------
+#   Logo, Name, ein Satz, Version mit Stand, Kanal, Quelle, PowerShell und Windows, Paketbau, Protokolldatei, Links.
+#   "Kopieren" legt die Angaben als Text in die Zwischenablage (fuer Rueckfragen). Tenant, Tenant-ID, App-ID und Secret
+#   kommen bewusst nicht vor; der Quellpfad schon (er steht auch im Protokoll).
+#   Handler ohne GetNewClosure: das Fenster ist modal, die Funktion laeuft, solange es offen ist.
+$script:RepoUrl = 'https://github.com/ChiliApple/HUPilot'
+# Text fuer Fenster und Zwischenablage aus einzelnen Angaben ($I: Version, Build, Channel, Signed, Installed, Source, PS, Windows, Adk, IcdCopy, Log)
+function Get-InfoLines([hashtable]$I) {
+    $l = @()
+    $l += ('HUPilot-Setup v' + $I.Version + $(if ($I.Build) { ' (Stand ' + $I.Build + ')' } else { '' }))
+    $l += ('Update: ' + $I.Channel + $(if ($I.Signed) { ', nur signierte Updates' } else { '' }) + $(if ($I.Installed) { ', installiert ' + $I.Installed } else { '' }))
+    $l += ('Quelle: ' + $I.Source)
+    $l += ('PowerShell ' + $I.PS + ', ' + $I.Windows)
+    $l += ('Paketbau: ' + $I.Adk + '; Kopie: ' + $I.IcdCopy)
+    $l += ('Protokolldatei: ' + $(if ($I.Log) { $I.Log } else { 'noch keine' }))
+    $l += ('Repo: ' + $script:RepoUrl)
+    return $l
+}
+function Get-InfoValues {
+    $vj = $null; try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+    $inst = $null; try { $inst = Get-Content -LiteralPath (Join-Path $CfgDirHU 'installed.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+    $c = $null; try { $c = Get-UpdCfg } catch { }
+    $win10 = ''
+    try {
+        $k = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop
+        $build = [int]$k.CurrentBuild
+        $name = [string]$k.ProductName
+        # ProductName heisst auch unter Windows 11 noch "Windows 10 ...": ab Build 22000 ist es Windows 11
+        if ($build -ge 22000) { $name = $name -replace '^Windows 10', 'Windows 11' }
+        $win10 = $name + $(if ($k.DisplayVersion) { ' ' + $k.DisplayVersion } else { '' }) + ', Build ' + $k.CurrentBuild + $(if ($null -ne $k.UBR) { '.' + $k.UBR } else { '' })
+    } catch { $win10 = 'Windows ' + [Environment]::OSVersion.Version }
+    $instRaw = $(if ([System.IO.File]::Exists($icdInst)) { Get-IcdVersion $icdInst } else { '' })
+    $cp = Get-IcdState $icdCopyRoot
+    return @{
+        Version = $SetupVer; Build = $(if ($vj) { [string]$vj.buildDate } else { '' })
+        Channel = $(if (-not $c) { 'unbekannt' } elseif ($c.UseBranch) { 'Branch ' + $c.Branch } else { 'Kanal ' + (Format-Channel $c.Channel) })
+        Signed = [bool]($c -and $c.RequireSignature); Installed = $(if ($inst -and $inst.PSObject.Properties['Date']) { [string]$inst.Date } else { '' })
+        Source = $srcStick; PS = [string]$PSVersionTable.PSVersion; Windows = $win10
+        Adk = $(if ($instRaw) { 'Windows ADK am PC, Version ' + $instRaw } else { 'kein Windows ADK am PC' })
+        IcdCopy = (Get-IcdStateText $cp); Log = [string]$script:LogFile
+    }
+}
+function Open-InfoLink([string]$Target) { try { Start-Process -FilePath $Target } catch { Out-Log 'Link konnte nicht geöffnet werden.' 'Hinweis' ($Target + ': ' + $_.Exception.Message) } }
+$script:InfoOpen = $false
+function Show-Info {
+    # nicht waehrend eines Vorgangs, nie ein zweites Info-Fenster
+    if ($script:Busy -or $script:InfoOpen) { return }
+    $script:InfoOpen = $true
+    try { Show-InfoCore } finally { $script:InfoOpen = $false }
+}
+function Show-InfoCore {
+    [xml]$ix = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot - Info" Width="540" MinWidth="460" SizeToContent="Height" WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False" FontSize="13">
+  <StackPanel Margin="20">
+    <Image x:Name="iImg" Width="96" Height="96" RenderOptions.BitmapScalingMode="HighQuality" ToolTip="HUPilot"/>
+    <TextBlock Text="HUPilot" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource HuTitle}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+    <TextBlock Text="Windows Autopilot per USB-Stick: Hardware-Hash hochladen und Geräte ohne Hersteller-Programme zurücksetzen" FontSize="13" Foreground="{DynamicResource HuMuted}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+    <TextBlock x:Name="tVer" FontSize="12" Foreground="{DynamicResource HuRun}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="0,10,0,0" ToolTip="Version und Stand aus HUPilot\Config\version.json, Update-Kanal aus den Update-Einstellungen."/>
+    <TextBlock x:Name="tDet" FontSize="12" Foreground="{DynamicResource HuText}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="0,8,0,0" ToolTip="Quelle, Systemangaben, Paketbau und Protokolldatei dieser Sitzung."/>
+    <WrapPanel HorizontalAlignment="Center" Margin="0,10,0,0">
+      <TextBlock x:Name="lRepo" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Repo auf GitHub öffnen"/>
+      <TextBlock x:Name="lHelp" Text="Anleitung" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Anleitung öffnen (Anleitung.html in HUPilot\Setup, auch mit F1)"/>
+      <TextBlock x:Name="lChg" Text="Änderungen" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Änderungen (CHANGELOG) auf GitHub öffnen"/>
+      <TextBlock x:Name="lLic" Text="Nutzungslizenz - siehe LICENSE" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Lizenz (LICENSE) auf GitHub öffnen"/>
+      <TextBlock x:Name="lLog" Text="Protokolldatei" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Protokolldatei dieser Sitzung öffnen"/>
+    </WrapPanel>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,14,0,0">
+      <Button x:Name="bCopy" Content="Kopieren" Padding="12,3" ToolTip="Diese Angaben als Text in die Zwischenablage legen, z. B. für eine Rückfrage beim Admin.&#x0a;Ohne Tenant, Tenant-ID, App-ID und Secret."/>
+      <Button x:Name="bClose" Content="Schließen" Padding="12,3" Margin="8,0,0,0" IsCancel="True" ToolTip="Fenster schließen (Esc)"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
+'@
+    Add-HuTheme $ix
+    $iw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $ix))
+    Register-HuWindow $iw
+    $iw.Owner = $win
+    if ($win.Icon) { $iw.Icon = $win.Icon }
+    $g = @{}; foreach ($n in 'iImg', 'tVer', 'tDet', 'lRepo', 'lHelp', 'lChg', 'lLic', 'lLog', 'bCopy', 'bClose') { $g[$n] = $iw.FindName($n) }
+    try { $g.iImg.Source = $ui.iLogo.Source } catch { }
+    $v = Get-InfoValues
+    $lines = @(Get-InfoLines $v)
+    $g.tVer.Text = $lines[0] + "`n" + $lines[1]
+    $g.tDet.Text = ($lines[2..5] -join "`n")
+    $g.lRepo.Text = $script:RepoUrl -replace '^https://', ''
+    $g.lRepo.Add_MouseLeftButtonUp({ Open-InfoLink $script:RepoUrl })
+    $g.lHelp.Add_MouseLeftButtonUp({ & $ShowHelp })
+    $g.lChg.Add_MouseLeftButtonUp({ Open-InfoLink ($script:RepoUrl + '/blob/main/CHANGELOG.md') })
+    $g.lLic.Add_MouseLeftButtonUp({ Open-InfoLink ($script:RepoUrl + '/blob/main/LICENSE') })
+    if ($v.Log -and [System.IO.File]::Exists($v.Log)) { $g.lLog.Add_MouseLeftButtonUp({ Open-InfoLink $v.Log }) } else { $g.lLog.Visibility = 'Collapsed' }
+    $copyText = ($lines -join "`r`n")
+    $g.bCopy.Add_Click({ try { [System.Windows.Clipboard]::SetText($copyText); $g.bCopy.Content = 'Kopiert'; Out-Log 'Info in die Zwischenablage kopiert' } catch { Out-Log 'Zwischenablage nicht erreichbar.' 'Hinweis' $_.Exception.Message } })
+    $g.bClose.Add_Click({ $iw.Close() })
+    $iw.Add_ContentRendered({ Set-WinFit $iw })
+    [void]$iw.ShowDialog()
+}
 $cmU = New-Object System.Windows.Controls.ContextMenu
 $addU = { param($h, $sb) $mi = New-Object System.Windows.Controls.MenuItem; $mi.Header = $h; $mi.Add_Click($sb); [void]$cmU.Items.Add($mi); $mi }
 [void](& $addU 'Andere Version / Vorversion installieren ...' { Show-VersionPicker })
 [void](& $addU 'Jetzt nach Updates suchen' { Invoke-UpdateCheck })
+[void](& $addU 'Info ...' { Show-Info })
+# Klick auf das Logo oben links oeffnet ebenfalls die Info (Tastatur: Logo mit Tab erreichen, dann Enter oder Leertaste)
+$ui.iLogo.Add_MouseLeftButtonUp({ Show-Info })
+$ui.iLogo.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Return' -or $e.Key -eq 'Space') { $e.Handled = $true; Show-Info } })
+[void](& $addU 'Anleitung (F1)' { & $ShowHelp })
 [void]$cmU.Items.Add((New-Object System.Windows.Controls.Separator))
 $script:miStable = & $addU 'Kanal Stabil (nur freigegebene Versionen)' { Set-UpdSetting 'Channel' 'Stable'; Out-Log 'Update-Kanal: Stabil'; Invoke-UpdateCheck }
 $script:miTest   = & $addU 'Kanal Test (auch Vorab-Versionen)' { Set-UpdSetting 'Channel' 'Test'; Out-Log 'Update-Kanal: Test'; Invoke-UpdateCheck }
 [void](& $addU 'GitHub-Token (nur privates Repo) ...' {
     $f = Get-GhTokenFile; $has = Test-Path -LiteralPath $f
     $a = [System.Windows.MessageBox]::Show($win, ('Gespeicherter GitHub-Token: ' + $(if ($has) { 'vorhanden' } else { 'keiner' }) + "`r`n`r`n" + "Nur für PRIVATE Repos nötig (Fine-grained PAT, nur 'Contents: Read')." + "`r`n`r`n" + 'Ja = Token eingeben/ersetzen' + "`r`n" + 'Nein = gespeicherten Token löschen'), 'GitHub-Token', 'YesNoCancel', 'Question')
-    if ($a -eq 'Yes') { if (Save-GhToken $f 'GitHub-Token (Nur-Lese) als Kennwort eingeben (DPAPI, nur für deinen Benutzer lesbar)') { Out-Log 'GitHub-Token gespeichert'; Invoke-UpdateCheck } }
+    if ($a -eq 'Yes') { if (Save-GhToken $f 'GitHub-Token (Nur-Lese) als Kennwort eingeben (DPAPI, nur für deinen Benutzer lesbar)') { Out-Log 'GitHub-Token gespeichert' 'OK'; Invoke-UpdateCheck } }
     elseif ($a -eq 'No' -and $has) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue; Out-Log 'GitHub-Token gelöscht' }
 })
 $sepU = New-Object System.Windows.Controls.Separator
@@ -748,122 +1784,804 @@ $ui.bReload.Add_Click({ Update-Drives })
 
 $ui.bLoad.Add_Click({
     $p = $srcCfg
-    if (-not (Test-Path $p)) { Out-Log ('Noch keine config.json in der Quelle: ' + $p + ' - Felder ausfüllen, dann 3. Speichern'); return }
+    if (-not (Test-Path $p)) { Out-Log 'Noch keine Einstellungen gespeichert. Felder ausfüllen, dann "3. Speichern" oder "Stick fertig machen" klicken.' 'Hinweis' $p; return }
+    if ($script:Dirty) {
+        $q = [System.Windows.MessageBox]::Show($win, ('Es gibt ungespeicherte Änderungen.' + "`r`n`r`n" + 'Verwerfen und config.json neu laden?'), 'HUPilot - Neu laden', 'YesNo', 'Warning')
+        if ($q -ne 'Yes') { Out-Log 'Neu laden abgebrochen, die Änderungen bleiben im Fenster.'; return }
+    }
+    $rc = Read-CfgFile $p
+    if (-not $rc.Cfg) { Out-Log $rc.Error 'Fehler' $rc.Detail; return }
+    $script:Loading = $true
     try {
-        $c = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+        $c = $rc.Cfg
         $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
-        $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
-        $ui.tAdmName.Text = [string]$c.AdminName; $ui.tAdmPw.Text = [string]$c.AdminPassword; $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
-        $ui.tAdm2Name.Text = [string]$c.Admin2Name; $ui.tAdm2Pw.Text = [string]$c.Admin2Password; $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -eq $true)
+        $ui.tSsid.Text = [string]$c.WlanSsid; Set-Masked 'Key' ([string]$c.WlanKey)
+        $ui.tAdmName.Text = [string]$c.AdminName; Set-Masked 'AdmPw' ([string]$c.AdminPassword); $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
+        $ui.tAdm2Name.Text = [string]$c.Admin2Name; Set-Masked 'Adm2Pw' ([string]$c.Admin2Password); $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -eq $true)
         Set-EdKey ([string]$c.EditionKey)
+        # Ablaufdatum des Secrets gilt nur fuer genau dieses Secret (bei geaendertem Secret: unbekannt).
+        # Immer ins Vertragsformat bringen: PS 7 liefert aus ConvertFrom-Json ein DateTime, [string] davon waere ein anderes Format.
+        $script:SecretExpLoaded = Format-UtcText (ConvertTo-UtcDate $c.SecretExpires); $script:SecretExpLoadedFor = Get-StrHash ([string]$c.ClientSecret).Trim()
         $script:Extra = @{}
-        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages','EditionKey') { $script:Extra[$pr.Name] = $pr.Value } }
-        Out-Log ('Geladen: ' + $p)
-    } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages','EditionKey','SecretExpires') { $script:Extra[$pr.Name] = $pr.Value } }
+        Out-Log 'Einstellungen geladen (config.json)' 'OK' $p
+    } catch { Out-Log 'Einstellungen konnten nicht übernommen werden. Felder prüfen, neu ausfüllen und speichern.' 'Fehler' ($p + ': ' + $_.Exception.GetType().Name) }
+    finally { $script:Loading = $false }
+    $script:SavedSnap = Get-CfgSnap
+    Update-Dirty
 })
 
+# config.json lesen. Rueckgabe @{ Cfg; Error; Detail }. Bei kaputtem JSON nie die Meldung des Parsers weitergeben:
+# Windows PowerShell 5.1 haengt dort den ganzen Dateiinhalt an (mit Secret und Kennwoertern).
+function Read-CfgFile([string]$Path) {
+    $raw = $null
+    try { $raw = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8) }
+    catch { return @{ Cfg = $null; Error = 'config.json konnte nicht geöffnet werden. Ist der Stick noch da oder die Datei in einem anderen Programm offen?'; Detail = ($Path + ': ' + $_.Exception.GetType().Name) } }
+    try {
+        $c = $raw | ConvertFrom-Json
+        if ($null -eq $c -or $c -isnot [System.Management.Automation.PSCustomObject]) { throw 'kein Objekt' }
+        return @{ Cfg = $c; Error = ''; Detail = '' }
+    } catch {
+        return @{ Cfg = $null; Error = 'config.json ist beschädigt (kein gültiges Format). Felder neu ausfüllen und "3. Speichern" klicken, das schreibt die Datei neu.'; Detail = $Path }
+    }
+}
+
+# ---------- Ungespeicherte Aenderungen: Vergleich mit dem zuletzt geladenen/gespeicherten Stand ----------
+$script:Dirty = $false; $script:Loading = $false; $script:SavedSnap = $null
+function Get-CfgSnap { return (Get-Cfg | ConvertTo-Json -Depth 3 -Compress) }
+function Update-Dirty {
+    if ($script:Loading -or $null -eq $script:SavedSnap) { return }
+    $d = ((Get-CfgSnap) -cne $script:SavedSnap)
+    $script:Dirty = $d
+    $ui.tDirty.Visibility = $(if ($d) { 'Visible' } else { 'Collapsed' })
+    $win.Title = 'HUPilot-Setup v' + $SetupVer + $(if ($d) { '  * (ungespeichert)' } else { '' })
+    [void](Update-PkgState)
+}
+foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','tEdKey','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw') { $ui[$n].Add_TextChanged({ Update-Dirty }) }
+foreach ($n in 'pSecret','pEdKey','pKey','pAdmPw','pAdm2Pw') { $ui[$n].Add_PasswordChanged({ Update-Dirty }) }
+foreach ($n in 'cAskUser','cRmPkg') { $ui[$n].Add_Click({ Update-Dirty }) }
+
+# ---------- Hilfen: SHA256, Datum in UTC ----------
+function Get-BytesSha([byte[]]$Bytes) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { return (($sha.ComputeHash($Bytes) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $sha.Dispose() }
+}
+function Get-StrHash([string]$s) { return (Get-BytesSha ([System.Text.Encoding]::UTF8.GetBytes([string]$s))) }
+# SHA256 mit Zwischenspeicher (gleicher Pfad, gleiche Groesse, gleiche Aenderungszeit = gleicher Wert)
+$script:ShaCache = @{}
+function Get-FileShaCached([string]$Path) {
+    $fi = New-Object System.IO.FileInfo($Path)
+    $k = $Path + '|' + $fi.Length + '|' + $fi.LastWriteTimeUtc.Ticks
+    if ($null -eq $script:ShaCache) { $script:ShaCache = @{} }
+    if ($script:ShaCache.ContainsKey($k)) { return $script:ShaCache[$k] }
+    $h = Get-FileSha $Path
+    $script:ShaCache = @{}; $script:ShaCache[$k] = $h
+    return $h
+}
+function Get-FileSha([string]$Path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'Read')
+    try { return (($sha.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $fs.Dispose(); $sha.Dispose() }
+}
+# Graph-Datum (Text mit Z oder DateTime, je nach PowerShell-Version) sicher nach UTC
+function ConvertTo-UtcDate($v) {
+    if ($null -eq $v -or "$v" -eq '') { return $null }
+    if ($v -is [datetime]) {
+        if ($v.Kind -eq [DateTimeKind]::Unspecified) { return [datetime]::SpecifyKind($v, [DateTimeKind]::Utc) }
+        return $v.ToUniversalTime()
+    }
+    $d = [datetime]::MinValue
+    if ([datetime]::TryParse([string]$v, [Globalization.CultureInfo]::InvariantCulture, ([Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal), [ref]$d)) { return [datetime]::SpecifyKind($d, [DateTimeKind]::Utc) }
+    return $null
+}
+# Vertrag mit go.ps1: SecretExpires = UTC als yyyy-MM-ddTHH:mm:ssZ, leer = unbekannt
+function Format-UtcText($d) { if (-not $d) { return '' } return $d.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) + 'Z' }
+# ---------- Paketbau mitnehmen (Test): Kopie von ICD.exe samt Ordner in HUPilot\ADK-ICD (Haekchen "Paketbau mit auf den Stick") ----------
+#   Suchreihenfolge: installiertes Windows ADK am PC, sonst die Kopie in der Quelle. Die Kopie wird vor jedem Start geprueft:
+#   Pruefliste HUPilot-ICD.json (Pfad, SHA256, Groesse, eigene Signatur) neben dem Ordner x86, keine zusaetzlichen Dateien,
+#   und jede Datei, die Microsoft selbst signiert hat (eigene Signatur, nicht nur ueber den Katalog des installierten ADK),
+#   muss weiter gueltig von Microsoft signiert sein. ICD.exe immer. Im Original unsignierte Dateien deckt nur die Pruefsumme ab.
+function Get-IcdVersion([string]$Path) {
+    try { $v = (Get-Item -LiteralPath $Path -ErrorAction Stop).VersionInfo; return ('{0}.{1}.{2}.{3}' -f $v.FileMajorPart, $v.FileMinorPart, $v.FileBuildPart, $v.FilePrivatePart) } catch { return '' }
+}
+# Versionen vergleichen: 1 = $A neuer, -1 = $B neuer, 0 = gleich oder nicht vergleichbar
+function Compare-IcdVersion([string]$A, [string]$B) {
+    $va = $null; $vb = $null
+    if (-not [version]::TryParse([string]$A, [ref]$va) -or -not [version]::TryParse([string]$B, [ref]$vb)) { return 0 }
+    return $va.CompareTo($vb)
+}
+function Find-Icd([string]$Installed, [string]$CopyDir) {
+    if ($Installed -and [System.IO.File]::Exists($Installed)) { return [pscustomobject]@{ Path = $Installed; Source = 'ADK'; Version = (Get-IcdVersion $Installed) } }
+    if ($CopyDir) {
+        $c = Join-Path $CopyDir 'ICD.exe'
+        $root = Split-Path $CopyDir -Parent
+        # nur eine vollstaendige Kopie (Pruefliste vorhanden, sie wird als letzte Datei geschrieben) und kein Verweis
+        if ([System.IO.File]::Exists($c) -and [System.IO.File]::Exists((Join-Path $root 'HUPilot-ICD.json')) -and -not (Test-IsLink $root) -and -not (Test-IsLink $CopyDir)) { return [pscustomobject]@{ Path = $c; Source = 'Kopie'; Version = (Get-IcdVersion $c) } }
+    }
+    return $null
+}
+function Get-IcdText($Info) {
+    if (-not $Info) { return 'ICD.exe fehlt' }
+    if ($Info.Source -eq 'ADK') { return ('ICD.exe aus dem Windows ADK am PC, Version ' + $Info.Version) }
+    return ('ICD.exe aus der Kopie in der Quelle (Test), Version ' + $Info.Version)
+}
+function Test-IcdHere { $script:Icd = Find-Icd $icdInst $icdCopyDir; return [bool]$script:Icd }
+# Microsoft-Wurzeln fuer Code-Signaturen (Fingerabdruck SHA1). Quelle: Zertifikatsspeicher "Vertrauenswuerdige
+# Stammzertifizierungsstellen" unter Windows 11 (geprueft am 13.11.2026), Liste der Microsoft-Stammzertifikate in der
+# Microsoft-Doku "Microsoft Trusted Root Program". Alle 56 signierten Programmdateien von ICD 10.0.28000.1 enden auf 2010.
+#   Microsoft Root Certificate Authority 2010, 2011, die alte von 2001 und Identity Verification Root 2020
+$script:MsRootThumbs = @('3B1EFD3A66EA28B16697394703A72CA340A05BD5', '8F43288AD272F3103B6FB1428485EA3014C0BCFE', 'CDD4EEAE6000AC7F40C3802C171E30148030C072', 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2')
+# Signatur: Valid = Status gueltig, Ms = Zertifikatskette endet auf einer der Microsoft-Wurzeln oben, Embedded = Signatur steckt
+# in der Datei (Katalog zaehlt nicht, den gibt es an einem PC ohne ADK nicht)
+function Get-IcdSig([string]$Path) {
+    $s = Get-AuthenticodeSignature -LiteralPath $Path
+    $ms = $false
+    if ($s.SignerCertificate) {
+        try {
+            $ch = New-Object System.Security.Cryptography.X509Certificates.X509Chain
+            $ch.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+            [void]$ch.Build($s.SignerCertificate)
+            $n = $ch.ChainElements.Count
+            if ($n -ge 2) { $ms = ($script:MsRootThumbs -contains $ch.ChainElements[$n - 1].Certificate.Thumbprint.ToUpper()) }
+        } catch { $ms = $false }
+    }
+    return [pscustomobject]@{ Valid = ([string]$s.Status -eq 'Valid'); Ms = $ms; Embedded = ([string]$s.SignatureType -eq 'Authenticode') }
+}
+$script:IcdSigExt = @('.exe', '.dll', '.sys', '.mui')
+# Verweis (Junction, Symlink, Bereitstellungspunkt)? Solche Ordner werden nie verwendet und nie rekursiv geloescht.
+function Test-IsLink([string]$Path) {
+    try { return [bool]((Get-Item -LiteralPath $Path -Force -ErrorAction Stop).Attributes -band [System.IO.FileAttributes]::ReparsePoint) } catch { return $false }
+}# Im Original unsignierte Programmdateien (exe, dll, sys) je ICD-Version mit SHA256, ermittelt am installierten Windows ADK
+# (ICD 10.0.28000.1, 51 von 107 Programmdateien ohne eigene Signatur, 13.11.2026). Nur diese duerfen in der Kopie unsigniert sein,
+# und nur mit genau dieser Pruefsumme. Eine hier nicht aufgefuehrte ICD-Version wird abgelehnt, bis das Setup sie kennt.
+$script:IcdKnown = @{
+    '10.0.28000.1' = @{
+        'bcd.dll' = 'fe1c21d601bbfc3f873edb39e752c377b9d421a75dd55af6288ba9b34a1bba84'
+        'bootsvc.dll' = '630bb56e5b1ff1f4329af8cfa2608ff4a6ca5cdd66aeb19d8e7d180828140153'
+        'de\icdcommon.resources.dll' = 'e1335b4e2b76db72e93dee0cd348b0f47e20dc4c8697ad52cbb02e042f9381c9'
+        'de\icdui.resources.dll' = 'a515388b775e37a7c240493f15acfa01842fa6ccd885e84aea7dd24b6eb0d105'
+        'diager.dll' = '2f51ac4cef982f84c9dad955d59ba087afe73019b7042ad3254cb56ab653af7c'
+        'du.dll' = 'a2a09a42a0ac9e27f94cdc378cd79978f5133798588b212910805c7513ba1b14'
+        'en\icdcommon.resources.dll' = '537d0c87dfdf8b31220809a2c48d1f0de1c80b088852263a8d6716b6f2aa8335'
+        'en\icdui.resources.dll' = '72ac7b3a0aa2a364105ee4e41952d96f1e43a55b52872b45d13bd392cf65ee38'
+        'es\icdcommon.resources.dll' = '8548bd5f45c181eba7e6d802420b2bcc8c4282ed8cbd7a181e989e5d4a082e33'
+        'es\icdui.resources.dll' = 'ee43ef71a9a258f0408fb892c4c76bf5b35b1ee3f5f849ddc1435d2b520fd173'
+        'ffucomponents.dll' = '741f863b2d602b9ded156c105139765f815c773b193354cdcf785d3e3d3989bb'
+        'ffutool.exe' = 'e109c48f554eac3c4b196f12b6b37b97895585f99dcee537b74d4e447519b447'
+        'fr\icdcommon.resources.dll' = '296c914ad1b3252212d48e757ec9c2a95f16afdd8777c10a6b9befb29789c36b'
+        'fr\icdui.resources.dll' = '2e993a7e959793dc233245010676e2deaaf9279501d48db5ee82b983a26defec'
+        'hwreqchk.dll' = '1ae0fcc884c71b6f4628532d3a9f80fcbb05ad51f63767bd857061e0d7e84382'
+        'icdprovisioningnative.dll' = '9b88000b8e715263eff8dffee6481fb9ca68a5023bbb11a1621c3b52ec99c69b'
+        'imaging.dll' = '481533bc51d0664ffb7c7e92f1a375dedc109c6868bac4820e2f18d6adaadd92'
+        'interop.shdocvw.dll' = '9757731d62740a4926fc4f0f9e4508b16f099905b92fadb90fc067187776d448'
+        'it\icdcommon.resources.dll' = 'b8f34183d93e28411d4690470147e19d05ae14a50c11c48afbee5128ee553ca8'
+        'it\icdui.resources.dll' = 'bfc9a05b7d7e5412a6e52708c4c671ea0991c5e7b8dbed52508add0e477108e8'
+        'ja\icdcommon.resources.dll' = '909c2981e43c3fb281d8ad044e552e2209a0b4bc1f5d915acfbaae00dc802cfb'
+        'ja\icdui.resources.dll' = 'ccd5df8add00e98f07b508808c4247f346921bec00c301cbc7dc270631c82f10'
+        'ko\icdcommon.resources.dll' = 'b3779192bd2bff8bcd6207efb4c57df7c033155513f4b302b01d4d726c86545c'
+        'ko\icdui.resources.dll' = 'e82b8caedaadff9ed0d9e91eace03614a7e1b88607b91d2321e1bdbd744b4c16'
+        'metadeployment.dll' = '7e470c3c202e344f861ae7beaf5ccbbe77ad09e3953cfe541d44db1ce11a0a68'
+        'migisol.dll' = '065cededf948ac63987e6db743414d4254f8d3df55e89aa3780d8fe4348c7096'
+        'newtonsoft.json.dll' = 'a713da935a6b889daeb9541c247b8fe6cd4dcdc317cb86628dbf79c8d2f4778f'
+        'owin.dll' = '7fedc19bf6c18a0f9629e90040d38dafd69b62ef46baadb3a079071a53ef5619'
+        'ppkgtobase64.exe' = '50bbb250cd09c779864b2b40bea9010c0c2caad5c88f19596e86a12d5f8b703d'
+        'pt-br\icdcommon.resources.dll' = '2871dc25a99d436048d78df80e436dc8372e084be9eccb37923e561391ba9001'
+        'pt-br\icdui.resources.dll' = '661a8d466d190e3bdc9b5e2bb275a07a2ece8cba8d8f04ec2924a1340885e7a3'
+        'reagent.dll' = '1d16a7f455460a4ab02beee74bac167dc1de445802b209ada4d1b3b692705397'
+        'ru\icdcommon.resources.dll' = '7be3fded1d6662583b7a6c034a7efa8a8780e19173a4c9d34379d87b906c8bea'
+        'ru\icdui.resources.dll' = '8b0a348787694c5007962eee3e79ed189cb41d705142f3c53f724dd494bfe167'
+        'servicingcommon.dll' = 'bef5d078580c88571d39bf65fbf9d52484d9b053cc4d081ff77f2d7dab5bbdd4'
+        'setupplatform.dll' = '1386ebda8a188f473dac15f4afb1b455e8b306392a0b20263aea6dc70696021b'
+        'setupplatform.exe' = 'ea3212f71b106b7f360b708ad8bac9fe9c7c9411d87210795aaeaf0a3bc9eb84'
+        'ufphostm.dll' = 'dd8022423b11f916768bd6311dac2d5dcc44297008ca8297c84653bd61193451'
+        'unattend.dll' = '9fb23fc9ad4d85cb3b488ff1c313bc3f22b221a478016e8ecaaf926d18f2cc5b'
+        'updatecompression.dll' = '5d824b56ab5cd5672d7bd42bb71e27da4782d1c217499b4bb687640e37f0b051'
+        'upgradeagent.dll' = 'e3736bfb5b0e95394780f7e76bad9bfc2c30e25c8a7c705c4f6cac12ae1e6525'
+        'utcapi.dll' = 'c0af3e16617b377ffa9cb67189252f491b0df8ec9b9814f551816581a601feea'
+        'wdscore.dll' = '15056c656183124808b7f3cbe69f5116984b78a0166c11967cbca07604447291'
+        'wdsutil.dll' = '37377b956af97a512ddb7fcf0a659cfeef710fd100a15bb238c72a2566a752f1'
+        'winsetupboot.sys' = 'bf790c11174da5355048d504969ba36e804de75ffa1fc39474188bfb31d8ec71'
+        'winsetupmon.sys' = '201cb4587f2cd6a93a6835fb00f07a182a1d07685bfb1ded7910566ee5c0289e'
+        'wpx.dll' = 'a795badb929107cd7d680c609a480d888f6e5f86aeb21c81b532db89aa0eef3b'
+        'zh-hans\icdcommon.resources.dll' = '094acd37d86b6c43e9ed6ed91106c1815b814fe94a7f9fdcd9aa95dbd3665d1d'
+        'zh-hans\icdui.resources.dll' = '863973bc98fddda6c7b2cbb1d3f74f5f0d34b6ad71357c37fbd56157d758bb7b'
+        'zh-hant\icdcommon.resources.dll' = 'ca42f629801d3d05e418c832b6c7cd2ad7904072ca375487dd4cf69c29d7417d'
+        'zh-hant\icdui.resources.dll' = '8171b192f9479b60d4431d1cae8bb5935c27958f1474606b598197a4adb3d6ae'
+    }
+}
+
+function Get-IcdFileList([string]$Dir) {
+    $root = [System.IO.Path]::GetFullPath($Dir).TrimEnd('\') + '\'
+    return @(Get-ChildItem -LiteralPath $Dir -Recurse -File -Force -ErrorAction Stop | ForEach-Object { $_.FullName.Substring($root.Length) } | Sort-Object)
+}
+# Pruefliste fuer einen kopierten Ordner. $Sig: { param($Path) ... } wie Get-IcdSig (in Tests eine Attrappe)
+function New-IcdManifest([string]$Dir, [string]$Version, [scriptblock]$Sig = $null, [scriptblock]$Tick = $null) {
+    if (-not $Sig) { $Sig = { param($p) Get-IcdSig $p } }
+    $rl = @(Get-IcdFileList $Dir); $n = 0
+    $files = foreach ($r in $rl) {
+        $n++; if ($Tick -and ($n % 10 -eq 0 -or $n -eq $rl.Count)) { & $Tick $n $rl.Count }
+        $p = Join-Path $Dir $r
+        $signed = $false
+        if ($script:IcdSigExt -contains [System.IO.Path]::GetExtension($r).ToLower()) { $s = & $Sig $p; $signed = [bool]($s.Valid -and $s.Ms -and $s.Embedded) }
+        [pscustomobject][ordered]@{ Path = $r; Sha256 = (Get-FileSha $p); Size = (New-Object System.IO.FileInfo($p)).Length; Signed = $signed }
+    }
+    return [pscustomobject][ordered]@{ Format = 1; Version = $Version; Copied = (Format-UtcText ([datetime]::UtcNow)); Files = @($files) }
+}
+# Kopie pruefen. Rueckgabe: Liste der Befunde (leer = in Ordnung). -NoSig: nur Pruefsummen (Kontrolle nach dem Kopieren auf einen Stick).
+# $Known: Tabelle der im Original unsignierten Programmdateien (Standard $script:IcdKnown), $Tick: { param($n, $all) } fuer die Oberflaeche
+function Test-IcdCopy([string]$Dir, [string]$ManPath, [scriptblock]$Sig = $null, [switch]$NoSig, $Known = $null, [scriptblock]$Tick = $null) {
+    if (-not $Sig) { $Sig = { param($p) Get-IcdSig $p } }
+    if ($null -eq $Known) { $Known = $script:IcdKnown }
+    if (-not [System.IO.Directory]::Exists($Dir)) { return @('Ordner der Kopie fehlt') }
+    if ((Test-IsLink $Dir) -or (Test-IsLink (Split-Path $Dir -Parent))) { return @('Die Kopie ist ein Verweis auf einen anderen Ordner (Junction oder Symlink) und wird nicht verwendet') }
+    $m = $null
+    try { $m = Get-Content -LiteralPath $ManPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { return @('Prüfliste HUPilot-ICD.json fehlt oder ist beschädigt') }
+    $list = @{}
+    foreach ($e in @($m.Files)) { if ($e -and $e.Path) { $list[([string]$e.Path).ToLower()] = $e } }
+    if (-not $list.Count) { return @('Prüfliste HUPilot-ICD.json ist leer') }
+    # Das Feld Signed der Pruefliste zaehlt nicht: welche Programmdateien im Original unsigniert sind, steht fest im Setup
+    $kv = $null; if ($Known -and $Known.ContainsKey([string]$m.Version)) { $kv = $Known[[string]$m.Version] }
+    $bad = @()
+    if (-not $list.ContainsKey('icd.exe')) { $bad += 'ICD.exe fehlt in der Prüfliste' }
+    $have = @()
+    try { $have = @(Get-IcdFileList $Dir) } catch { return @('Ordner der Kopie nicht lesbar: ' + $_.Exception.Message) }
+    foreach ($r in $have) { if (-not $list.ContainsKey($r.ToLower())) { $bad += ($r + ': gehört nicht zur Kopie') } }
+    $n = 0; $all = $list.Count
+    foreach ($e in $list.Values) {
+        $n++; if ($Tick -and ($n % 10 -eq 0 -or $n -eq $all)) { & $Tick $n $all }
+        $rel = [string]$e.Path
+        if ($rel -match '(^|[\\/])\.\.([\\/]|$)' -or $rel -match '^[\\/]' -or $rel.Contains(':')) { $bad += ($rel + ': ungültiger Pfad in der Prüfliste'); continue }
+        $p = Join-Path $Dir $rel
+        if (-not [System.IO.File]::Exists($p)) { $bad += ($rel + ': fehlt'); continue }
+        $h = ''; try { $h = Get-FileSha $p } catch { $bad += ($rel + ': nicht lesbar'); continue }
+        if ($h -ne [string]$e.Sha256) { $bad += ($rel + ': verändert (Prüfsumme)'); continue }
+        if ($NoSig) { continue }
+        if ([System.IO.Path]::GetExtension($rel).ToLower() -notin '.exe', '.dll', '.sys') { continue }
+        # Programmdatei: gueltige eigene Signatur mit Kette auf eine Microsoft-Wurzel, sonst nur, wenn sie im Original
+        # dieser Version unsigniert ist und genau die im Setup hinterlegte Pruefsumme hat
+        $s = & $Sig $p
+        if ($s.Valid -and $s.Ms -and $s.Embedded) { continue }
+        if ($s.Embedded) { $bad += ($rel + ': fremde oder ungültige Signatur'); continue }
+        if (-not $kv) { $bad += ($rel + ': unsigniert, und die ICD-Version ' + [string]$m.Version + ' ist dem Setup nicht bekannt'); continue }
+        $k = $rel.ToLower()
+        if (-not ($kv.ContainsKey($k) -and [string]$kv[$k] -eq $h)) { $bad += ($rel + ': keine gültige Signatur von Microsoft') }
+    }
+    return $bad
+}
+# Version der Kopie in der Quelle: '' = keine Kopie, 'unvollständig' = Ordner ohne lesbare Pruefliste (z. B. abgebrochen),
+# 'Verweis' = Junction oder Symlink (wird nie verwendet)
+function Get-IcdCopyVersion([string]$Dir, [string]$ManPath) {
+    $root = Split-Path $Dir -Parent
+    if (-not [System.IO.Directory]::Exists($root)) { return '' }
+    if ((Test-IsLink $root) -or (Test-IsLink $Dir)) { return 'Verweis' }
+    if (-not [System.IO.Directory]::Exists($Dir)) { return 'unvollständig' }
+    try { $m = Get-Content -LiteralPath $ManPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json; if ([string]$m.Version) { return [string]$m.Version } } catch { }
+    return 'unvollständig'
+}
+# Eintraege unter HUPilot\, die "5. Auf Stick kopieren" im allgemeinen Durchlauf auslaesst (die Kopie des Paketbaus kommt
+# nur mit Haekchen und gesondert, siehe Copy-IcdToStick)
+function Test-SkipForStick([string]$Name) {
+    return ($Name -eq 'logs' -or $Name -eq 'config.json' -or $Name.StartsWith('_') -or $Name -like 'ADK-ICD*')
+}
+# ---------- Paketbau mit auf den Stick: Entscheidung, Zustand, Kopieren ----------
+# Reine Entscheidung fuer die Kopie des Paketbaus am Ziel.
+#   $On: Haekchen gesetzt. $PcVer: Version des installierten ADK ('' = keins oder dem Setup unbekannt).
+#   $SrcState/$SrcVer: Kopie in der Quelle, $DstState/$DstVer: Kopie am Ziel. Zustaende: ok, keine, kaputt, verweis.
+#   $Self: das Ziel ist die Quelle selbst (Setup laeuft vom Stick), dann kommen die Dateien nur aus dem ADK.
+#   Action: nichts, bleibt (Haekchen aus, Kopie am Ziel bleibt), grau (keine Herkunft), schon-da, kopieren, aktualisieren,
+#   ersetzen, nicht-ueberschreiben (Ziel neuer), verweis (Ziel ist Junction oder Symlink). Source: ADK, Quelle oder leer.
+function Get-IcdPlan([bool]$On, [string]$PcVer, [string]$SrcState, [string]$SrcVer, [string]$DstState, [string]$DstVer, [bool]$Self = $false) {
+    $src = $(if ($PcVer) { 'ADK' } elseif (-not $Self -and $SrcState -eq 'ok') { 'Quelle' } else { '' })
+    $have = $(if ($src -eq 'ADK') { $PcVer } elseif ($src -eq 'Quelle') { $SrcVer } else { '' })
+    $act = ''
+    if (-not $On) { $act = $(if ($DstState -and $DstState -ne 'keine') { 'bleibt' } else { 'nichts' }) }
+    elseif ($DstState -eq 'verweis') { $act = 'verweis' }
+    elseif ($DstState -eq 'ok') {
+        if (-not $have) { $act = 'schon-da' }
+        else { $c = Compare-IcdVersion $DstVer $have; $act = $(if ($c -eq 0) { 'schon-da' } elseif ($c -lt 0) { 'aktualisieren' } else { 'nicht-ueberschreiben' }) }
+    }
+    elseif (-not $src) { $act = 'grau' }
+    elseif ($DstState -eq 'kaputt') { $act = 'ersetzen' }
+    else { $act = 'kopieren' }
+    return [pscustomobject]@{ Action = $act; Source = $src; Have = $have }
+}
+# Version des installierten ADK, nur wenn das Setup sie kennt (sonst wuerde die Kopie vor dem Start abgelehnt)
+function Get-IcdPcVersion {
+    if (-not [System.IO.File]::Exists($icdInst)) { return '' }
+    $v = Get-IcdVersion $icdInst
+    if ($script:IcdKnown.ContainsKey($v)) { return $v }
+    return ''
+}
+# Zustand einer Kopie unter $Root (= ...\HUPilot\ADK-ICD). -Full: mit Pruefsummen und Signaturen (nur dann zaehlt "ok"
+# als gueltig). Rueckgabe: State (ok, keine, kaputt, verweis), Version, Issues
+function Get-IcdState([string]$Root, [switch]$Full) {
+    $x86 = Join-Path $Root 'x86'; $man = Join-Path $Root 'HUPilot-ICD.json'
+    $v = Get-IcdCopyVersion $x86 $man
+    if (-not $v) { return [pscustomobject]@{ State = 'keine'; Version = ''; Issues = @() } }
+    if ($v -eq 'Verweis') { return [pscustomobject]@{ State = 'verweis'; Version = ''; Issues = @('Verweis') } }
+    if ($v -eq 'unvollständig') { return [pscustomobject]@{ State = 'kaputt'; Version = ''; Issues = @('ohne Prüfliste') } }
+    if ($Full) {
+        $bad = @(Test-IcdCopy $x86 $man -Tick { param($n, $all) if ($n % 30 -eq 0) { Step-Ui } })
+        if ($bad.Count) { return [pscustomobject]@{ State = 'kaputt'; Version = $v; Issues = $bad } }
+    }
+    return [pscustomobject]@{ State = 'ok'; Version = $v; Issues = @() }
+}
+# Groesse des Paketbaus in MB (ADK-Ordner, sonst Pruefliste der Kopie in der Quelle), fuer Haekchen und Platzpruefung
+function Get-IcdSizeMB {
+    try { if ([System.IO.File]::Exists($icdInst)) { return [math]::Round(((@(Get-ChildItem -LiteralPath (Split-Path $icdInst -Parent) -Recurse -File -Force) | Measure-Object Length -Sum).Sum) / 1MB) } } catch { }
+    try { $m = Get-Content -LiteralPath $icdCopyMan -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json; return [math]::Round(((@($m.Files) | Measure-Object Size -Sum).Sum) / 1MB) } catch { }
+    return 0
+}
+# Kopie von $FromX86 nach $TargetHU\ADK-ICD ueber den Zwischenordner ADK-ICD.neu: kopieren, jede Datei per SHA256 gegen
+# das Original, Pruefliste als LETZTE Datei, Pruefung wie vor einem Start, erst dann die alte Kopie ersetzen.
+# $Where: Ort fuer die Meldungen. $AskLowSpace: bei wenig freiem Platz nachfragen. Rueckgabe: $true = Kopie gueltig
+function Copy-IcdTree([string]$FromX86, [string]$TargetHU, [string]$Ver, [string]$Where, [bool]$AskLowSpace = $false) {
+    $tRoot = Join-Path $TargetHU 'ADK-ICD'; $stage = Join-Path $TargetHU 'ADK-ICD.neu'; $oldDir = Join-Path $TargetHU 'ADK-ICD.alt'
+    if ((Test-IsLink $tRoot) -or (Test-IsLink $FromX86) -or (Test-IsLink (Split-Path $FromX86 -Parent))) { Out-Log ('HUPilot\ADK-ICD ' + $Where + ' oder die Herkunft ist ein Verweis auf einen anderen Ordner. Es wird nichts kopiert und nichts gelöscht.') 'Fehler' $tRoot; return $false }
+    $files = @(); try { $files = @(Get-ChildItem -LiteralPath $FromX86 -Recurse -File -Force -ErrorAction Stop | Where-Object { $_.Name -ne 'HUPilot-ICD.json' }) } catch { Out-Log 'Der Paketbau ist nicht lesbar.' 'Fehler' $_.Exception.Message; return $false }
+    $size = [int64](($files | Measure-Object Length -Sum).Sum); $mb = [math]::Ceiling($size / 1MB)
+    $old = 0; try { if ([System.IO.Directory]::Exists($tRoot)) { $old = [int64]((@(Get-ChildItem -LiteralPath $tRoot -Recurse -File -Force) | Measure-Object Length -Sum).Sum) } } catch { }
+    $free = [int64]::MaxValue
+    try { $free = (New-Object System.IO.DriveInfo([System.IO.Path]::GetPathRoot($TargetHU))).AvailableFreeSpace } catch { Out-Log 'Freier Platz am Ziel ist nicht prüfbar (Netzwerkpfad), es wird ohne Prüfung kopiert.' 'Hinweis' $TargetHU }
+    if ($free -lt $size + 20MB) { Out-Log ('Zu wenig Platz ' + $Where + ' für den Paketbau: nötig ' + ($mb + 20) + ' MB, frei ' + [math]::Floor($free / 1MB) + ' MB.') 'Fehler'; return $false }
+    if ($AskLowSpace -and $free - $size -lt 200MB) {
+        if ([System.Windows.MessageBox]::Show($win, ('Nach dem Kopieren des Paketbaus (' + $mb + ' MB) bleiben ' + $Where + ' nur noch ' + [math]::Floor(($free - $size) / 1MB) + ' MB frei.' + "`r`n`r`n" + 'Trotzdem kopieren?'), 'HUPilot - Paketbau', 'YesNo', 'Warning') -ne 'Yes') { Out-Log 'Paketbau nicht kopiert (wenig Platz)'; return $false }
+    }
+    $okCopy = $false
+    try {
+        foreach ($d in @($stage, $oldDir)) { if ([System.IO.Directory]::Exists($d)) { if (Test-IsLink $d) { throw ($d + ' ist ein Verweis') }; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop } }
+        $sx86 = Join-Path $stage 'x86'
+        [void][System.IO.Directory]::CreateDirectory($sx86)
+        $rootFull = [System.IO.Path]::GetFullPath($FromX86).TrimEnd('\') + '\'
+        Out-Log ('Kopiere den Paketbau ' + $Where + ' (' + $files.Count + ' Dateien, ' + $mb + ' MB) ...') '' $FromX86
+        $i = 0; $done = 0.0
+        foreach ($fi in $files) {
+            $to = Join-Path $sx86 $fi.FullName.Substring($rootFull.Length)
+            $td = Split-Path $to -Parent
+            if (-not [System.IO.Directory]::Exists($td)) { [void][System.IO.Directory]::CreateDirectory($td) }
+            [System.IO.File]::Copy($fi.FullName, $to, $true)
+            $i++; $done += $fi.Length
+            if ($i % 10 -eq 0 -or $i -eq $files.Count) { Set-ReadyText ('Kopiere Paketbau ' + [math]::Floor(100 * $done / [math]::Max(1, $size)) + ' % ...'); Step-Ui }
+        }
+        try { $dl = [System.IO.Path]::GetPathRoot($TargetHU).Substring(0, 1); if ($dl -match '[A-Za-z]') { Write-VolumeCache -DriveLetter $dl -ErrorAction Stop } } catch { }
+        $diff = @(); $i = 0
+        foreach ($fi in $files) {
+            $rel = $fi.FullName.Substring($rootFull.Length)
+            if ((Get-FileSha $fi.FullName) -ne (Get-FileSha (Join-Path $sx86 $rel))) { $diff += $rel }
+            $i++; if ($i % 10 -eq 0 -or $i -eq $files.Count) { Set-ReadyText ('Kontrolliere Paketbau ' + [math]::Floor(100 * $i / [math]::Max(1, $files.Count)) + ' % ...'); Step-Ui }
+        }
+        if ($diff.Count) { throw ('Kontrolle nicht bestanden, abweichend: ' + (@($diff | Select-Object -First 8) -join ', ')) }
+        $man = New-IcdManifest $sx86 $Ver $null { param($n, $all) if ($n % 20 -eq 0) { Step-Ui } }
+        $man | Add-Member -NotePropertyName From -NotePropertyValue $FromX86
+        # Pruefliste als LETZTE Datei: eine abgebrochene Kopie gilt nie als vorhanden
+        [System.IO.File]::WriteAllText((Join-Path $stage 'HUPilot-ICD.json'), ($man | ConvertTo-Json -Depth 4), $enc)
+        $chk = @(Test-IcdCopy $sx86 (Join-Path $stage 'HUPilot-ICD.json') -Tick { param($n, $all) if ($n % 10 -eq 0 -or $n -eq $all) { Set-ReadyText ('Prüfe Paketbau ' + [math]::Floor(100 * $n / [math]::Max(1, $all)) + ' % ...'); Step-Ui } })
+        if ($chk.Count) { throw ('Prüfung der Kopie nicht bestanden: ' + (@($chk | Select-Object -First 8) -join '; ')) }
+        if ([System.IO.Directory]::Exists($tRoot)) { [System.IO.Directory]::Move($tRoot, $oldDir) }
+        [System.IO.Directory]::Move($stage, $tRoot)
+        if ([System.IO.Directory]::Exists($oldDir)) { Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue }
+        $okCopy = $true
+    } catch {
+        Out-Log ('Paketbau konnte nicht ' + $Where + ' kopiert werden. Eine bisherige Kopie bleibt unverändert.') 'Fehler' $_.Exception.Message
+        if ([System.IO.Directory]::Exists($oldDir) -and -not [System.IO.Directory]::Exists($tRoot)) { try { [System.IO.Directory]::Move($oldDir, $tRoot) } catch { } }
+    } finally {
+        if ([System.IO.Directory]::Exists($stage) -and -not (Test-IsLink $stage)) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    return $okCopy
+}
+# Abgleich der Kopie am Ziel ($TargetHU = <Stick>\HUPilot) nach Get-IcdPlan: nur das Noetige tun, je Fall eine Protokollzeile.
+# Rueckgabe: die Entscheidung (Action)
+function Sync-IcdToTarget([string]$TargetHU, [bool]$On, [string]$Where, [bool]$Self = $false) {
+    $tRoot = Join-Path $TargetHU 'ADK-ICD'
+    $pc = Get-IcdPcVersion
+    # Zustand am Ziel: mit Pruefung nur, wenn das Haekchen gesetzt ist (eine vorhandene Kopie zaehlt nur nach bestandener Pruefung)
+    if ($On) { Set-ReadyText 'Prüfe Paketbau am Ziel ...'; Step-Ui }
+    $dst = Get-IcdState $tRoot -Full:$On
+    $srcSt = [pscustomobject]@{ State = 'keine'; Version = '' }
+    if ($On -and -not $Self -and -not $pc -and [System.IO.Path]::GetFullPath($tRoot).TrimEnd('\') -ine [System.IO.Path]::GetFullPath($icdCopyRoot).TrimEnd('\')) { $srcSt = Get-IcdState $icdCopyRoot -Full }
+    $p = Get-IcdPlan $On $pc $srcSt.State $srcSt.Version $dst.State $dst.Version $Self
+    switch ($p.Action) {
+        'nichts' { }
+        'bleibt' { Out-Log ('Paketbau: ' + $Where + ' liegt eine Kopie, sie bleibt unverändert (Häkchen aus).') '' $tRoot }
+        'grau' { Out-Log 'Paketbau nicht mitgenommen: kein Windows ADK an diesem PC und keine gültige Kopie in der Quelle.' 'Hinweis' }
+        'verweis' { Out-Log ('Paketbau: HUPilot\ADK-ICD ' + $Where + ' ist ein Verweis auf einen anderen Ordner. Er wird nicht verwendet und nicht überschrieben.') 'Fehler' $tRoot }
+        'schon-da' { Out-Log ('Paketbau ist schon ' + $Where + ' (Version ' + $dst.Version + '), geprüft') 'OK' $tRoot }
+        'nicht-ueberschreiben' { Out-Log ('Paketbau ' + $Where + ' hat eine neuere Version (' + $dst.Version + ') als hier (' + $p.Have + '). Sie bleibt.') 'Hinweis' $tRoot }
+        default {
+            $from = $(if ($p.Source -eq 'ADK') { Split-Path $icdInst -Parent } else { $icdCopyDir })
+            if ($p.Action -eq 'ersetzen') { Out-Log ('Paketbau ' + $Where + ' ist beschädigt oder unvollständig und wird ersetzt.') 'Hinweis' (@($dst.Issues | Select-Object -First 6) -join '; ') }
+            if (Copy-IcdTree $from $TargetHU $p.Have $Where $Self) {
+                if ($p.Action -eq 'aktualisieren') { Out-Log ('Paketbau ' + $Where + ' aktualisiert von Version ' + $dst.Version + ' auf ' + $p.Have + ', geprüft') 'OK' $tRoot }
+                else { Out-Log ('Paketbau ' + $Where + ' kopiert (Version ' + $p.Have + '), geprüft') 'OK' $tRoot }
+            }
+        }
+    }
+    return $p.Action
+}
+# Kopie des Paketbaus auf einen Stick ($Dst = <Stick>\HUPilot), Teil von "5. Auf Stick kopieren" (Fehler machen den Stick nicht unbrauchbar)
+# Der Abgleich schreibt seinen Fortschritt in den Zustandstext neben dem Hauptknopf; danach steht dort wieder, was vorher
+# stand (bei "Stick fertig machen" der laufende Schritt, sonst "Bereit fuer ..."), auch bei Fehler oder Abbruch.
+function Copy-IcdToStick([string]$Dst, [bool]$With) {
+    $prev = $null
+    try { $prev = @{ Text = [string]$ui.tReady.Text; Tip = [string]$ui.tReady.ToolTip; Color = [string]$script:ReadyColor } } catch { }
+    try { [void](Sync-IcdToTarget $Dst $With ('am Stick ' + [System.IO.Path]::GetPathRoot($Dst).TrimEnd('\')) $false) }
+    catch { Out-Log 'Paketbau konnte nicht auf den Stick kopiert werden. Der Stick ist sonst fertig.' 'Fehler' $_.Exception.Message }
+    finally {
+        if ($prev) {
+            try {
+                if ($prev.Text) { Set-ReadyText $prev.Text $(if ($prev.Color) { $prev.Color } else { 'HuText' }) $prev.Tip } else { $script:HintDrive = '?'; Update-ReadyHint }
+            } catch { }
+        }
+    }
+}
+# Warnstufe fuer das Secret beim Kopieren: expired / soon (< 3 Tage) / ok / unknown
+function Get-SecretWarnLevel($EndUtc, $NowUtc) {
+    if (-not $EndUtc) { return 'unknown' }
+    $span = $EndUtc - $NowUtc
+    if ($span.TotalSeconds -le 0) { return 'expired' }
+    if ($span.TotalDays -lt 3) { return 'soon' }
+    return 'ok'
+}
+$script:SecretEnd = $null; $script:SecretEndFor = ''; $script:SecretExpLoaded = ''; $script:SecretExpLoadedFor = ''
+# Ablaufdatum des gerade eingetragenen Secrets (aus der letzten Pruefung, sonst aus config.json, wenn es dasselbe Secret ist)
+function Get-SecretExpiresValue([string]$Secret) {
+    $hh = Get-StrHash $Secret
+    if ($script:SecretEnd -and $script:SecretEndFor -eq $hh) { return (Format-UtcText $script:SecretEnd) }
+    if ($script:SecretExpLoaded -and $script:SecretExpLoadedFor -eq $hh) { return $script:SecretExpLoaded }
+    return ''
+}
+
+# ---------- Anmeldung: Fehlerart unterscheiden (kein Netz / Secret abgelaufen / Secret falsch / sonst) ----------
+function Get-TokenErrorKind([string]$Message, [bool]$HasResponse) {
+    if ($Message -match 'AADSTS7000222') { return 'expired' }
+    if ($Message -match 'AADSTS7000215') { return 'wrong' }
+    if ($Message -match 'AADSTS\d+') { return 'config' }
+    if (-not $HasResponse) { return 'net' }
+    if ($Message -match 'Remotename|remote name|No such host|nicht aufgel|timed out|Zeitüberschreitung|Zeitlimit|timeout|Unable to connect|Verbindung mit dem Remoteserver|actively refused') { return 'net' }
+    return 'other'
+}
+$script:TokenErr = ''; $script:TokenMsg = ''
 function Get-ApiToken {
-    if (-not (Test-Fields @('TenantId', 'ClientId', 'ClientSecret'))) { return $null }
+    if (-not (Test-Fields @('TenantId', 'ClientId', 'ClientSecret'))) { $script:TokenErr = 'fields'; $script:TokenMsg = $script:FieldErr; return $null }
     $c = Get-Cfg
+    $script:TokenErr = ''; $script:TokenMsg = ''
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $body = @{ grant_type = 'client_credentials'; client_id = $c.ClientId; client_secret = $c.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
-        return (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded').access_token
+        $tr = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 30
+        # fuer Get-ApiTokenCached merken (5 Minuten Reserve vor dem Ablauf)
+        $sec = 3600; try { $sec = [int]$tr.expires_in } catch { }
+        $script:TokCache = @{ Token = [string]$tr.access_token; Until = (Get-Date).AddSeconds([math]::Max(0, $sec - 300)); For = (Get-StrHash ($c.TenantId + '|' + $c.ClientId + '|' + $c.ClientSecret)) }
+        return $tr.access_token
     } catch {
         $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }
-        if ($m -match 'AADSTS7000222') { $m = 'Secret ABGELAUFEN' } elseif ($m -match 'AADSTS7000215') { $m = 'Secret FALSCH (Secret-ID statt Wert?)' }
-        Out-Log ('FEHLER Anmeldung: ' + $m)
+        $hasResp = $false; try { $hasResp = ($null -ne $_.Exception.Response) } catch { }
+        $kind = Get-TokenErrorKind $m $hasResp
+        $script:TokenErr = $kind
+        $txt = 'Anmeldung bei Microsoft fehlgeschlagen. Später nochmal versuchen, Details im Protokoll.'
+        if ($kind -eq 'expired') { $txt = 'Das Secret ist abgelaufen. In Entra bei der App-Registrierung ein neues Geheimnis anlegen und den Wert bei "Secret (Wert)" eintragen.' }
+        elseif ($kind -eq 'wrong') { $txt = 'Das Secret ist falsch, oft ist die Geheimnis-ID statt des Werts kopiert. Den Wert bei "Secret (Wert)" eintragen.' }
+        elseif ($kind -eq 'config') { $txt = 'Microsoft lehnt die Anmeldung ab. Tenant-ID und App-ID (Client) prüfen.' }
+        elseif ($kind -eq 'net') { $txt = 'Keine Verbindung zu Microsoft. Internet prüfen. Das Secret wurde nicht geprüft.' }
+        $script:TokenMsg = $txt
+        Out-Log $txt $(if ($kind -eq 'net') { 'Hinweis' } else { 'Fehler' }) $m
         return $null
     }
 }
 
+# Token wiederverwenden, solange es gilt und Tenant, App und Secret gleich sind (Status-Aktualisierung alle 60 s)
+$script:TokCache = $null
+function Get-ApiTokenCached {
+    $c = Get-Cfg
+    $tc = $script:TokCache
+    if ($tc -and $tc.Token -and (Get-Date) -lt $tc.Until -and $tc.For -eq (Get-StrHash ($c.TenantId + '|' + $c.ClientId + '|' + $c.ClientSecret))) { $script:TokenErr = ''; return $tc.Token }
+    return (Get-ApiToken)
+}
 function Format-Rest([TimeSpan]$Span) {
     if ($Span.TotalSeconds -le 0) { return 'abgelaufen' }
     $d = [int][Math]::Floor($Span.TotalDays)
     return ('noch ' + $(if ($d) { '' + $d + ' Tag' + $(if ($d -ne 1) { 'e' } else { '' }) + ' ' } else { '' }) + $Span.Hours + ' Std')
 }
 function Show-SecretExpiry([string]$Token) {
-    # Secret-Ablauf (optional: braucht Application.Read.All fuer die App)
+    # Secret-Ablauf (optional: braucht Application.Read.All fuer die App). Merkt das Ablaufdatum des verwendeten Secrets fuer SecretExpires.
     $h = @{ Authorization = 'Bearer ' + $Token }
     try {
         $c = Get-Cfg
-        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h
+        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h -TimeoutSec 30
         $hint = $c.ClientSecret.Substring(0, [Math]::Min(3, $c.ClientSecret.Length))
         $mine = @($app.passwordCredentials | Where-Object { $_.hint -ceq $hint })
         $list = $(if ($mine.Count) { $mine } else { @($app.passwordCredentials) })
-        $minDays = $null; $minEnd = $null
+        $minDays = $null; $minEnd = $null; $minUtc = $null
         foreach ($pc in $list) {
-            $end = ([datetime]$pc.endDateTime).ToLocalTime()
+            $utc = ConvertTo-UtcDate $pc.endDateTime
+            if (-not $utc) { continue }
+            $end = $utc.ToLocalTime()
             $span = $end - (Get-Date)
             $days = $span.TotalDays
-            if ($null -eq $minDays -or $days -lt $minDays) { $minDays = $days; $minEnd = $end }
-            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + '  -> ' + (Format-Rest $span)
-            if ($days -lt 0) { $txt = 'ACHTUNG ABGELAUFEN: ' + $txt } elseif ($days -lt 1) { $txt = 'ACHTUNG BALD ABGELAUFEN: ' + $txt }
-            Out-Log $txt
+            if ($null -eq $minDays -or $days -lt $minDays) { $minDays = $days; $minEnd = $end; $minUtc = $utc }
+            # Die ersten Zeichen des Secrets (hint) nur im Fenster, nicht in der Protokolldatei
+            $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + ', ' + (Format-Rest $span)
+            $ftx = 'Secret "' + $pc.displayName + '" gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + ', ' + (Format-Rest $span)
+            if ($days -lt 0) { $sfx = '. Abgelaufen: in Entra ein neues Geheimnis anlegen und eintragen.'; Out-Log ($txt + $sfx) 'Fehler' '' ($ftx + $sfx) }
+            elseif ($days -lt 3) { $sfx = '. Läuft bald ab: rechtzeitig ein neues Geheimnis anlegen.'; Out-Log ($txt + $sfx) 'Hinweis' '' ($ftx + $sfx) }
+            else { Out-Log $txt 'OK' '' $ftx }
         }
-        if (-not $mine.Count) { Out-Log '  (verwendetes Secret nicht eindeutig erkannt - alle Secrets der App angezeigt)' }
+        if (-not $mine.Count) { Out-Log 'Das verwendete Secret ist nicht eindeutig erkannt, deshalb stehen alle Secrets der App oben.' }
         if ($mine.Count -and $null -ne $minDays) {
+            $script:SecretEnd = $minUtc; $script:SecretEndFor = Get-StrHash $c.ClientSecret
             Set-SubSecret ('Secret gültig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (' + (Format-Rest ($minEnd - (Get-Date))) + ')') ($minDays -lt 1)
         }
     } catch {
-        Out-Log 'Secret-Ablauf nicht lesbar (optional: Anwendungsberechtigung Application.Read.All für HUPilot-Upload)'
+        Out-Log 'Ablaufdatum des Secrets nicht lesbar. Optional: der App die Berechtigung Application.Read.All geben.' 'Hinweis' $_.Exception.Message
     }
 }
 function Set-SubSecret([string]$Text, [bool]$Warn) {
     $ui.tSub.Text = $Text
-    $ui.tSub.Foreground = $(if ($Warn) { [System.Windows.Media.Brushes]::Firebrick } else { [System.Windows.Media.Brushes]::DimGray })
+    $ui.tSub.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $(if ($Warn) { 'HuErr' } else { 'HuMuted' }))
+}
+# Autopilot lesen (Berechtigung DeviceManagementServiceConfig.ReadWrite.All). Rueckgabe: Fehlertext oder '' = ok
+function Test-ApAccess([string]$Token) {
+    try {
+        $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=1' -Headers @{ Authorization = 'Bearer ' + $Token } -TimeoutSec 30
+        Out-Log 'Zugriff auf Autopilot OK' 'OK' ('' + @($r.value).Count + ' Eintrag gelesen')
+        return ''
+    } catch { Out-Log 'Kein Zugriff auf Autopilot. Der App fehlt die Berechtigung DeviceManagementServiceConfig.ReadWrite.All (mit Administratorzustimmung).' 'Fehler' $_.Exception.Message; return $_.Exception.Message }
 }
 
 $ui.bTest.Add_Click({
-    $tok = Get-ApiToken; if (-not $tok) { return }
-    Out-Log 'Token OK'
-    $h = @{ Authorization = 'Bearer ' + $tok }
-    try {
-        $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=1' -Headers $h
-        Out-Log ('Autopilot-Zugriff OK (' + @($r.value).Count + ' Eintrag gelesen)')
-    } catch { Out-Log ('FEHLER Autopilot-Zugriff (Berechtigung DeviceManagementServiceConfig.ReadWrite.All?): ' + $_.Exception.Message) }
+    Set-Step 'Test' 'run'; Step-Ui
+    $tok = Get-ApiToken
+    if (-not $tok) { Set-Step 'Test' $(if ($script:TokenErr -eq 'net') { 'warn' } else { 'err' }) $script:TokenMsg; return }
+    Out-Log 'Anmeldung bei Microsoft OK' 'OK'
+    $apErr = Test-ApAccess $tok
     Show-SecretExpiry -Token $tok
+    if ($apErr) { Set-Step 'Test' 'err' 'kein Zugriff auf Autopilot' } else { Set-Step 'Test' 'ok' }
 })
 
 function Save-Cfg {
-    if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey'))) { return $false }
+    if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey') -Admin)) { Set-Step 'Write' 'err' $script:FieldErr; return $false }
     try {
-        [System.IO.File]::WriteAllText($srcCfg, (Get-Cfg | ConvertTo-Json -Depth 3), $enc)
-        Out-Log ('Gespeichert: ' + $srcCfg)
+        $o = Get-Cfg
+        $expUtc = ConvertTo-UtcDate (Get-SecretExpiresValue ([string]$o.ClientSecret))
+        $o['SecretExpires'] = Format-UtcText $expUtc
+        [System.IO.File]::WriteAllText($srcCfg, ($o | ConvertTo-Json -Depth 3), $enc)
+        Out-Log ('Gespeichert' + $(if ($expUtc) { ' (Secret gültig bis ' + $expUtc.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ')' } else { '' })) 'OK' $srcCfg
+        $script:SecretExpLoaded = [string]$o.SecretExpires; $script:SecretExpLoadedFor = Get-StrHash ([string]$o.ClientSecret)
+        $script:SavedSnap = Get-CfgSnap
+        Update-Dirty
+        Set-Step 'Write' 'ok'
         return $true
-    } catch { Out-Log ('FEHLER Speichern: ' + $_.Exception.Message); return $false }
+    } catch { $script:FieldErr = 'Speichern fehlgeschlagen. Ist die Quelle schreibgeschützt oder der Stick voll?'; Out-Log $script:FieldErr 'Fehler' ($srcCfg + ': ' + $_.Exception.Message); Set-Step 'Write' 'err' $_.Exception.Message; return $false }
 }
 
 $ui.bWrite.Add_Click({ [void](Save-Cfg) })
 
-function Copy-ToStick([string]$dr) {
+# ---------- WLAN-Paket: Fingerabdruck (kein Klartext) neben dem Paket, Stand aktuell / veraltet / fehlt ----------
+#   HUPilot-WLAN.fingerprint.json: SHA256 ueber SSID, WLAN-Kennwort, Admin-Namen und -Kennwoerter (mit Zufallswert) + SHA256 der ppkg.
+#   Liegt neben dem Paket und uebersteht Updates (Pull.ps1 schont HUPilot\HUPilot-WLAN.*).
+$srcPkgFp = Join-Path $srcHU 'HUPilot-WLAN.fingerprint.json'
+function Get-PkgInputHash($c, [string]$Salt) {
+    $s = (@('HUPilot-WLAN v1', $Salt, [string]$c.WlanSsid, [string]$c.WlanKey, [string]$c.AdminName, [string]$c.AdminPassword, [string]$c.Admin2Name, [string]$c.Admin2Password) -join "`n")
+    return (Get-StrHash $s)
+}
+function Write-PkgFingerprint($c, [string]$PkgPath, [string]$FpPath) {
+    $salt = [guid]::NewGuid().ToString('N')
+    $o = [ordered]@{ Version = 1; Salt = $salt; Input = (Get-PkgInputHash $c $salt); Package = (Get-FileSha $PkgPath); Built = (Format-UtcText ([datetime]::UtcNow)) }
+    [System.IO.File]::WriteAllText($FpPath, ([pscustomobject]$o | ConvertTo-Json), $enc)
+}
+# Rueckgabe: aus (kein Paket verwendet), fremd (anderer Paketname), fehlt, unbekannt (ohne Fingerabdruck), veraltet, aktuell
+function Get-PkgState($c, [string]$PkgPath, [string]$FpPath) {
+    $wp = [string]$c.WlanPackage
+    if (-not $wp) { return 'aus' }
+    if ($wp -ne (Split-Path $PkgPath -Leaf)) { return 'fremd' }
+    if (-not [System.IO.File]::Exists($PkgPath)) { return 'fehlt' }
+    if (-not [System.IO.File]::Exists($FpPath)) { return 'unbekannt' }
     try {
+        $fp = Get-Content -LiteralPath $FpPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ([string]$fp.Input -ne (Get-PkgInputHash $c ([string]$fp.Salt))) { return 'veraltet' }
+        if ([string]$fp.Package -ne (Get-FileShaCached $PkgPath)) { return 'veraltet' }
+        return 'aktuell'
+    } catch { return 'unbekannt' }
+}
+$script:PkgStateText = @{
+    aus = @('Paket: nicht verwendet', 'HuMuted', 'open'); fremd = @('Paket: eigenes (nicht geprüft)', 'HuMuted', 'open')
+    fehlt = @('Paket: fehlt', 'HuErr', 'err'); unbekannt = @('Paket: unbekannt', 'HuWarn', 'warn')
+    veraltet = @('Paket: veraltet', 'HuWarn', 'warn'); aktuell = @('Paket: aktuell', 'HuOk', 'ok')
+}
+function Update-PkgState {
+    $s = 'unbekannt'
+    try { $s = Get-PkgState (Get-Cfg) $srcPkg $srcPkgFp } catch { }
+    $t = $script:PkgStateText[$s]
+    $ui.tPkg.Text = $t[0]
+    try { $ui.tPkg.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $t[1]) } catch { }
+    # Ist der letzte Bau gescheitert, bleibt die Ampel rot mit dem Grund, bis wieder gebaut wird
+    [void](Test-IcdHere)
+    if ($script:PkgBuildErr) { Set-Step 'Pkg' 'err' ($script:PkgBuildErr + '; ' + (Get-IcdText $script:Icd)) } else { Set-Step 'Pkg' $t[2] (Get-IcdText $script:Icd) }
+    return $s
+}
+$script:PkgBuildErr = ''
+
+# Kopierte Dateien kontrollieren: SHA256 von go.cmd, go.ps1, config.json, WLAN-Paket. Rueckgabe: Liste der Abweichungen
+function Test-StickCopy([string]$dr, [byte[]]$CfgBytes, [string]$PkgName) {
+    $bad = @()
+    $chk = @(@('go.cmd', (Join-Path $srcStick 'go.cmd')), @('HUPilot\go.ps1', (Join-Path $srcHU 'go.ps1')))
+    if ($PkgName -and [System.IO.File]::Exists((Join-Path $srcHU $PkgName))) { $chk += , @(('HUPilot\' + $PkgName), (Join-Path $srcHU $PkgName)) }
+    foreach ($x in $chk) {
+        $dst = Join-Path ($dr + '\') $x[0]
+        try {
+            if (-not [System.IO.File]::Exists($dst)) { $bad += ($x[0] + ' fehlt'); continue }
+            if ((Get-FileSha $dst) -ne (Get-FileSha $x[1])) { $bad += ($x[0] + ' weicht ab') }
+        } catch { $bad += ($x[0] + ': ' + $_.Exception.Message) }
+    }
+    # WLAN-Paket, Katalog oder Pruefmerkmal am Stick, die es in der Quelle nicht gibt (z. B. von einem frueheren Kopieren)
+    foreach ($x in @(Get-StaleStickPkg $dr)) { $bad += ('HUPilot\' + $x + ' liegt am Stick, gehört aber nicht zur Quelle') }
+    $dc = Join-Path ($dr + '\') 'HUPilot\config.json'
+    try {
+        if (-not [System.IO.File]::Exists($dc)) { $bad += 'HUPilot\config.json fehlt' }
+        elseif ((Get-FileSha $dc) -ne (Get-BytesSha $CfgBytes)) { $bad += 'HUPilot\config.json weicht ab' }
+    } catch { $bad += ('HUPilot\config.json: ' + $_.Exception.Message) }
+    return $bad
+}
+# Dateien HUPilot\HUPilot-WLAN.* am Stick, die in der Quelle fehlen (altes Paket, Katalog, Pruefmerkmal). Rueckgabe: Dateinamen
+function Get-StaleStickPkg([string]$dr) {
+    $d = Join-Path ($dr + '\') 'HUPilot'
+    if (-not [System.IO.Directory]::Exists($d)) { return @() }
+    return @(Get-ChildItem -LiteralPath $d -Filter 'HUPilot-WLAN.*' -File -Force -ErrorAction SilentlyContinue | Where-Object { -not [System.IO.File]::Exists((Join-Path $srcHU $_.Name)) } | ForEach-Object { $_.Name })
+}
+# config.json ohne MAK fuer einen einzelnen Stick (Quelle bleibt unveraendert)
+function Get-CfgBytesNoMak([string]$Path) {
+    $o = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($o.PSObject.Properties.Name -contains 'EditionKey') { $o.EditionKey = '' } else { $o | Add-Member -NotePropertyName EditionKey -NotePropertyValue '' }
+    return $enc.GetBytes(($o | ConvertTo-Json -Depth 3))
+}
+$script:CopyErr = ''
+function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
+    $script:CopyErr = ''
+    try {
+        if (-not [System.IO.Directory]::Exists($dr + '\')) { throw ('Stick ' + $dr + ' nicht mehr vorhanden (abgezogen?)') }
         foreach ($f in 'go.cmd', 'diag.cmd', 'HUPilot-Setup.cmd') { $sf = Join-Path $srcStick $f; if (Test-Path $sf) { Copy-Item -Path $sf -Destination (Join-Path $dr $f) -Force -ErrorAction Stop } }
         $dst = Join-Path $dr 'HUPilot'
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
-        foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { $_.Name -ne 'logs' -and -not $_.Name.StartsWith('_') })) {
+        # config.json zuerst und direkt in der Zielfassung: bei "ohne MAK" steht der MAK nie auf diesem Stick,
+        # auch nicht kurz und auch nicht, wenn das Kopieren danach abbricht (eine alte config.json wird sofort ersetzt)
+        $cfgBytes = $(if ($WithMak) { [System.IO.File]::ReadAllBytes($srcCfg) } else { Get-CfgBytesNoMak $srcCfg })
+        [System.IO.File]::WriteAllBytes((Join-Path $dst 'config.json'), $cfgBytes)
+        if (-not $WithMak) { Out-Log ('Stick ' + $dr + ': ohne MAK') }
+        foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { -not (Test-SkipForStick $_.Name) })) {
             Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force -ErrorAction Stop
         }
         # persoenliche/zwischenzeitliche Dateien nicht auf den Stick (GitHub-Token, Update-Journal, Update-Reste)
         foreach ($x in @(Get-ChildItem -Path $dst -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'GitHubToken_*.xml' -or $_.Name -eq 'pull-journal.json' -or $_.Name -match '\.(pullold|pulltmp)$' })) { Remove-Item -LiteralPath $x.FullName -Force -ErrorAction SilentlyContinue }
-        Out-Log ('Auf Stick kopiert: ' + $srcStick + ' -> ' + $dr + '\  (ohne logs und _Ordner)')
+        # Altes WLAN-Paket, Katalog oder Pruefmerkmal, die nicht aus der Quelle stammen, entfernen (sonst nimmt go ein falsches Paket)
+        foreach ($x in @(Get-StaleStickPkg $dr)) {
+            try { Remove-Item -LiteralPath (Join-Path $dst $x) -Force -ErrorAction Stop; Out-Log ('Stick ' + $dr + ': altes ' + $x + ' entfernt, es gehörte nicht zur Quelle') 'Hinweis' }
+            catch { Out-Log ('Stick ' + $dr + ': altes ' + $x + ' konnte nicht entfernt werden. Bitte von Hand löschen.') 'Fehler' $_.Exception.Message }
+        }
+        Out-Log ('Auf Stick ' + $dr + ' kopiert') '' ($srcStick + ' nach ' + $dr + '\, ohne logs, Ordner mit _ und ohne die Kopie des Paketbaus')
+        # Kopie des Paketbaus nur mit Haekchen (Fehler dabei machen den Stick nicht unbrauchbar, sie stehen rot im Protokoll)
+        Copy-IcdToStick $dst ([bool]$ui.cIcdStick.IsChecked -and $script:IcdCanUse)
         $rootPkg = @(Get-ChildItem -Path ($dr + '\') -Filter *.ppkg -File -ErrorAction SilentlyContinue)
-        if ($rootPkg.Count) { Out-Log ('ACHTUNG: .ppkg im Hauptverzeichnis entfernen (wird sonst im OOBE angewendet): ' + (($rootPkg | ForEach-Object { $_.Name }) -join ', ')) }
-        return ((Test-Path (Join-Path $dr 'go.cmd')) -and (Test-Path (Join-Path $dr 'HUPilot\go.ps1')) -and (Test-Path (Join-Path $dr 'HUPilot\config.json')))
-    } catch { Out-Log ('FEHLER kopieren ' + $dr + ': ' + $_.Exception.Message); return $false }
+        if ($rootPkg.Count) { Out-Log ('Auf Stick ' + $dr + ' liegt ein Paket direkt im Hauptordner (' + (($rootPkg | ForEach-Object { $_.Name }) -join ', ') + '). Bitte löschen, Windows würde es sonst im Einrichtungsbildschirm anwenden.') 'Hinweis' }
+        # Schreibcache leeren, dann kontrollieren
+        try { Write-VolumeCache -DriveLetter $dr.Substring(0, 1) -ErrorAction Stop } catch { }
+        $bad = @(Test-StickCopy $dr $cfgBytes ([string](Get-Cfg).WlanPackage))
+        if ($bad.Count) { $script:CopyErr = 'Kontrolle nicht bestanden: ' + ($bad -join ', '); Out-Log ('Stick ' + $dr + ': ' + $script:CopyErr + '. Stick neu anstecken und nochmal kopieren.') 'Fehler'; return $false }
+        Out-Log ('Stick ' + $dr + ' kontrolliert: alle Dateien stimmen mit der Quelle überein') 'OK' ('SHA256: go.cmd, go.ps1, config.json' + $(if ((Get-Cfg).WlanPackage -and (Test-Path $srcPkg)) { ', WLAN-Paket' } else { '' }))
+        return $true
+    } catch { $script:CopyErr = $_.Exception.Message; Out-Log ('Kopieren auf ' + $dr + ' fehlgeschlagen. Stick neu anstecken und nochmal versuchen.') 'Fehler' $_.Exception.Message; return $false }
 }
+
+# Vor dem Kopieren: WLAN-Paket fehlt oder veraltet -> nicht still kopieren. Rueckgabe $false = abbrechen
+function Confirm-PkgForCopy($Owner) {
+    $st = Update-PkgState
+    if ($st -in 'aktuell', 'aus', 'fremd') { return $true }
+    $hasIcd = Test-IcdHere
+    if ($st -eq 'fehlt') {
+        Out-Log 'In der Quelle gibt es noch kein WLAN-Paket. Erst "4. WLAN-Paket bauen".' 'Hinweis'
+        if ($hasIcd) {
+            $q = [System.Windows.MessageBox]::Show($Owner, ('In der Quelle gibt es noch kein WLAN-Paket.' + "`r`n`r`n" + 'Ja = jetzt bauen und dann kopieren' + "`r`n" + 'Nein = ohne WLAN-Paket kopieren (ein altes WLAN-Paket auf dem Stick wird dabei entfernt)' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - WLAN-Paket fehlt', 'YesNoCancel', 'Warning')
+            if ($q -eq 'Yes') { return (Build-Package -NoSave) }
+            return ($q -eq 'No')
+        }
+        $q = [System.Windows.MessageBox]::Show($Owner, ('In der Quelle gibt es noch kein WLAN-Paket, und ICD.exe (Windows ADK) fehlt auf diesem PC.' + "`r`n`r`n" + 'Trotzdem ohne WLAN-Paket kopieren? Ein altes WLAN-Paket auf dem Stick wird dabei entfernt.'), 'HUPilot - WLAN-Paket fehlt', 'YesNo', 'Warning')
+        return ($q -eq 'Yes')
+    }
+    $why = $(if ($st -eq 'veraltet') { 'WLAN oder lokale Admins wurden seit dem Bau des WLAN-Pakets geändert - das Paket ist veraltet.' } else { 'Ob das WLAN-Paket zu WLAN und lokalen Admins passt, ist unbekannt (gebaut mit einer älteren Version).' })
+    Out-Log $why 'Hinweis'
+    if ($hasIcd) {
+        $q = [System.Windows.MessageBox]::Show($Owner, ($why + "`r`n`r`n" + 'Ja = Paket jetzt neu bauen und dann kopieren' + "`r`n" + 'Nein = altes Paket trotzdem kopieren' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - WLAN-Paket', 'YesNoCancel', 'Warning')
+        if ($q -eq 'Yes') { return (Build-Package -NoSave) }
+        if ($q -eq 'No') { Out-Log 'Altes WLAN-Paket wird trotzdem kopiert.' 'Hinweis'; return $true }
+        return $false
+    }
+    $q = [System.Windows.MessageBox]::Show($Owner, ($why + "`r`n`r`n" + 'ICD.exe (Windows ADK) fehlt auf diesem PC, neu bauen geht hier nicht.' + "`r`n" + 'Altes Paket trotzdem kopieren?'), 'HUPilot - WLAN-Paket', 'YesNo', 'Warning')
+    if ($q -eq 'Yes') { Out-Log 'Altes WLAN-Paket wird trotzdem kopiert.' 'Hinweis'; return $true }
+    return $false
+}
+# Vor dem Kopieren: Secret abgelaufen (Rueckfrage) oder bald (Hinweis), MAK mit auf den Stick? Rueckgabe $null = abbrechen, sonst @{ WithMak }
+function Confirm-CopyPrereqs([string]$Target, $Owner) {
+    $c = Get-Cfg
+    $endTxt = Get-SecretExpiresValue ([string]$c.ClientSecret)
+    $end = ConvertTo-UtcDate $endTxt
+    $lvl = Get-SecretWarnLevel $end ([datetime]::UtcNow)
+    if ($lvl -eq 'expired') {
+        $q = [System.Windows.MessageBox]::Show($Owner, ('Das Secret ist am ' + $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ' abgelaufen.' + "`r`n" + 'Mit diesem Stick kann go.ps1 keine Geräte hochladen.' + "`r`n`r`n" + 'Besser: in Entra ein neues Geheimnis anlegen, bei "Secret" eintragen, speichern.' + "`r`n`r`n" + 'Trotzdem kopieren?'), 'HUPilot - Secret abgelaufen', 'YesNo', 'Warning')
+        if ($q -ne 'Yes') { Out-Log 'Kopieren abgebrochen, das Secret ist abgelaufen.'; return $null }
+        Out-Log 'Secret abgelaufen, trotzdem kopiert. Mit diesem Stick lädt go.ps1 keine Geräte hoch.' 'Hinweis'
+    } elseif ($lvl -eq 'soon') {
+        $t = 'Das Secret läuft am ' + $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ' ab (' + (Format-Rest ($end.ToLocalTime() - (Get-Date))) + '). Danach lädt dieser Stick keine Geräte mehr hoch - rechtzeitig erneuern.'
+        Out-Log $t 'Hinweis'
+        [void][System.Windows.MessageBox]::Show($Owner, $t, 'HUPilot - Secret läuft bald ab', 'OK', 'Information')
+    }
+    $withMak = $true
+    if ($c.EditionKey) {
+        $tail = $(if ($c.EditionKey.Length -ge 5) { $c.EditionKey.Substring($c.EditionKey.Length - 5) } else { '' })
+        $q = [System.Windows.MessageBox]::Show($Owner, ('Im Feld "MAK (Pro)" steht ein Schlüssel (endet auf ' + $tail + ').' + "`r`n`r`n" + 'MAK mit auf ' + $Target + '?' + "`r`n`r`n" + 'Ja = mit MAK (nur für Geräte mit Windows Home nötig)' + "`r`n" + 'Nein = ohne MAK, die Quelle bleibt unverändert' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - MAK auf den Stick?', 'YesNoCancel', 'Question')
+        if ($q -eq 'Cancel' -or $q -eq 'None') { Out-Log 'Kopieren abgebrochen'; return $null }
+        $withMak = ($q -eq 'Yes')
+        Out-Log ($Target + ': ' + $(if ($withMak) { 'mit MAK' } else { 'ohne MAK' }))
+    }
+    return @{ WithMak = $withMak }
+}
+
 $ui.bCopy.Add_Click({
-    $dr = Get-Drive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewählt'; return }
-    if (-not (Save-Cfg)) { return }
-    if (-not (Test-Path $srcPkg)) { Out-Log 'ACHTUNG: kein HUPilot-WLAN.ppkg in der Quelle - erst 4. WLAN-Paket bauen (oder "WlanPackage": "")' }
-    [void](Copy-ToStick $dr)
+    if ($script:Busy) { return }
+    Set-UiBusy $true
+    try {
+        $dr = Get-ReadyDrive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewählt. Stick anstecken, er wird von selbst erkannt.' 'Fehler'; Set-Step 'Copy' 'err' 'kein Ziel-Stick'; return }
+        if (-not (Save-Cfg)) { Set-Step 'Copy' 'err' 'nicht gespeichert'; return }
+        if (-not (Confirm-PkgForCopy $win)) { Out-Log 'Kopieren abgebrochen.'; Set-Step 'Copy' 'open'; return }
+        $pre = Confirm-CopyPrereqs ('Stick ' + $dr) $win
+        if (-not $pre) { Set-Step 'Copy' 'open'; return }
+        Set-Step 'Copy' 'run'; Step-Ui
+        if (Copy-ToStick $dr $pre.WithMak) { Set-Step 'Copy' 'ok' ('Stick ' + $dr) } else { Set-Step 'Copy' 'err' $script:CopyErr }
+    } finally { Set-UiBusy $false }
 })
 
-$ui.bPkg.Add_Click({
-    if (-not (Test-Fields @('WlanSsid', 'WlanKey'))) { return }
-    if (-not (Test-Path $icd)) { Out-Log ('ICD.exe nicht gefunden: ' + $icd); Out-Log '  -> Windows ADK installieren, Feature "Imaging and Configuration Designer (ICD)". Die Store-App WCD hat keine Kommandozeile.'; Out-Log '  -> ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberfläche (INSTALL.md)'; return }
+# ICD-Ausgabe fuer Protokoll und Datei: Kennwoerter (roh und XML-escapt) und den Base64-Block der -EncodedCommand-Zeile ausblenden
+function Hide-IcdText([string]$Line, $c, [string]$B64 = '') {
+    $vals = @()
+    foreach ($s in @($c.WlanKey, $c.AdminPassword, $c.Admin2Password)) { if ($s) { $vals += [string]$s; $vals += [System.Security.SecurityElement]::Escape([string]$s) } }
+    if ($B64) { $vals += $B64 }
+    foreach ($v in @($vals | Where-Object { $_ } | Sort-Object Length -Descending)) { $Line = $Line.Replace($v, '***') }
+    $Line = [regex]::Replace($Line, '(?i)(-EncodedCommand\s+)[A-Za-z0-9+/=]{16,}', '$1***')
+    return $Line.Trim()
+}
+# ---------- 4. WLAN-Paket bauen (speichert vorher, schreibt den Fingerabdruck) ----------
+function Build-Package([switch]$NoSave) {
+    $script:PkgBuildErr = ''
+    Set-UiBusy $true
+    try {
+        $ok = [bool](Build-PackageCore -NoSave:$NoSave)
+        if (-not $ok) { $n = [string]$script:LampNote['Pkg']; $script:PkgBuildErr = $(if ($n) { $n } else { 'nicht gebaut' }); Set-Step 'Pkg' 'err' $script:PkgBuildErr }
+        return $ok
+    } finally { Set-UiBusy $false }
+}
+function Build-PackageCore([switch]$NoSave) {
+    if (-not $NoSave) { if (-not (Save-Cfg)) { Set-Step 'Pkg' 'err' 'nicht gespeichert'; return $false } }
+    if (-not (Test-Fields @('WlanSsid', 'WlanKey') -Admin)) { Set-Step 'Pkg' 'err' $script:FieldErr; return $false }
+    if (-not (Test-IcdHere)) { Out-Log 'WLAN-Paket kann hier nicht gebaut werden: ICD.exe fehlt. Windows ADK mit "Imaging and Configuration Designer" installieren (die Store-App reicht nicht), den Stick an einem PC mit ADK mit dem Häkchen "Paketbau mit auf den Stick" bespielen (Test), oder ohne ADK Tools\New-WcdProjekt.ps1 laut INSTALL.md nehmen.' 'Fehler' $icdInst; Set-Step 'Pkg' 'err' 'ICD.exe fehlt'; return $false }
+    $icd = $script:Icd.Path
+    $fromCopy = ($script:Icd.Source -eq 'Kopie')
+    Set-Step 'Pkg' 'run'; Step-Ui
+    # Kopie vom Stick: vor JEDEM Start Signaturen und Pruefsummen kontrollieren (das Setup laeuft mit Adminrechten),
+    # auch vor dem zweiten Versuch in der Schleife unten
+    $icdCheck = {
+        if (-not $fromCopy) { return $true }
+        Out-Log 'Prüfe die Kopie des Paketbaus (Signaturen und Prüfsummen) ...'; Step-Ui
+        $icdBad = @(Test-IcdCopy $icdCopyDir $icdCopyMan -Tick { param($n, $all) if ($n % 50 -eq 0) { Step-Ui } })
+        if ($icdBad.Count) {
+            Out-Log 'Die Kopie des Paketbaus ist nicht in Ordnung und wird nicht gestartet. Den Stick an einem PC mit Windows ADK mit dem Häkchen "Paketbau mit auf den Stick" neu bespielen, dann nochmal bauen.' 'Fehler' ((@($icdBad | Select-Object -First 12) -join '; ') + $(if ($icdBad.Count -gt 12) { '; und ' + ($icdBad.Count - 12) + ' weitere' } else { '' }))
+            Set-Step 'Pkg' 'err' 'Kopie des Paketbaus ungültig'; return $false
+        }
+        Out-Log ((Get-IcdText $script:Icd) + ': Signaturen und Prüfsummen in Ordnung') 'OK' $icd
+        return $true
+    }
+    if (-not $fromCopy) { Out-Log (Get-IcdText $script:Icd) '' $icd }
     $c = Get-Cfg
+    $okBuild = $false
+    $b64 = ''
     $work = Join-Path $env:TEMP ('HUPilot-WCD-' + [guid]::NewGuid().ToString('N'))
     try {
         New-Item -ItemType Directory -Path $work -Force | Out-Null
@@ -909,32 +2627,156 @@ $ui.bPkg.Add_Click({
         if ($adm.Count) {
             # ProvisioningCommands gibt es nur im Desktop-Speicher (Common kennt sie nicht)
             $dstore = Join-Path (Split-Path $icd -Parent) 'Microsoft-Desktop-Provisioning.dat'
-            if (-not (Test-Path $dstore)) { Out-Log ('FEHLER: ' + $dstore + ' fehlt - ADK-Feature "Imaging and Configuration Designer" vollständig installieren'); return }
+            if (-not (Test-Path $dstore)) { Out-Log 'Das Windows ADK ist unvollständig. "Imaging and Configuration Designer" vollständig installieren.' 'Fehler' ($dstore + ' fehlt'); Set-Step 'Pkg' 'err' 'ADK unvollständig'; return $false }
             $stores = @(($cstore + ',' + $dstore), $dstore)
         }
-        $okBuild = $false
         foreach ($store in $stores) {
             $icdArgs = @('/Build-ProvisioningPackage', ('/CustomizationXML:"' + $xmlPath + '"'), ('/PackagePath:"' + $ppkg + '"'), ('/StoreFile:"' + $store + '"'), '+Overwrite')
             Out-Log ('ICD.exe baut das Paket (' + ((@($store -split ',') | ForEach-Object { (Split-Path $_ -Leaf) -replace '-Provisioning\.dat$', '' }) -join ' + ') + ') ...')
             $outF = Join-Path $work 'icd-out.txt'; $errF = Join-Path $work 'icd-err.txt'
+            if (-not (& $icdCheck)) { return $false }
             $p = Start-Process -FilePath $icd -ArgumentList $icdArgs -Wait -PassThru -NoNewWindow -WorkingDirectory $work -RedirectStandardOutput $outF -RedirectStandardError $errF
-            if ($p.ExitCode -eq 0 -and (Test-Path $ppkg)) { Out-Log ('WLAN-Paket OK: ' + $ppkg + ' (' + (Get-Item $ppkg).Length + ' Bytes)'); $okBuild = $true; break }
-            Out-Log ('FEHLER: ICD.exe Exitcode ' + $p.ExitCode)
+            if ($p.ExitCode -eq 0 -and (Test-Path $ppkg)) { Out-Log 'WLAN-Paket gebaut' 'OK' ($ppkg + ' (' + (Get-Item $ppkg).Length + ' Bytes)'); $okBuild = $true; break }
             $lines = @()
             foreach ($f in @($outF, $errF)) { if (Test-Path $f) { $lines += @(Get-Content -Path $f -ErrorAction SilentlyContinue | Where-Object { $_.Trim() }) } }
-            foreach ($ln in @($lines | Select-Object -Last 30)) {
-                foreach ($sec in @($c.WlanKey, $c.AdminPassword, $c.Admin2Password)) { if ($sec) { $ln = $ln.Replace($sec, '***') } }
-                Out-Log ('  ' + $ln)
-            }
-            if (-not $lines.Count) { Out-Log '  (ICD.exe hat keine Ausgabe geliefert)' }
+            $det = @($lines | Select-Object -Last 30 | ForEach-Object { Hide-IcdText ([string]$_) $c $b64 }) -join ' | '
+            if (-not $det) { $det = 'ICD.exe hat keine Ausgabe geliefert' }
+            Out-Log ('ICD.exe konnte das Paket so nicht bauen (Exitcode ' + $p.ExitCode + ').' + $(if ($stores.Count -gt 1 -and $store -ne $stores[-1]) { ' Zweiter Versuch folgt.' } else { '' })) 'Hinweis' $det
         }
-        if (-not $okBuild) { Out-Log 'WLAN-Paket NICHT gebaut - das bisherige Paket (falls vorhanden) bleibt unverändert.' }
-    } catch { Out-Log ('FEHLER: ' + $_.Exception.Message) }
+        if ($okBuild) {
+            try { Write-PkgFingerprint $c $srcPkg $srcPkgFp } catch { Out-Log 'Prüfmerkmal des Pakets konnte nicht gespeichert werden, der Stand wird als unbekannt angezeigt.' 'Hinweis' $_.Exception.Message }
+        } else {
+            Out-Log 'WLAN-Paket wurde nicht gebaut, das bisherige Paket bleibt unverändert. Details stehen in den Zeilen davor.' 'Fehler'
+            if ($fromCopy) { Out-Log 'Gebaut wurde mit der Kopie des Paketbaus (Test). Läuft sie auf diesem PC nicht, das Paket an einem PC mit Windows ADK bauen oder das ADK hier installieren.' 'Hinweis' }
+        }
+    } catch { Out-Log 'Paketbau abgebrochen. Das bisherige Paket bleibt unverändert.' 'Fehler' $_.Exception.Message; $okBuild = $false }
     finally { Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue }   # enthaelt das WLAN-Kennwort
+    [void](Update-PkgState)
+    if (-not $okBuild) { Set-Step 'Pkg' 'err' 'nicht gebaut' }
+    return $okBuild
+}
+$ui.bPkg.Add_Click({ if (-not $script:Busy) { [void](Build-Package) } })
+# ---------- Haekchen "Paketbau mit auf den Stick" (Test) ----------
+# Am PC: gemerkt in ui.json, Standard aus; "Stick fertig machen", "5. Auf Stick kopieren" und "Sticks vorbereiten" gleichen
+# den Ziel-Stick selbst ab (Sync-IcdToTarget). Laeuft das Setup vom Stick, zeigt das Haekchen den Zustand DIESES Sticks:
+# setzen holt die Kopie sofort, entfernen fragt nach. Rechtsklick: Zustand, Kopie aktualisieren, Kopie entfernen.
+$script:IcdSelf = [bool]$srcDrive
+$script:IcdCanUse = $false
+$script:IcdMB = 0
+$script:IcdUiSet = $false
+function Get-IcdStateText($St) {
+    switch ($St.State) { 'ok' { 'Version ' + $St.Version } 'keine' { 'keine' } 'verweis' { 'Verweis, wird nicht verwendet' } default { 'unvollständig oder beschädigt' } }
+}
+# Text kuerzen, wenn die Zeile "Stick" sonst umbricht (Groesse dann nur im Tooltip)
+function Update-IcdLabelFit {
+    try {
+        $long = 'Paketbau mit auf den Stick' + $(if ($script:IcdMB) { ' (' + $script:IcdMB + ' MB)' } else { '' })
+        $ui.cIcdStick.Content = $long
+        $ui.cIcdStick.UpdateLayout(); $ui.bCopy.UpdateLayout()
+        $y = $ui.cIcdStick.TranslatePoint((New-Object System.Windows.Point(0, 0)), $ui.bCopy).Y
+        if ([math]::Abs($y) -gt 8) { $ui.cIcdStick.Content = 'Paketbau mitnehmen' }
+    } catch { }
+}
+function Update-IcdUi([switch]$Report) {
+    $hasInst = [System.IO.File]::Exists($icdInst)
+    $instRaw = $(if ($hasInst) { Get-IcdVersion $icdInst } else { '' })
+    $pc = Get-IcdPcVersion
+    $src = Get-IcdState $icdCopyRoot
+    $dr = Get-Drive
+    $dst = $(if ($dr -and -not $script:IcdSelf) { Get-IcdState (Join-Path ($dr + '\') 'HUPilot\ADK-ICD') } else { $null })
+    $script:IcdCanUse = [bool]($pc -or $src.State -eq 'ok')
+    if (-not $script:IcdMB -or $Report) { $script:IcdMB = Get-IcdSizeMB }
+    $script:IcdUiSet = $true
+    try {
+        if ($script:IcdSelf) { $ui.cIcdStick.IsChecked = ($src.State -eq 'ok') }
+        else { $ui.cIcdStick.IsChecked = ([string](Get-UiSetting 'IcdToStick' $false) -eq 'True') }
+    } finally { $script:IcdUiSet = $false }
+    $ui.cIcdStick.IsEnabled = ($script:IcdCanUse -and -not $script:Busy)
+    $ui.cIcdStick.Visibility = 'Visible'
+    Update-IcdLabelFit
+    $nl = "`n"
+    $tip = 'Nimmt den Paketbau (ICD.exe aus dem Windows ADK' + $(if ($script:IcdMB) { ', rund ' + $script:IcdMB + ' MB' } else { '' }) + ') mit auf den Stick, damit man mit dem Stick auch an einem PC ohne ADK WLAN-Pakete bauen kann.' + $nl +
+        $(if ($script:IcdSelf) { 'Das Setup läuft von diesem Stick: Häkchen setzen holt die Kopie auf diesen Stick, Häkchen entfernen fragt, ob sie gelöscht werden soll.' } else { 'Stick fertig machen, 5. Auf Stick kopieren und Sticks vorbereiten prüfen den Ziel-Stick und kopieren nur, was fehlt oder veraltet ist.' }) + $nl + $nl +
+        'Am PC: ' + $(if ($pc) { 'Windows ADK, Version ' + $pc } elseif ($instRaw) { 'Windows ADK ' + $instRaw + ' (dem Setup nicht bekannt, wird nicht verwendet)' } else { 'kein Windows ADK' }) + $nl +
+        $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) +
+        $(if ($dst) { $nl + 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText $dst) + ' (ungeprüft, geprüft wird beim Kopieren)' } else { '' }) + $nl + $nl +
+        $(if (-not $script:IcdCanUse) { 'Kein Windows ADK an diesem PC und keine Kopie vorhanden.' + $nl } else { '' }) +
+        'Rechtsklick: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Test: geprüft mit ICD 10.0.28000.1 unter Windows 11.'
+    $ui.cIcdStick.ToolTip = $tip
+    if ($Report) {
+        if ($instRaw -and -not $pc) { Out-Log ('Am PC ist ICD.exe ' + $instRaw + ' installiert. Diese Version kennt das Setup noch nicht, der Paketbau wird daraus nicht mitgenommen.') 'Hinweis' $icdInst }
+        if ($src.State -eq 'verweis') { Out-Log 'HUPilot\ADK-ICD ist ein Verweis auf einen anderen Ordner und wird nicht verwendet.' 'Fehler' $icdCopyRoot }
+        elseif ($src.State -eq 'kaputt') { Out-Log 'In der Quelle liegt eine unvollständige Kopie des Paketbaus (ohne Prüfliste). Sie wird nicht verwendet. Rechtsklick auf das Häkchen: Kopie entfernen oder aktualisieren.' 'Hinweis' $icdCopyRoot }
+        elseif ($src.State -eq 'ok') {
+            Out-Log ('Kopie des Paketbaus in der Quelle: Version ' + $src.Version + ' (Test)') '' $icdCopyRoot
+            if ($pc -and (Compare-IcdVersion $pc $src.Version) -gt 0) { Out-Log ('Am PC ist ICD.exe ' + $pc + ' installiert, die Kopie hat ' + $src.Version + '. Rechtsklick auf das Häkchen: Kopie aktualisieren.') 'Hinweis' $icdCopyRoot }
+        }
+    }
+}
+# Kopie an einem Ort loeschen (mit Rueckfrage, nennt den Ort). Verweise werden nie geloescht.
+function Remove-IcdCopy([string]$Root, [string]$Where) {
+    if (-not [System.IO.Directory]::Exists($Root)) { return $false }
+    if (Test-IsLink $Root) { Out-Log ('HUPilot\ADK-ICD ' + $Where + ' ist ein Verweis auf einen anderen Ordner. Er wird nicht gelöscht, damit der Inhalt des Ziels erhalten bleibt.') 'Fehler' $Root; return $false }
+    $st = Get-IcdState $Root
+    if ([System.Windows.MessageBox]::Show($win, ('Paketbau ' + $Where + ' entfernen?' + "`r`n" + $Root + "`r`n" + '(' + (Get-IcdStateText $st) + ')' + "`r`n`r`n" + 'Ohne Windows ADK kann man mit diesem Stick danach keine WLAN-Pakete mehr bauen.'), 'HUPilot - Paketbau entfernen', 'YesNo', 'Warning') -ne 'Yes') { return $false }
+    try { Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction Stop; Out-Log ('Paketbau ' + $Where + ' entfernt') 'OK' $Root; return $true }
+    catch { Out-Log ('Paketbau ' + $Where + ' konnte nicht ganz entfernt werden. Ordner HUPilot\ADK-ICD von Hand löschen.') 'Fehler' $_.Exception.Message; return $false }
+}
+# Ein Vorgang mit Busy-Sperre (Fenster bleibt bedienbar ueber Step-Ui)
+function Invoke-IcdAction([scriptblock]$Body) {
+    if ($script:Busy) { return }
+    Set-UiBusy $true
+    try { & $Body } catch { Out-Log 'Paketbau: Vorgang abgebrochen.' 'Fehler' $_.Exception.Message }
+    finally { Set-UiBusy $false; $script:IcdMB = 0; try { Update-IcdUi } catch { }; [void](Update-PkgState); $script:HintDrive = '?'; try { Update-ReadyHint } catch { } }
+}
+$ui.cIcdStick.Add_Click({
+    if ($script:IcdUiSet) { return }
+    if (-not $script:IcdSelf) { Set-UiSetting 'IcdToStick' ([bool]$ui.cIcdStick.IsChecked); try { Update-IcdUi } catch { }; return }
+    if ($ui.cIcdStick.IsChecked) {
+        Invoke-IcdAction { [void](Sync-IcdToTarget $srcHU $true 'auf diesem Stick' $true) }
+    } else {
+        if (-not (Remove-IcdCopy $icdCopyRoot 'von diesem Stick')) { $script:IcdUiSet = $true; $ui.cIcdStick.IsChecked = $true; $script:IcdUiSet = $false }
+        try { Update-IcdUi } catch { }; [void](Update-PkgState)
+    }
 })
+$cmI = New-Object System.Windows.Controls.ContextMenu
+$addI = { param($h, $sb) $mi = New-Object System.Windows.Controls.MenuItem; $mi.Header = $h; $mi.Add_Click($sb); [void]$cmI.Items.Add($mi); $mi }
+[void](& $addI 'Zustand anzeigen' {
+    Invoke-IcdAction {
+        $nl = "`r`n"
+        $instRaw = $(if ([System.IO.File]::Exists($icdInst)) { Get-IcdVersion $icdInst } else { '' })
+        $src = Get-IcdState $icdCopyRoot -Full
+        $dr = Get-ReadyDrive
+        $t = 'Am PC: ' + $(if ($instRaw) { 'Windows ADK, Version ' + $instRaw + $(if (-not (Get-IcdPcVersion)) { ' (dem Setup nicht bekannt)' } else { '' }) } else { 'kein Windows ADK' }) + $nl +
+            $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) + $nl
+        if ($dr -and -not $script:IcdSelf) { $t += 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText (Get-IcdState (Join-Path ($dr + '\') 'HUPilot\ADK-ICD') -Full)) + $nl }
+        $t += $nl + 'Geprüft: Prüfsummen, fremde Dateien und Signaturen.'
+        Show-Msg $t 'HUPilot - Paketbau'
+    }
+})
+[void](& $addI 'Kopie aktualisieren' {
+    if ($script:IcdSelf) { Invoke-IcdAction { [void](Sync-IcdToTarget $srcHU $true 'auf diesem Stick' $true) }; return }
+    $dr = Get-ReadyDrive
+    if (-not $dr) { Show-Msg 'Kein Ziel-Stick gewählt. Stick anstecken und auswählen, dann nochmal.' 'HUPilot - Paketbau'; return }
+    Invoke-IcdAction { [void](Sync-IcdToTarget (Join-Path ($dr + '\') 'HUPilot') $true ('am Stick ' + $dr) $false) }
+})
+[void](& $addI 'Kopie entfernen ...' {
+    if ($script:Busy) { return }
+    $any = $false
+    if ([System.IO.Directory]::Exists($icdCopyRoot)) { $any = $true; [void](Remove-IcdCopy $icdCopyRoot $(if ($script:IcdSelf) { 'von diesem Stick' } else { 'aus dem Ordner ' + $srcHU })) }
+    $dr = Get-Drive
+    if ($dr -and -not $script:IcdSelf) { $tr = Join-Path ($dr + '\') 'HUPilot\ADK-ICD'; if ([System.IO.Directory]::Exists($tr)) { $any = $true; [void](Remove-IcdCopy $tr ('vom Stick ' + $dr)) } }
+    if (-not $any) { Show-Msg 'Es gibt hier keine Kopie des Paketbaus zum Entfernen.' 'HUPilot - Paketbau' }
+    try { Update-IcdUi } catch { }; [void](Update-PkgState)
+})
+$ui.cIcdStick.ContextMenu = $cmI
+$win.Add_SizeChanged({ if (-not $script:Busy) { Update-IcdLabelFit } })
 
+
+# protokoll.csv von Quelle und Ziel-Stick: je Seriennummer die neueste Zeile ($map) und alle Zeilen ($script:ProtoAll, fuer Details)
 function Read-Protokoll {
     $map = @{}
+    $script:ProtoAll = @{}
     $files = @(Join-Path $srcHU 'logs\protokoll.csv')
     $dr = Get-ReadyDrive; if ($dr) { $files += ($dr + '\HUPilot\logs\protokoll.csv') }
     foreach ($f in $files) {
@@ -942,34 +2784,64 @@ function Read-Protokoll {
             if (-not [System.IO.File]::Exists($f)) { continue }
             foreach ($row in @([System.IO.File]::ReadAllLines($f) | ConvertFrom-Csv -Delimiter ';')) {
                 if (-not $row.Seriennr) { continue }
+                if (-not $script:ProtoAll.ContainsKey($row.Seriennr)) { $script:ProtoAll[$row.Seriennr] = New-Object System.Collections.ArrayList }
+                [void]$script:ProtoAll[$row.Seriennr].Add([pscustomobject]@{ Zeit = [string]$row.Zeit; Ergebnis = [string]$row.Ergebnis; Tag = [string]$row.Tag; Datei = $f })
                 if (-not $map.ContainsKey($row.Seriennr) -or [string]$row.Zeit -gt [string]$map[$row.Seriennr].Zeit) { $map[$row.Seriennr] = $row }
             }
-            Out-Log ('Protokoll gelesen: ' + $f)
-        } catch { Out-Log ('Protokoll ' + $f + ': ' + $_.Exception.Message) }
+        } catch { Out-Log 'Ein Stick-Protokoll (protokoll.csv) konnte nicht gelesen werden.' 'Hinweis' ($f + ': ' + $_.Exception.Message) }
     }
     return $map
 }
 
-# Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Excel und Druck
-$script:StatusCols = @('Seriennr', 'Tag', 'Profil', 'Intune', 'RegDatum', 'LetzterKontakt', 'Benutzer', 'Name', 'LetzterSync', 'Modell', 'HUPilot')
+# ---------- Status: Stand und naechster Schritt in Klartext (aus Profilstatus und Intune-Status) ----------
+#   ProfileStatus = deploymentProfileAssignmentStatus, EnrollState = enrollmentState (Graph, Autopilot-Geraet)
+function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate) {
+    if ($EnrollState -eq 'enrolled') { return 'Fertig' }
+    if ($EnrollState -in 'failed', 'blocked' -or $ProfileStatus -eq 'failed') { return 'Fehler' }
+    if ($ProfileStatus -eq 'notAssigned') { return 'Kein Profil für diesen Tag' }
+    if ($ProfileStatus -in 'assignedInSync', 'assignedUnkownSyncState', 'assignedUnknownSyncState', 'assignedOutOfSync' -and $HasAssignedDate) { return 'Profil da, Gerät noch nicht angemeldet' }
+    return 'Wartet auf Profil'
+}
+function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollState) {
+    switch ($Stand) {
+        'Fertig' { return 'Nichts, das Gerät ist fertig.' }
+        'Wartet auf Profil' { if ($ProfileStatus -eq 'assignedOutOfSync') { return 'Autopilot-Sync anstoßen und ein paar Minuten warten.' } return 'Nichts, läuft. Das Profil kommt meist in 5 bis 15 Minuten.' }
+        'Profil da, Gerät noch nicht angemeldet' { return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
+        'Kein Profil für diesen Tag' { return 'Tag prüfen: kein Profil zugewiesen ("2. Tags prüfen"), oder mit "Tag ändern" einen Tag mit Profil wählen.' }
+        'Fehler' { if ($EnrollState -eq 'blocked') { return 'Gerät ist in Intune blockiert. Admin fragen.' } return 'Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen.' }
+    }
+    return ''
+}
+# Farbe und Kachel je Stand: ok (gruen) / warn (gelb) / err (rot)
+$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err' }
+$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob' }
+
+# Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Fenster, CSV, Excel und Druck
+$script:StatusCols = @(
+    @{ Key = 'Stand'; Header = 'Stand' }, @{ Key = 'WasTun'; Header = 'Was tun' }, @{ Key = 'Seriennr'; Header = 'Seriennummer' }, @{ Key = 'Tag'; Header = 'Tag' },
+    @{ Key = 'Name'; Header = 'Gerätename' }, @{ Key = 'Benutzer'; Header = 'Benutzer' }, @{ Key = 'RegDatum'; Header = 'Registriert'; Sort = 'RegSort' },
+    @{ Key = 'LetzterKontakt'; Header = 'Letzter Kontakt'; Sort = 'KontaktSort' }, @{ Key = 'LetzterSync'; Header = 'Letzter Sync'; Sort = 'SyncSort' }, @{ Key = 'Modell'; Header = 'Modell' },
+    @{ Key = 'Profil'; Header = 'Profil' }, @{ Key = 'Intune'; Header = 'Intune' }, @{ Key = 'HUPilot'; Header = 'Stick-Protokoll'; Sort = 'HUPilotSort' }
+)
 
 # Excel-Datei (.xlsx) direkt schreiben, ohne installiertes Excel: Kopfzeile fett, fixiert, mit Filter,
-# Spaltenbreite nach Inhalt, Datumsspalten als echtes Datum, Spalte Profil eingefaerbt wie im Fenster
+# Spaltenbreite nach Inhalt, Datumsspalten als echtes Datum, Spalte Stand eingefaerbt wie im Fenster
 function Export-StatusXlsx {
-    param($Rows, [string[]]$Cols, [string]$Path)
+    param($Rows, [string[]]$Cols, [string[]]$Headers, [string]$Path)
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (-not $Headers -or $Headers.Count -ne $Cols.Count) { $Headers = $Cols }
     $esc = { param($s) [System.Security.SecurityElement]::Escape(([string]$s -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', '')) }
     $colName = { param([int]$i) $n = ''; $i++; while ($i -gt 0) { $m = ($i - 1) % 26; $n = [char](65 + $m) + $n; $i = [int][math]::Floor(($i - 1) / 26) }; $n }
     $dateCols = @('RegDatum', 'LetzterKontakt', 'LetzterSync')
     $fmts = [string[]]@('dd.MM.yyyy HH:mm', 'yyyy-MM-dd HH:mm')
     $de = [Globalization.CultureInfo]::InvariantCulture
+    $standStyle = @{ ok = 3; warn = 4; err = 5 }
     $Rows = @($Rows)
-    $width = @{}; foreach ($c in $Cols) { $width[$c] = $c.Length + 4 }
+    $width = @{}; for ($i = 0; $i -lt $Cols.Count; $i++) { $width[$Cols[$i]] = $Headers[$i].Length + 4 }
     $sb = New-Object System.Text.StringBuilder
-    # Kopfzeile
     [void]$sb.Append('<row r="1">')
-    for ($i = 0; $i -lt $Cols.Count; $i++) { [void]$sb.Append('<c r="' + (& $colName $i) + '1" s="1" t="inlineStr"><is><t>' + (& $esc $Cols[$i]) + '</t></is></c>') }
+    for ($i = 0; $i -lt $Cols.Count; $i++) { [void]$sb.Append('<c r="' + (& $colName $i) + '1" s="1" t="inlineStr"><is><t>' + (& $esc $Headers[$i]) + '</t></is></c>') }
     [void]$sb.Append('</row>')
     $rn = 1
     foreach ($r in $Rows) {
@@ -985,7 +2857,7 @@ function Export-StatusXlsx {
                 continue
             }
             $s = 0
-            if ($c -eq 'Profil') { if ($v -eq 'zugewiesen') { $s = 3 } elseif ($v -in 'ausstehend', 'zugew., Datum fehlt', 'zugew., nicht synchron') { $s = 4 } }
+            if ($c -eq 'Stand' -and $script:StandClass.ContainsKey($v)) { $s = $standStyle[$script:StandClass[$v]] }
             [void]$sb.Append('<c r="' + $ref + '"' + $(if ($s) { ' s="' + $s + '"' } else { '' }) + ' t="inlineStr"><is><t xml:space="preserve">' + (& $esc $v) + '</t></is></c>')
         }
         [void]$sb.Append('</row>')
@@ -993,11 +2865,12 @@ function Export-StatusXlsx {
     $last = (& $colName ($Cols.Count - 1))
     $colsXml = ''
     for ($i = 0; $i -lt $Cols.Count; $i++) {
-        $w = [math]::Min(60, [math]::Max($width[$Cols[$i]], $(if ($dateCols -contains $Cols[$i]) { 18 } else { 6 })))
+        $w = [math]::Min(70, [math]::Max($width[$Cols[$i]], $(if ($dateCols -contains $Cols[$i]) { 18 } else { 6 })))
         $colsXml += '<col min="' + ($i + 1) + '" max="' + ($i + 1) + '" width="' + $w + '" customWidth="1"/>'
     }
     $sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' +
         '<dimension ref="A1:' + $last + $rn + '"/>' +
         '<sheetViews><sheetView workbookViewId="0" tabSelected="1"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>' +
         '<sheetFormatPr defaultRowHeight="15"/><cols>' + $colsXml + '</cols>' +
@@ -1010,17 +2883,19 @@ function Export-StatusXlsx {
         '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
         '<numFmts count="1"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/></numFmts>' +
         '<fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>' +
-        '<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+        '<fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
         '<fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/><bgColor indexed="64"/></patternFill></fill>' +
         '<fill><patternFill patternType="solid"><fgColor rgb="FFDFF2E1"/><bgColor indexed="64"/></patternFill></fill>' +
-        '<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4CE"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4CE"/><bgColor indexed="64"/></patternFill></fill>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFF8D7DA"/><bgColor indexed="64"/></patternFill></fill></fills>' +
         '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF808080"/></bottom><diagonal/></border></borders>' +
         '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-        '<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+        '<cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
         '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>' +
         '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
         '<xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>' +
-        '<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/></cellXfs>' +
+        '<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/>' +
+        '<xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/></cellXfs>' +
         '<cellStyles count="1"><cellStyle name="Standard" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>'
     $parts = [ordered]@{
@@ -1042,102 +2917,255 @@ function Export-StatusXlsx {
     } finally { $zip.Dispose() }
 }
 
-# Druckansicht der Status-Tabelle: Querformat, Spaltenbreite nach Inhalt (gemessen), Zeilen abwechselnd hinterlegt,
-# Profil eingefaerbt wie im Fenster. Passt die Tabelle nicht in die Breite, werden die Spalten anteilig verkleinert.
-function New-StatusPrintDoc {
-    param($Rows, [string[]]$Cols, [string]$Title, [string]$Sub, [double]$PageW, [double]$PageH)
-    $brush = { param($hex) $b = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex)); $b.Freeze(); $b }
-    $bHead = & $brush '#D9E1F2'; $bAlt = & $brush '#F3F3F3'; $bLine = & $brush '#C8C8C8'; $bGreen = & $brush '#DFF2E1'; $bYellow = & $brush '#FFF4CE'
-    $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
-    $size = 8.0 * 96 / 72
-    $pad = 36.0
-    $doc = New-Object System.Windows.Documents.FlowDocument
-    $doc.FontFamily = $font; $doc.FontSize = $size
-    $doc.TextAlignment = [System.Windows.TextAlignment]::Left
-    $doc.PagePadding = New-Object System.Windows.Thickness($pad)
-    $doc.PageWidth = $PageW; $doc.PageHeight = $PageH
-    $doc.ColumnWidth = $PageW; $doc.ColumnGap = 0
-    $h1 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($Title))
-    $h1.FontSize = 11.0 * 96 / 72; $h1.FontWeight = [System.Windows.FontWeights]::Bold; $h1.Margin = New-Object System.Windows.Thickness(0, 0, 0, 2)
-    $doc.Blocks.Add($h1)
-    $h2 = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run($Sub))
-    $h2.Margin = New-Object System.Windows.Thickness(0, 0, 0, 8)
-    $doc.Blocks.Add($h2)
-    # Spaltenbreiten messen
+# ---------- Druck der Status-Liste ----------
+# Layout fuer die Seitenbreite $AvailW (WPF-Einheiten, 1/96 Zoll). Regelkette, wenn die Tabelle nicht passt:
+#   (a) Spalten ohne jeden Inhalt weglassen, (b) Schrift in Schritten von 8 bis 6,5 pt verkleinern,
+#   (c) erst dann duerfen die Spalten $Wrap ("Was tun", "Benutzer") umbrechen: an Wortgrenzen, die Mailadresse vor dem
+#   at-Zeichen und, falls noetig, nach Punkt und Bindestrich im Namen. Reicht auch das nicht (sehr schmale Seite), wird die
+#   ganze Tabelle gleichmaessig verkleinert (Scale), nie eine einzelne Spalte unter ihren Inhalt gequetscht.
+#   Alle anderen Spalten und alle Kopfzeilen bleiben einzeilig. Breite = gemessener Text (Kopf fett) plus Zellabstand.
+# Rueckgabe: Pt, Dip, Cols, Headers, Widths, Dropped, Wrapped (Spalten, die umbrechen), Fits (Summe <= $AvailW)
+$script:PrintCellPad = 8.0
+function Get-PrintLayout($Rows, [string[]]$Cols, [string[]]$Headers, [double]$AvailW, [string[]]$Wrap = @('WasTun', 'Benutzer')) {
     $Rows = @($Rows)
+    if (-not $Headers -or $Headers.Count -ne $Cols.Count) { $Headers = $Cols }
+    $keep = @(); $kh = @(); $dropped = @()
+    for ($i = 0; $i -lt $Cols.Count; $i++) {
+        $c = $Cols[$i]
+        if (@($Rows | Where-Object { [string]$_.$c }).Count) { $keep += $c; $kh += $Headers[$i] } else { $dropped += $c }
+    }
+    $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
     $tfN = New-Object System.Windows.Media.Typeface($font, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
     $tfB = New-Object System.Windows.Media.Typeface($font, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Bold, [System.Windows.FontStretches]::Normal)
     $ci = [Globalization.CultureInfo]::CurrentCulture
-    $measure = { param($t, $tf) (New-Object System.Windows.Media.FormattedText([string]$t, $ci, [System.Windows.FlowDirection]::LeftToRight, $tf, $size, [System.Windows.Media.Brushes]::Black)).WidthIncludingTrailingWhitespace }
-    $cellPad = 10.0
-    $wid = @()
-    foreach ($c in $Cols) {
-        $m = & $measure $c $tfB
-        foreach ($r in $Rows) { $v = [string]$r.$c; if ($v) { $x = & $measure $v $tfN; if ($x -gt $m) { $m = $x } } }
-        $wid += ($m + $cellPad + 2)
-    }
-    $avail = $PageW - 2 * $pad - 2
-    $sum = ($wid | Measure-Object -Sum).Sum
-    $f = $(if ($sum -gt $avail) { $avail / $sum } else { 1.0 })
-    $mkCell = {
-        param($t, $bold, $bg, $bottom)
-        $p = New-Object System.Windows.Documents.Paragraph(New-Object System.Windows.Documents.Run([string]$t))
-        $p.Margin = New-Object System.Windows.Thickness(0)
-        $cell = New-Object System.Windows.Documents.TableCell($p)
-        $cell.Padding = New-Object System.Windows.Thickness(($cellPad / 2), 1.5, ($cellPad / 2), 1.5)
-        if ($bold) { $cell.FontWeight = [System.Windows.FontWeights]::Bold }
-        if ($bg) { $cell.Background = $bg }
-        $cell.BorderBrush = $bLine; $cell.BorderThickness = New-Object System.Windows.Thickness(0, 0, 0, $bottom)
-        $cell
-    }
-    # Kopfzeile auf jeder Seite: je Seite eine eigene Tabelle mit Kopf, Zeilen pro Seite aus der Zeilenhoehe berechnet
-    # (1 Zeile Reserve). Seite 1 hat zusaetzlich Titel und Untertitel.
-    $lineH = $font.LineSpacing * $size
-    $rowH = $lineH + 3.5
-    $bodyH = $PageH - 2 * $pad
-    $titleH = $font.LineSpacing * $h1.FontSize + 2 + $lineH + 8
-    $per1 = [math]::Max(5, [int][math]::Floor(($bodyH - $titleH - $rowH) / $rowH) - 1)
-    $perN = [math]::Max(5, [int][math]::Floor(($bodyH - $rowH) / $rowH) - 1)
-    $i = 0; $first = $true
-    do {
-        $n = $(if ($first) { $per1 } else { $perN })
-        $tbl = New-Object System.Windows.Documents.Table
-        $tbl.CellSpacing = 0
-        $tbl.Margin = New-Object System.Windows.Thickness(0)
-        foreach ($x in $wid) { $tc = New-Object System.Windows.Documents.TableColumn; $tc.Width = New-Object System.Windows.GridLength([math]::Floor($x * $f)); $tbl.Columns.Add($tc) }
-        $rg = New-Object System.Windows.Documents.TableRowGroup
-        $hr = New-Object System.Windows.Documents.TableRow
-        foreach ($c in $Cols) { $hr.Cells.Add((& $mkCell $c $true $bHead 1.0)) }
-        $rg.Rows.Add($hr)
-        $end = [math]::Min($Rows.Count, $i + $n)
-        for (; $i -lt $end; $i++) {
-            $r = $Rows[$i]
-            $tr = New-Object System.Windows.Documents.TableRow
-            if ($i % 2 -eq 1) { $tr.Background = $bAlt }
-            foreach ($c in $Cols) {
-                $v = [string]$r.$c; $bg = $null
-                if ($c -eq 'Profil') { if ($v -eq 'zugewiesen') { $bg = $bGreen } elseif ($v -in 'ausstehend', 'zugew., Datum fehlt', 'zugew., nicht synchron') { $bg = $bYellow } }
-                $tr.Cells.Add((& $mkCell $v $false $bg 0.5))
+    $meas = { param($t, $tf, $dip) if (-not $t) { 0.0 } else { (New-Object System.Windows.Media.FormattedText([string]$t, $ci, [System.Windows.FlowDirection]::LeftToRight, $tf, $dip, [System.Windows.Media.Brushes]::Black)).WidthIncludingTrailingWhitespace } }
+    $air = $script:PrintCellPad + 3
+    $res = $null
+    foreach ($pt in @(8.0, 7.5, 7.0, 6.5)) {
+        $dip = $pt * 96 / 72
+        $full = @(); $minW = @()
+        for ($i = 0; $i -lt $keep.Count; $i++) {
+            $c = $keep[$i]
+            $h = & $meas $kh[$i] $tfB $dip
+            $m = $h; $mw = $h
+            foreach ($r in $Rows) {
+                $v = [string]$r.$c
+                if (-not $v) { continue }
+                $x = & $meas $v $tfN $dip; if ($x -gt $m) { $m = $x }
+                if ($Wrap -contains $c) {
+                    # kleinste Breite beim Umbruch: laengstes Wort, die Mailadresse wird vor dem at-Zeichen getrennt
+                    foreach ($w in @((Get-PrintBreakText $c $v) -split '[\s\u200B]+')) { $y = & $meas $w $tfN $dip; if ($y -gt $mw) { $mw = $y } }
+                }
             }
-            $rg.Rows.Add($tr)
+            $full += [math]::Ceiling($m + $air); $minW += [math]::Ceiling($mw + $air)
         }
-        $tbl.RowGroups.Add($rg)
-        # Seitenumbruch wirkt nur auf eine Section, nicht direkt auf die Tabelle
-        $sec = New-Object System.Windows.Documents.Section
-        if (-not $first) { $sec.BreakPageBefore = $true }
-        $sec.Blocks.Add($tbl)
-        $doc.Blocks.Add($sec)
-        $first = $false
-    } while ($i -lt $Rows.Count)
-    return $doc
+        $sum = ($full | Measure-Object -Sum).Sum
+        $res = [pscustomobject]@{ Pt = $pt; Dip = $dip; Cols = $keep; Headers = $kh; Widths = $full; Dropped = $dropped; Wrapped = @(); Fits = ($sum -le $AvailW); Scale = 1.0 }
+        if ($sum -le $AvailW) { return $res }
+        if ($pt -gt 6.5) { continue }
+        # (c) bei 6,5 pt: nur die Umbruch-Spalten schmaler machen, anteilig, aber nie unter ihr laengstes Wort
+        $fixed = 0.0; $wrapIdx = @()
+        for ($i = 0; $i -lt $keep.Count; $i++) { if ($Wrap -contains $keep[$i]) { $wrapIdx += $i } else { $fixed += $full[$i] } }
+        $rest = $AvailW - $fixed
+        $wantSum = 0.0; foreach ($i in $wrapIdx) { $wantSum += $full[$i] }
+        $w2 = @($full)
+        $wrapped = @()
+        foreach ($i in $wrapIdx) {
+            $share = $(if ($wantSum -gt 0) { [math]::Floor($rest * $full[$i] / $wantSum) } else { $full[$i] })
+            $w2[$i] = [math]::Max($minW[$i], [math]::Min($full[$i], $share))
+            if ($w2[$i] -lt $full[$i]) { $wrapped += $keep[$i] }
+        }
+        $s2 = ($w2 | Measure-Object -Sum).Sum
+        $res = [pscustomobject]@{ Pt = $pt; Dip = $dip; Cols = $keep; Headers = $kh; Widths = $w2; Dropped = $dropped; Wrapped = $wrapped; Fits = ($s2 -le $AvailW); Scale = $(if ($s2 -gt $AvailW) { $AvailW / $s2 } else { 1.0 }) }
+    }
+    return $res
+}
+# Trennstellen fuer den Druck: in "Benutzer" vor dem at-Zeichen sowie nach Punkt und Bindestrich ein unsichtbarer Trennpunkt
+function Get-PrintBreakText([string]$Col, [string]$Text) {
+    if ($Col -ne 'Benutzer' -or -not $Text) { return $Text }
+    $z = [string][char]0x200B
+    return (($Text -replace '@', ($z + '@')) -replace '([.\-])', ('$1' + $z))
+}
+# Seitenweises Dokument (FixedDocument): Titel auf Seite 1, Kopfzeile auf jeder Seite, Zeilen je Seite aus der gemessenen
+# Zeilenhoehe, "Seite x von y" unten rechts. Nur die Zelle "Stand" ist eingefaerbt, die Zeilen weiss bzw. leicht abwechselnd.
+# Rueckgabe: Doc (FixedDocument), Layout, Pages, PerPage (Zeilen auf Seite 1)
+function New-StatusPrintDoc {
+    param($Rows, [string[]]$Cols, [string[]]$Headers, [string]$Title, [string]$Sub, [double]$PageW, [double]$PageH, [double]$Margin = 38)
+    $Rows = @($Rows)
+    $L = Get-PrintLayout $Rows $Cols $Headers ($PageW - 2 * $Margin)
+    $brush = { param($hex) $b = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex)); $b.Freeze(); $b }
+    $bHead = & $brush '#D9E1F2'; $bAlt = & $brush '#F5F5F5'; $bLine = & $brush '#C8C8C8'; $bBlack = [System.Windows.Media.Brushes]::Black
+    $bStand = @{ ok = (& $brush '#C8E6C9'); warn = (& $brush '#FFE9A8'); err = (& $brush '#F4C7CB') }
+    $font = New-Object System.Windows.Media.FontFamily('Segoe UI')
+    $tw = ($L.Widths | Measure-Object -Sum).Sum
+    $mkText = {
+        param($t, [bool]$bold, [bool]$wrap, [double]$size)
+        $tb = New-Object System.Windows.Controls.TextBlock
+        $tb.Text = [string]$t; $tb.FontFamily = $font; $tb.FontSize = $size; $tb.Foreground = $bBlack
+        if ($bold) { $tb.FontWeight = [System.Windows.FontWeights]::Bold }
+        $tb.TextWrapping = $(if ($wrap) { [System.Windows.TextWrapping]::Wrap } else { [System.Windows.TextWrapping]::NoWrap })
+        $tb
+    }
+    # eine Tabellenzeile als Grid mit festen Spaltenbreiten; gemessen fuer die Seitenaufteilung
+    $mkRow = {
+        param($vals, [bool]$head, $bg, [string]$standClass)
+        $gr = New-Object System.Windows.Controls.Grid
+        $gr.Width = $tw
+        foreach ($w in $L.Widths) { $cd = New-Object System.Windows.Controls.ColumnDefinition; $cd.Width = New-Object System.Windows.GridLength($w); $gr.ColumnDefinitions.Add($cd) }
+        if ($bg) { $gr.Background = $bg }
+        # letzter Ausweg: ganze Tabelle gleichmaessig verkleinern
+        if ($L.Scale -lt 1.0) { $gr.LayoutTransform = New-Object System.Windows.Media.ScaleTransform($L.Scale, $L.Scale) }
+        for ($i = 0; $i -lt $L.Cols.Count; $i++) {
+            $c = $L.Cols[$i]
+            $t = [string]$vals[$i]
+            $wrap = (-not $head -and $L.Wrapped -contains $c)
+            # Mailadresse darf vor dem at-Zeichen (notfalls nach Punkt und Bindestrich) umbrechen, nur im Druck
+            if ($wrap) { $t = Get-PrintBreakText $c $t }
+            $bd = New-Object System.Windows.Controls.Border
+            $bd.Padding = New-Object System.Windows.Thickness(($script:PrintCellPad / 2), 1.5, ($script:PrintCellPad / 2), 1.5)
+            $bd.BorderBrush = $bLine; $bd.BorderThickness = New-Object System.Windows.Thickness(0, 0, 0, $(if ($head) { 1.0 } else { 0.5 }))
+            if ($head) { $bd.Background = $bHead }
+            elseif ($c -eq 'Stand' -and $standClass) { $bd.Background = $bStand[$standClass] }
+            $bd.Child = (& $mkText $t $head $wrap $L.Dip)
+            [System.Windows.Controls.Grid]::SetColumn($bd, $i)
+            [void]$gr.Children.Add($bd)
+        }
+        $gr.Measure((New-Object System.Windows.Size($tw, [double]::PositiveInfinity)))
+        $gr
+    }
+    $mkHead = { & $mkRow $L.Headers $true $null '' }
+    $titleBox = New-Object System.Windows.Controls.StackPanel
+    $t1 = & $mkText $Title $true $false (11.0 * 96 / 72); [void]$titleBox.Children.Add($t1)
+    $t2 = & $mkText $Sub $false $true (8.0 * 96 / 72); $t2.Margin = New-Object System.Windows.Thickness(0, 2, 0, 8); $t2.Width = $PageW - 2 * $Margin; [void]$titleBox.Children.Add($t2)
+    $titleBox.Measure((New-Object System.Windows.Size(($PageW - 2 * $Margin), [double]::PositiveInfinity)))
+    $footH = (8.0 * 96 / 72) * 1.6 + 6
+    $bodyH = $PageH - 2 * $Margin - $footH
+    $headH = (& $mkHead).DesiredSize.Height
+    # Seitenaufteilung aus den gemessenen Zeilenhoehen
+    $pages = New-Object System.Collections.ArrayList
+    $cur = New-Object System.Collections.ArrayList
+    $used = $titleBox.DesiredSize.Height + $headH
+    for ($i = 0; $i -lt $Rows.Count; $i++) {
+        $r = $Rows[$i]
+        $vals = @($L.Cols | ForEach-Object { [string]$r.$_ })
+        $sc = ''; $sv = [string]$r.Stand; if ($script:StandClass -and $script:StandClass.ContainsKey($sv)) { $sc = $script:StandClass[$sv] }
+        $row = & $mkRow $vals $false $(if ($i % 2 -eq 1) { $bAlt } else { $null }) $sc
+        $h = $row.DesiredSize.Height
+        if ($cur.Count -and $used + $h -gt $bodyH) { [void]$pages.Add($cur); $cur = New-Object System.Collections.ArrayList; $used = $headH }
+        [void]$cur.Add($row); $used += $h
+    }
+    [void]$pages.Add($cur)
+    $doc = New-Object System.Windows.Documents.FixedDocument
+    $doc.DocumentPaginator.PageSize = New-Object System.Windows.Size($PageW, $PageH)
+    for ($p = 0; $p -lt $pages.Count; $p++) {
+        $fp = New-Object System.Windows.Documents.FixedPage
+        $fp.Width = $PageW; $fp.Height = $PageH; $fp.Background = [System.Windows.Media.Brushes]::White
+        $sp = New-Object System.Windows.Controls.StackPanel
+        if ($p -eq 0) { [void]$sp.Children.Add($titleBox) }
+        [void]$sp.Children.Add((& $mkHead))
+        foreach ($row in $pages[$p]) { [void]$sp.Children.Add($row) }
+        [System.Windows.Documents.FixedPage]::SetLeft($sp, $Margin); [System.Windows.Documents.FixedPage]::SetTop($sp, $Margin)
+        [void]$fp.Children.Add($sp)
+        $ft = & $mkText ('Seite ' + ($p + 1) + ' von ' + $pages.Count) $false $false (8.0 * 96 / 72)
+        $ft.Width = $PageW - 2 * $Margin; $ft.TextAlignment = [System.Windows.TextAlignment]::Right
+        [System.Windows.Documents.FixedPage]::SetLeft($ft, $Margin); [System.Windows.Documents.FixedPage]::SetTop($ft, $PageH - $Margin - $footH + 6)
+        [void]$fp.Children.Add($ft)
+        $fp.Measure((New-Object System.Windows.Size($PageW, $PageH))); $fp.Arrange((New-Object System.Windows.Rect(0, 0, $PageW, $PageH))); $fp.UpdateLayout()
+        $pc = New-Object System.Windows.Documents.PageContent
+        ([System.Windows.Markup.IAddChild]$pc).AddChild($fp)
+        [void]$doc.Pages.Add($pc)
+    }
+    return [pscustomobject]@{ Doc = $doc; Layout = $L; Pages = $pages.Count; PerPage = $(if ($pages.Count) { $pages[0].Count } else { 0 }) }
+}
+# Seitengroesse und Rand NACH dem Druckdialog aus dem Druckauftrag (PrintTicket) und den Faehigkeiten des Druckers lesen.
+# Rueckgabe: W, H (ganze Seite, WPF-Einheiten), Margin, Landscape
+function Get-PrintPage($Pd) {
+    $w = [double]$Pd.PrintableAreaWidth; $h = [double]$Pd.PrintableAreaHeight; $land = ($w -gt $h); $mg = 38.0
+    try {
+        $tk = $Pd.PrintTicket
+        $ms = $tk.PageMediaSize
+        if ($ms -and $ms.Width -and $ms.Height) {
+            $w = [double]$ms.Width; $h = [double]$ms.Height
+            $land = ([string]$tk.PageOrientation -match 'Landscape')
+            if ($land -and $w -lt $h -or -not $land -and $w -gt $h) { $t = $w; $w = $h; $h = $t }
+        }
+        $cap = $Pd.PrintQueue.GetPrintCapabilities($tk)
+        $ia = $cap.PageImageableArea
+        if ($ia) { $mg = [math]::Max($mg, [math]::Ceiling([math]::Max($ia.OriginWidth, $ia.OriginHeight))) }
+    } catch { }
+    return [pscustomobject]@{ W = $w; H = $h; Margin = $mg; Landscape = $land }
+}
+
+# Details eines Geraets als eigenes Fenster: Felder in Klartext, Verlauf aus protokoll.csv, Kopieren, Schliessen
+function Show-DeviceDetail($Row, $Owner) {
+    [xml]$dx = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot - Gerät" Width="720" Height="560" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False">
+  <DockPanel Margin="10">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Button x:Name="bCopy" Content="Kopieren" Padding="10,4" ToolTip="Alle Angaben in die Zwischenablage kopieren (z. B. für eine E-Mail an den Admin)."/>
+      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" IsCancel="True" ToolTip="Fenster schließen (Esc)."/>
+    </StackPanel>
+    <TextBox x:Name="tDet" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" ToolTip="Angaben zum Gerät aus Autopilot, Intune und dem Stick-Protokoll. Text lässt sich markieren und kopieren."/>
+  </DockPanel>
+</Window>
+'@
+    Add-HuTheme $dx
+    $dw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $dx))
+    Register-HuWindow $dw
+    $dw.Owner = $Owner; if ($win.Icon) { $dw.Icon = $win.Icon }
+    Set-WinFit $dw
+    $dw.Title = 'HUPilot - Gerät ' + $Row.Seriennr
+    # Profil live nachladen (optional)
+    $prof = ''; $profAt = ''
+    $id = $script:ApIds[[string]$Row.Seriennr]
+    if ($id) {
+        $tok = Get-ApiToken
+        if ($tok) {
+            try {
+                $d = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '?$expand=deploymentProfile') -Headers @{ Authorization = 'Bearer ' + $tok } -TimeoutSec 30
+                if ($d.deploymentProfile) { $prof = [string]$d.deploymentProfile.displayName }
+                try { $t = [datetime]$d.deploymentProfileAssignedDateTime; if ($t.Year -gt 2000) { $profAt = $t.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }
+            } catch { Out-Log ('Profil von ' + $Row.Seriennr + ' nicht nachladbar, die Angaben stammen aus der Liste.') 'Hinweis' $_.Exception.Message }
+        }
+    }
+    $nl = "`r`n"
+    $lines = @(
+        ('Seriennummer:      ' + $Row.Seriennr),
+        ('Stand:             ' + $Row.Stand),
+        ('Was tun:           ' + $Row.WasTun),
+        '',
+        ('Tag:               ' + $Row.Tag),
+        ('Autopilot-Profil:  ' + $(if ($prof) { $prof } else { '-' }) + $(if ($profAt) { ' (zugewiesen am ' + $profAt + ')' } else { '' })),
+        ('Profilstatus:      ' + $Row.Profil),
+        ('Intune:            ' + $Row.Intune),
+        ('Registriert:       ' + $(if ($Row.RegDatum) { $Row.RegDatum } else { '-' })),
+        ('Letzter Kontakt:   ' + $(if ($Row.LetzterKontakt) { $Row.LetzterKontakt } else { '-' })),
+        ('Letzter Sync:      ' + $(if ($Row.LetzterSync) { $Row.LetzterSync } else { '-' })),
+        ('Benutzer:          ' + $(if ($Row.Benutzer) { $Row.Benutzer } else { '-' })),
+        ('Gerätename:        ' + $(if ($Row.Name) { $Row.Name } else { '-' })),
+        ('Modell:            ' + $Row.Modell),
+        '',
+        'Verlauf am Stick (protokoll.csv):'
+    )
+    $hist = @()
+    if ($script:ProtoAll -and $script:ProtoAll.ContainsKey([string]$Row.Seriennr)) { $hist = @($script:ProtoAll[[string]$Row.Seriennr] | Sort-Object Zeit) }
+    if ($hist.Count) { foreach ($h in $hist) { $lines += ('  ' + $h.Zeit + '   ' + $h.Ergebnis + $(if ($h.Tag) { '   (Tag ' + $h.Tag + ')' } else { '' })) } }
+    else { $lines += '  keine Einträge (Gerät wurde nicht mit diesem Stick bearbeitet oder das Protokoll ist nicht da)' }
+    $txt = $lines -join $nl
+    $c = @{ tDet = $dw.FindName('tDet'); bCopy = $dw.FindName('bCopy'); bClose = $dw.FindName('bClose') }
+    $c.tDet.Text = $txt
+    $c.bCopy.Add_Click({ try { [System.Windows.Clipboard]::SetText($c.tDet.Text); $c.bCopy.Content = 'Kopiert' } catch { $c.bCopy.Content = 'Kopieren fehlgeschlagen' } })
+    $c.bClose.Add_Click({ $dw.Close() })
+    [void]$dw.ShowDialog()
 }
 
 function Show-Status {
-    param($Rows, [hashtable]$Proto, [string]$Tenant)
     [xml]$sx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot - Status" Width="1260" Height="640" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
+        Title="HUPilot - Status" Width="1280" Height="720" WindowStartupLocation="CenterOwner" FontSize="12" ResizeMode="CanResizeWithGrip">
   <Window.Resources>
     <Style x:Key="HuThumb" TargetType="Thumb">
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
@@ -1164,245 +3192,478 @@ function Show-Status {
         </Trigger>
       </Style.Triggers>
     </Style>
+    <Style x:Key="HuTile" TargetType="Button">
+      <Setter Property="Background" Value="{DynamicResource HuPanel}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
+      <Setter Property="BorderThickness" Value="2"/><Setter Property="Padding" Value="14,6"/><Setter Property="Margin" Value="0,0,8,6"/><Setter Property="MinWidth" Value="150"/><Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Left"/></Border>
+        <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Opacity" Value="0.85"/></Trigger></ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
   </Window.Resources>
   <DockPanel Margin="10">
-    <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+      <Button x:Name="kAll" Style="{StaticResource HuTile}" Tag="" ToolTip="Alle Geräte (mit den Filtern unten). Klick hebt den Kachel-Filter auf."><StackPanel><TextBlock x:Name="nAll" Text="-" FontSize="22" FontWeight="Bold"/><TextBlock Text="Geräte gesamt"/></StackPanel></Button>
+      <Button x:Name="kOk" Style="{StaticResource HuTile}" Tag="ok" ToolTip="Fertig: in Intune angemeldet. Klick zeigt nur diese, zweiter Klick wieder alle."><StackPanel><TextBlock x:Name="nOk" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuOk}"/><TextBlock Text="Fertig"/></StackPanel></Button>
+      <Button x:Name="kWait" Style="{StaticResource HuTile}" Tag="wait" ToolTip="Hochgeladen, Microsoft weist das Profil noch zu (meist 5 bis 15 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nWait" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wartet auf Profil"/></StackPanel></Button>
+      <Button x:Name="kReady" Style="{StaticResource HuTile}" Tag="ready" ToolTip="Profil ist da, das Gerät hat sich aber noch nicht angemeldet. Klick filtert."><StackPanel><TextBlock x:Name="nReady" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Profil da, noch nicht angemeldet"/></StackPanel></Button>
+      <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Problem"/></StackPanel></Button>
+    </WrapPanel>
+    <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
       <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,4"/>
       <ComboBox x:Name="cTag" Width="140" Margin="0,0,0,4" ToolTip="Nur Geräte mit diesem Group Tag"/>
-      <CheckBox x:Name="cProto" Content="nur Geräte aus protokoll.csv" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
+      <CheckBox x:Name="cProto" Content="nur Geräte aus dem Stick-Protokoll" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
+      <CheckBox x:Name="cToday" Content="heute" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die heute hochgeladen oder registriert wurden"/>
+      <CheckBox x:Name="cProblem" Content="nur Probleme" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte mit Stand &quot;Kein Profil für diesen Tag&quot; oder &quot;Fehler&quot;"/>
       <CheckBox x:Name="cZeit" Content="nur letzte" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Zeitfilter: nur Geräte, die im gewählten Zeitraum registriert bzw. importiert wurden"/>
-      <ComboBox x:Name="cZeitSpan" Width="60" Margin="6,0,0,4" ToolTip="Zeitraum bis jetzt"/>
-      <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte RegDatum).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
-      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,4" VerticalAlignment="Center" ToolTip="Suche in Seriennummer / Gerätename / Benutzer"/>
-      <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,4" FontWeight="SemiBold" ToolTip="Anzahl der angezeigten Geräte"/>
-      <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" Margin="14,0,0,4" ToolTip="Alle Daten neu aus Autopilot/Intune laden"/>
+      <ComboBox x:Name="cZeitSpan" Width="70" Margin="6,0,0,4" ToolTip="Zeitraum bis jetzt"/>
+      <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte Registriert).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
+      <TextBox x:Name="tFind" Width="160" Margin="14,0,0,4" VerticalAlignment="Center" ToolTip="Suche in Seriennummer, Gerätename und Benutzer"/>
     </WrapPanel>
-    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4" ToolTip="Angezeigte Zeilen als CSV (Strichpunkt getrennt) speichern"/>
-      <Button x:Name="bXlsx" Content="Excel speichern" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen als Excel-Datei (.xlsx) speichern:&#x0a;Kopfzeile fixiert mit Filter, Datum als echtes Datum, Profil eingefärbt.&#x0a;Excel muss dafür nicht installiert sein."/>
-      <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen drucken (Querformat, auch als PDF über „Microsoft Print to PDF“)"/>
-      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen"/>
-    </StackPanel>
-    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details (Profil live nachladen)" AutoGenerateColumns="True" IsReadOnly="True" CanUserSortColumns="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
+    <Grid DockPanel.Dock="Top" Margin="0,0,4,10">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <DockPanel Grid.Column="0" VerticalAlignment="Center">
+        <Ellipse x:Name="ePulse" DockPanel.Dock="Left" Width="10" Height="10" Fill="{DynamicResource HuOk}" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Daten werden geladen"/>
+        <TextBlock x:Name="tLoad" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource HuMuted}" ToolTip="Fortschritt beim Laden"/>
+      </DockPanel>
+      <StackPanel x:Name="spTopR" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+        <TextBlock x:Name="tStamp" VerticalAlignment="Center" Margin="12,0,16,0" Foreground="{DynamicResource HuMuted}" ToolTip="Zeitpunkt der letzten erfolgreichen Abfrage"/>
+        <CheckBox x:Name="cAuto" Content="alle 60 s aktualisieren" VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Liste jede Minute neu laden (nicht, während ein Dialog offen ist). Auswahl, Sortierung und Filter bleiben."/>
+        <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" ToolTip="Alle Daten jetzt neu aus Autopilot und Intune laden"/>
+      </StackPanel>
+    </Grid>
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+      <StackPanel x:Name="spBotR" DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4" ToolTip="Angezeigte Zeilen als CSV (Strichpunkt getrennt) speichern, mit denselben Spalten wie im Fenster"/>
+        <Button x:Name="bXlsx" Content="Excel speichern" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen als Excel-Datei (.xlsx) speichern:&#x0a;Kopfzeile fixiert mit Filter, Datum als echtes Datum, Stand eingefärbt.&#x0a;Excel muss dafür nicht installiert sein."/>
+        <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen drucken (Querformat, auch als PDF über Microsoft Print to PDF)"/>
+        <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen"/>
+      </StackPanel>
+      <StackPanel x:Name="spBotL" Orientation="Horizontal">
+        <Button x:Name="bDetail" Content="Details ..." Padding="10,4" ToolTip="Angaben zur markierten Zeile mit Verlauf aus dem Stick-Protokoll (auch Doppelklick auf die Zeile)"/>
+        <Button x:Name="bTagSet" Content="Tag ändern ..." Padding="10,4" Margin="8,0,0,0" ToolTip="Den markierten Geräten einen anderen Group Tag geben (Standard- oder Auswahl-Tag aus den Einstellungen). Mit Rückfrage."/>
+        <Button x:Name="bSync" Content="Autopilot-Sync anstoßen" Padding="10,4" Margin="8,0,0,0" ToolTip="Microsoft gleicht Autopilot neu ab (immer für den ganzen Tenant). Hilft, wenn ein Profil nicht kommt. Höchstens alle 10 Minuten."/>
+        <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" ToolTip="Anzahl der angezeigten und markierten Geräte"/>
+      </StackPanel>
+    </DockPanel>
+    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details. Mehrere Zeilen markieren: Strg+Klick oder Umschalt+Klick.&#x0a;Spalten lassen sich verschieben (die Reihenfolge wird gemerkt) und breiter ziehen (gilt bis zum Schließen).&#x0a;Gekürzte Texte zeigen den vollen Inhalt, wenn die Maus darüber steht." AutoGenerateColumns="False" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="True" CanUserResizeColumns="True" SelectionMode="Extended" SelectionUnit="FullRow" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $sx
     $sw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $sx))
+    Register-HuWindow $sw
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
-    $g = @{}; foreach ($n in 'cTag','cProto','cZeit','cZeitSpan','cZeitBasis','tFind','tCount','bCsv','bXlsx','bPrint','bClose','dGrid','bReload') { $g[$n] = $sw.FindName($n) }
-    # Spalte Profil dezent einfaerben: zugewiesen = hellgruen, in Arbeit (ausstehend, Datum fehlt, nicht synchron) = hellgelb.
-    # Auswahl bleibt erkennbar (eigener Trigger fuer IsSelected mit den Systemfarben).
-    $profStyle = $null
+    Set-WinFit $sw
+    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
+    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; FitW = @{}; ManualCols = @{}; UserSized = $false; SizingByCode = $false; FromSearch = $false }
+    $script:SRows = @(); $script:StatusView = @()
+    # Spalten fest (deutsche Ueberschriften), Breite nach Inhalt (Set-GridColumnsFit), Reihenfolge aus ui.json
+    $standStyle = $null
     try {
-        $profStyle = [Windows.Markup.XamlReader]::Parse(@'
-<Style TargetType="DataGridCell" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        $standXaml = '<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">' +
+            '<Setter Property="Padding" Value="8,2"/><Setter Property="HorizontalAlignment" Value="Left"/><Setter Property="FontWeight" Value="SemiBold"/><Style.Triggers>'
+        foreach ($k in @(@('ok', 'HuStandOkBg'), @('warn', 'HuStandWarnBg'), @('err', 'HuStandErrBg'))) { $standXaml += '<DataTrigger Binding="{Binding Klasse}" Value="' + $k[0] + '"><Setter Property="Background" Value="{DynamicResource ' + $k[1] + '}"/><Setter Property="Foreground" Value="{DynamicResource HuStandText}"/></DataTrigger>' }
+        $standStyle = [Windows.Markup.XamlReader]::Parse($standXaml + '</Style.Triggers></Style>')
+    } catch { }
+    foreach ($col in $script:StatusCols) {
+        $dc = New-Object System.Windows.Controls.DataGridTextColumn
+        $dc.Header = $col.Header; $dc.Binding = New-Object System.Windows.Data.Binding($col.Key)
+        # Datumsspalten zeigen dd.MM.yyyy HH:mm, sortiert wird nach einer versteckten Fassung yyyy-MM-dd HH:mm
+        $dc.SortMemberPath = $(if ($col.Sort) { $col.Sort } else { $col.Key })
+        # Stand: nur diese Zelle deutlich eingefaerbt (Schild), die Zeile bleibt neutral bzw. leicht getoent
+        if ($col.Key -eq 'Stand') { try { $dc.ElementStyle = $standStyle } catch { } }
+        $g.dGrid.Columns.Add($dc)
+    }
+    # Spaltenbreite von Hand gezogen (Griff im Spaltenkopf): diese Spalte bis zum Schliessen nicht mehr anpassen.
+    # Verglichen wird mit der zuletzt berechneten Breite, Scrollbalken zaehlen nicht (kein Spaltenkopf darueber).
+    $g.dGrid.AddHandler([System.Windows.Controls.Primitives.Thumb]::DragCompletedEvent, [System.Windows.Controls.Primitives.DragCompletedEventHandler]{
+        param($s, $e)
+        try {
+            $o = $e.OriginalSource; $inHead = $false
+            while ($o -and $o -ne $g.dGrid) {
+                if ($o -is [System.Windows.Controls.Primitives.DataGridColumnHeader]) { $inHead = $true; break }
+                $o = [System.Windows.Media.VisualTreeHelper]::GetParent($o)
+            }
+            if (-not $inHead) { return }
+            foreach ($dc in $g.dGrid.Columns) {
+                $p = [string]$dc.Binding.Path.Path
+                if ($sst.FitW.ContainsKey($p) -and [math]::Abs($dc.Width.Value - $sst.FitW[$p]) -gt 0.5) { $sst.ManualCols[$p] = $true }
+            }
+        } catch { }
+    }, $true)
+    try {
+        $saved = @(Get-UiSetting 'StatusCols' @())
+        $byKey = @{}; foreach ($dc in $g.dGrid.Columns) { $byKey[[string]$dc.Binding.Path.Path] = $dc }
+        # Nur die Reihenfolge wird uebernommen ("Spalte|Position"). Alte Eintraege mit Breite ("Spalte|Position|Breite")
+        # zaehlen nur mit ihrer Position, die Breite wird ignoriert und sofort aus ui.json entfernt.
+        $order = @($saved | ForEach-Object { $p = ([string]$_) -split '\|'; if ($p.Count -ge 2 -and $byKey.ContainsKey($p[0])) { [pscustomobject]@{ Key = $p[0]; Ix = [int]$p[1] } } } | Sort-Object Ix)
+        if ($order.Count -eq $g.dGrid.Columns.Count) { for ($i = 0; $i -lt $order.Count; $i++) { $byKey[$order[$i].Key].DisplayIndex = $i } }
+        if (@($saved | Where-Object { ([string]$_ -split '\|').Count -gt 2 }).Count) { Set-UiSetting 'StatusCols' @($order | ForEach-Object { $_.Key + '|' + $_.Ix }) }
+    } catch { }
+    # Zeile nach Stand einfaerben (gruen / gelb / rot), Auswahl bleibt erkennbar (Zellen markiert in der Auswahlfarbe)
+    try {
+        $g.dGrid.RowStyle = [Windows.Markup.XamlReader]::Parse(@'
+<Style TargetType="DataGridRow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
   <Style.Triggers>
-    <DataTrigger Binding="{Binding Profil}" Value="zugewiesen"><Setter Property="Background" Value="#DFF2E1"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="ausstehend"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="zugew., Datum fehlt"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
-    <DataTrigger Binding="{Binding Profil}" Value="zugew., nicht synchron"><Setter Property="Background" Value="#FFF4CE"/></DataTrigger>
-    <Trigger Property="IsSelected" Value="True">
-      <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
-      <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
-    </Trigger>
+    <DataTrigger Binding="{Binding Klasse}" Value="ok"><Setter Property="Background" Value="{DynamicResource HuRowOkBg}"/></DataTrigger>
+    <DataTrigger Binding="{Binding Klasse}" Value="warn"><Setter Property="Background" Value="{DynamicResource HuRowWarnBg}"/></DataTrigger>
+    <DataTrigger Binding="{Binding Klasse}" Value="err"><Setter Property="Background" Value="{DynamicResource HuRowErrBg}"/></DataTrigger>
   </Style.Triggers>
 </Style>
 '@)
-    } catch { Out-Log ('Status-Farben: ' + $_.Exception.Message) }
-    if ($profStyle) { $g.dGrid.Add_AutoGeneratingColumn({ param($s, $e) if ([string]$e.PropertyName -eq 'Profil') { $e.Column.CellStyle = $profStyle } }) }
-    $script:SRows = @($Rows)
+    } catch { Out-Log 'Farben der Status-Tabelle nicht verfügbar.' 'Hinweis' $_.Exception.Message }
     $fillTags = {
         $keep = [string]$g.cTag.SelectedItem
         $g.cTag.Items.Clear(); [void]$g.cTag.Items.Add('Alle')
         foreach ($t in @($script:SRows | ForEach-Object { $_.Tag } | Where-Object { $_ } | Sort-Object -Unique)) { [void]$g.cTag.Items.Add($t) }
         if ($keep -and $g.cTag.Items.Contains($keep)) { $g.cTag.SelectedItem = $keep } else { $g.cTag.SelectedIndex = 0 }
     }
-    & $fillTags
-    $g.cProto.IsChecked = ($Proto.Count -gt 0)
-    $g.cProto.IsEnabled = ($Proto.Count -gt 0)
-    # Zeitfilter: Zeitraum und Grundlage, Standard 24 h nach Registrierung (Haekchen aus)
     $script:ZeitStd = @(4, 24, 48)
     foreach ($h in $script:ZeitStd) { [void]$g.cZeitSpan.Items.Add(('' + $h + ' h')) }
+    [void]$g.cZeitSpan.Items.Add('heute')
     $g.cZeitSpan.SelectedIndex = 1
     [void]$g.cZeitBasis.Items.Add('nach Registrierung')
     [void]$g.cZeitBasis.Items.Add('nach Autopilot-Import')
     $g.cZeitBasis.SelectedIndex = 0
-    $script:StatusView = @()
+    $g.cAuto.IsChecked = ([string](Get-UiSetting 'StatusAuto' $true) -ne 'False')
+    $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb }
     $refresh = {
+        # Auswahl und Sortierung merken
+        $selSn = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Seriennr })
+        $sorts = @($g.dGrid.Items.SortDescriptions | ForEach-Object { $_ })
         $v = @($script:SRows)
         if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
         if ($g.cProto.IsChecked) { $v = @($v | Where-Object { $_.HUPilot }) }
+        if ($g.cToday.IsChecked) { $d0 = (Get-Date).Date; $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and (($t.Reg -and $t.Reg -ge $d0) -or ($t.Imp -and $t.Imp -ge $d0)) }) }
+        if ($g.cProblem.IsChecked) { $v = @($v | Where-Object { $_.Klasse -eq 'err' }) }
         if ($g.cZeit.IsChecked) {
-            $since = (Get-Date).AddHours(-1 * $script:ZeitStd[[math]::Max(0, $g.cZeitSpan.SelectedIndex)])
+            $since = $(if ($g.cZeitSpan.SelectedIndex -eq 3) { (Get-Date).Date } else { (Get-Date).AddHours(-1 * $script:ZeitStd[[math]::Max(0, [math]::Min(2, $g.cZeitSpan.SelectedIndex))]) })
             $key = $(if ($g.cZeitBasis.SelectedIndex -eq 1) { 'Imp' } else { 'Reg' })
             $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and $t[$key] -and $t[$key] -ge $since })
         }
         if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
+        # Kacheln zaehlen ueber die gefilterte Liste (ohne Kachel-Filter)
+        $cnt = @{ ok = 0; wait = 0; ready = 0; prob = 0 }
+        foreach ($r in $v) { $k = $script:StandTile[[string]$r.Stand]; if ($k) { $cnt[$k]++ } }
+        $g.nAll.Text = '' + $v.Count; $g.nOk.Text = '' + $cnt.ok; $g.nWait.Text = '' + $cnt.wait; $g.nReady.Text = '' + $cnt.ready; $g.nProb.Text = '' + $cnt.prob
+        if ($sst.Tile) { $tk = $sst.Tile; $v = @($v | Where-Object { $script:StandTile[[string]$_.Stand] -eq $tk }) }
+        foreach ($k in @($tiles.Keys)) { if ($k -eq $sst.Tile -and $k) { $tiles[$k].SetResourceReference([System.Windows.Controls.Control]::BorderBrushProperty, 'HuAccent') } else { $tiles[$k].ClearValue([System.Windows.Controls.Control]::BorderBrushProperty) } }
         $script:StatusView = $v
         $g.dGrid.ItemsSource = $v
-        $ok = @($v | Where-Object { $_.Intune -eq 'registriert' }).Count
-        $g.tCount.Text = ('' + $v.Count + ' Geräte  |  ' + $ok + ' in Intune registriert  |  ' + ($v.Count - $ok) + ' offen')
+        # Sortierung und Auswahl wiederherstellen
+        foreach ($sd in $sorts) { $g.dGrid.Items.SortDescriptions.Add($sd); foreach ($dc in $g.dGrid.Columns) { if ($dc.SortMemberPath -eq $sd.PropertyName) { $dc.SortDirection = $sd.Direction } } }
+        if ($selSn.Count) { foreach ($it in @($g.dGrid.Items)) { if ($selSn -contains [string]$it.Seriennr) { [void]$g.dGrid.SelectedItems.Add($it) } } }
+        $g.tCount.Text = ('' + $v.Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' }))
+        # Spaltenbreiten nach der ANGEZEIGTEN Liste, bei jeder Aenderung (Filter, Suche, Kachel, Aktualisieren)
+        try { & $fitCols } catch { }
+        # Fensterbreite: bei der Suche erst nach einer kurzen Pause, sonst sofort
+        if ($sst.FromSearch) { $wtm.Stop(); $wtm.Start() } else { try { & $fitWin } catch { } }
     }
-    $g.cTag.Add_SelectionChanged($refresh)
-    $g.cProto.Add_Click($refresh)
-    $g.cZeit.Add_Click($refresh)
+    $pulse = New-Object System.Windows.Media.Animation.DoubleAnimation(1.0, 0.2, (New-Object System.Windows.Duration([TimeSpan]::FromMilliseconds(600))))
+    $pulse.AutoReverse = $true; $pulse.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
+    # -Auto: Aufruf vom Timer. Dann gleiche Protokollzeilen nur einmal (bis sich etwas aendert) und nach zwei
+    # Fehlschlaegen ohne Verbindung pausieren. Ein Klick auf Aktualisieren laeuft immer laut und startet den Timer wieder.
+    $sst.Seen = @{}; $sst.Fails = 0; $sst.Paused = $false
+    $load = {
+        param([bool]$Auto = $false)
+        if ($sst.Loading) { return }
+        $sst.Loading = $true; $g.bReload.IsEnabled = $false
+        $g.ePulse.Visibility = 'Visible'; $g.ePulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $pulse)
+        Set-Step 'Status' 'run'
+        if ($Auto) { $script:QuietDedupe = $sst.Seen } else { $script:QuietDedupe = $null; $sst.Seen.Clear() }
+        try {
+            $d = Get-StatusData -Progress { param($t) $g.tLoad.Text = $t; $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+            if ($d) {
+                $sst.Fails = 0
+                # Fehler und Hinweise duerfen nach einem erfolgreichen Durchgang wieder einmal erscheinen
+                foreach ($k in @($sst.Seen.Keys)) { if ($sst.Seen[$k] -in 'Fehler', 'Hinweis') { $sst.Seen.Remove($k) } }
+                if ($sst.Paused -and $g.cAuto.IsChecked) { $sst.Paused = $false; $tm.Start() }
+                $script:SRows = @($d.Rows); & $fillTags
+                if ($sst.First) { $g.cProto.IsChecked = ($d.Proto.Count -gt 0); $g.cProto.IsEnabled = ($d.Proto.Count -gt 0); $sst.First = $false }
+                $g.tStamp.Text = 'Stand: ' + (Get-Date -Format 'HH:mm')
+                $g.tLoad.Text = ''
+                Set-Step 'Status' 'ok' ('' + @($d.Rows).Count + ' Geräte')
+            } else {
+                $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Set-Step 'Status' 'err' 'nicht geladen'
+                if ($Auto) {
+                    $sst.Fails++
+                    if ($sst.Fails -ge 2 -and $script:TokenErr -eq 'net') { $tm.Stop(); $sst.Paused = $true; $g.tLoad.Text = 'Automatisches Aktualisieren pausiert: keine Verbindung. "Aktualisieren" klicken, um es wieder zu starten.' }
+                }
+            }
+        } catch { $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Out-Log 'Status konnte nicht geladen werden.' 'Fehler' $_.Exception.Message; Set-Step 'Status' 'err' $_.Exception.Message }
+        finally {
+            $script:QuietDedupe = $null
+            $sst.Loading = $false; $g.bReload.IsEnabled = $true
+            $g.ePulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null); $g.ePulse.Visibility = 'Collapsed'
+        }
+        # Auffrischen der Liste abgesichert (passt auch Spalten und Fenster an): ein Fehler darf das Fenster nicht abstuerzen lassen
+        try { & $refresh } catch { Out-Log 'Die Liste im Status-Fenster konnte nicht aufgefrischt werden.' 'Fehler' $_.Exception.Message }
+    }
+    # Breite je Spalte = breitester Text der angezeigten Zeilen plus Luft; von Hand gezogene Spalten bleiben bis zum Schliessen
+    $fitCols = {
+        Set-GridColumnsFit $g.dGrid @($script:StatusView) @{ WasTun = 420 } @{ Stand = 16 } @('Stand') @($sst.ManualCols.Keys)
+        foreach ($dc in $g.dGrid.Columns) { $sst.FitW[[string]$dc.Binding.Path.Path] = $dc.Width.Value }
+    }
+    # Fensterbreite an die Spalten anpassen (breiter und schmaler), solange der Anwender das Fenster nicht selbst veraendert hat
+    $fitWin = {
+        if ($sst.UserSized -or [string]$sw.WindowState -ne 'Normal') { return }
+        $sw.UpdateLayout()
+        # Fensterbreite = Spalten plus Raender und Scrollbalken, mindestens so breit, dass Kopfzeile und Knopfleiste ganz sichtbar sind
+        $cols = 0.0; foreach ($dc in $g.dGrid.Columns) { $cols += $dc.Width.Value }
+        $chrome = $sw.ActualWidth - $g.dGrid.ActualWidth
+        $g.spBotL.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity)); $g.spBotR.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity)); $g.spTopR.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
+        $minW = [math]::Max($g.spBotL.DesiredSize.Width + $g.spBotR.DesiredSize.Width + 24, $g.spTopR.DesiredSize.Width + 260) + $chrome
+        $wa = Get-WinWorkArea $sw
+        $target = [math]::Ceiling([math]::Min($wa.Width, [math]::Max($cols + $chrome + 20, $minW)))
+        if (-not $sst.Fitted -or [math]::Abs($target - $sw.ActualWidth) -gt 1) {
+            $firstFit = -not $sst.Fitted
+            $sst.Fitted = $true; $sst.SizingByCode = $true
+            $sw.Width = $target
+            # beim ersten Anpassen mittig ueber dem Hauptfenster, danach bleibt die Position (nur so weit verschieben wie noetig)
+            if ($firstFit) { Set-WinFit $sw } else { $sw.Left = Get-KeptLeft $sw.Left $target $wa.Left $wa.Right }
+            # Verzoegert, wenn die Groessenaenderung durch ist. Der Block darf keine Variablen dieser Funktion brauchen (das Fenster
+            # kann vorher geschlossen sein): Zustand per Closure festhalten, Fenster pruefen, Fehler abfangen.
+            $stRef = $sst; $winRef = $sw
+            [void]$sw.Dispatcher.BeginInvoke([action]({ try { if ($winRef.IsVisible -and $stRef) { $stRef.SizingByCode = $false } } catch { } }.GetNewClosure()), [System.Windows.Threading.DispatcherPriority]::ContextIdle)
+        }
+    }
+    # Pause nach dem Tippen in der Suche, bevor das Fenster seine Breite aendert
+    $wtm = New-Object System.Windows.Threading.DispatcherTimer
+    $wtm.Interval = [TimeSpan]::FromMilliseconds(400)
+    # Timer-Bloecke: den Timer ueber den Absender stoppen und nur bei offenem Fenster arbeiten
+    $wtm.Add_Tick({ param($s, $e) try { $s.Stop(); if ($sw -and $sw.IsVisible) { & $fitWin } } catch { } })
+    # Suche erst nach einer kurzen Tipp-Pause auswerten (nicht je Tastendruck)
+    $ftm = New-Object System.Windows.Threading.DispatcherTimer
+    $ftm.Interval = [TimeSpan]::FromMilliseconds(250)
+    $ftm.Add_Tick({ param($s, $e) try { $s.Stop(); if ($sw -and $sw.IsVisible) { $sst.FromSearch = $true; try { & $refresh } finally { $sst.FromSearch = $false } } } catch { } })
+    # Der Anwender hat das Fenster selbst in der Groesse geaendert oder maximiert: Breite nicht mehr anfassen
+    $sw.Add_SizeChanged({ param($s, $e) if ($sst.Fitted -and -not $sst.SizingByCode -and $e.PreviousSize.Width -gt 0) { $sst.UserSized = $true } })
+    # nur Maximieren schaltet die automatische Breite ab, Minimieren nicht
+    $sw.Add_StateChanged({ if ([string]$sw.WindowState -eq 'Maximized') { $sst.UserSized = $true } })
+    foreach ($k in @($tiles.Keys)) { $tiles[$k].Add_Click({ $t = [string]$this.Tag; if (-not $t -or $sst.Tile -eq $t) { $sst.Tile = '' } else { $sst.Tile = $t }; & $refresh }) }
+    $g.cTag.Add_SelectionChanged({ if (-not $sst.Loading) { & $refresh } })
+    foreach ($cb in 'cProto', 'cToday', 'cProblem', 'cZeit') { $g[$cb].Add_Click({ & $refresh }) }
     $g.cZeitSpan.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
     $g.cZeitBasis.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
-    $g.tFind.Add_TextChanged($refresh)
+    $g.tFind.Add_TextChanged({ $ftm.Stop(); $ftm.Start() })
+    $g.dGrid.Add_SelectionChanged({ $g.tCount.Text = ('' + @($script:StatusView).Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' })) })
+    $g.bReload.Add_Click({ & $load $false; if ($g.cAuto.IsChecked -and -not $sst.Paused) { $tm.Start() } })
     $g.bClose.Add_Click({ $sw.Close() })
-    $g.bReload.Add_Click({
-        $g.bReload.IsEnabled = $false; $g.tCount.Text = 'lade ...'
-        $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
-        $d = Get-StatusData
-        if ($d) { $script:SRows = @($d.Rows); & $fillTags }
-        & $refresh
-        $g.bReload.IsEnabled = $true
+    $g.cAuto.Add_Click({ Set-UiSetting 'StatusAuto' ([bool]$g.cAuto.IsChecked) })
+    # Automatisch aktualisieren: nicht waehrend Laden oder offenem Dialog
+    $tm = New-Object System.Windows.Threading.DispatcherTimer
+    $tm.Interval = [TimeSpan]::FromSeconds(60)
+    $tm.Add_Tick({ param($s, $e) try { if (-not $sw -or -not $sw.IsVisible) { $s.Stop(); return }; if ($g.cAuto.IsChecked -and -not $sst.Loading -and -not $sst.Dialog) { & $load $true } } catch { } })
+    $sw.Add_Closing({
+        $tm.Stop(); $wtm.Stop(); $ftm.Stop()
+        # nur die Reihenfolge merken, keine Breiten
+        try { Set-UiSetting 'StatusCols' @($g.dGrid.Columns | ForEach-Object { [string]$_.Binding.Path.Path + '|' + $_.DisplayIndex }) } catch { }
     })
-    $g.dGrid.Add_MouseDoubleClick({
-        $it = $g.dGrid.SelectedItem; if (-not $it) { return }
-        $id = $script:ApIds[[string]$it.Seriennr]; if (-not $id) { return }
-        $tok = Get-ApiToken; if (-not $tok) { return }
+    $detail = {
+        $it = $g.dGrid.SelectedItem; if (-not $it) { $g.tCount.Text = 'Bitte zuerst eine Zeile markieren.'; return }
+        $sst.Dialog = $true
+        try { Show-DeviceDetail $it $sw } catch { Out-Log ('Details zu ' + $it.Seriennr + ' nicht verfügbar.') 'Fehler' $_.Exception.Message } finally { $sst.Dialog = $false }
+    }
+    $g.dGrid.Add_MouseDoubleClick($detail)
+    $g.bDetail.Add_Click($detail)
+    # Tag aendern fuer markierte Geraete (Auswahl aus Standard- und Auswahl-Tags der Einstellungen)
+    $g.bTagSet.Add_Click({
+        $sel = @($g.dGrid.SelectedItems); if (-not $sel.Count) { $g.tCount.Text = 'Bitte zuerst Geräte markieren.'; return }
+        $c = Get-Cfg
+        $tags = @(@($c.GroupTag) + @($c.TagChoices) | Where-Object { $_ } | Select-Object -Unique)
+        if (-not $tags.Count) { Show-Msg 'In den Einstellungen ist kein Group Tag eingetragen (Hauptfenster: Group Tag).' 'HUPilot - Tag ändern' 'Warning' $sw; return }
+        $sst.Dialog = $true
         try {
-            $d = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '?$expand=deploymentProfile') -Headers @{ Authorization = 'Bearer ' + $tok }
-            $fmt = { param($v) try { $t = [datetime]$v; if ($t.Year -gt 2000) { $t.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } else { '-' } } catch { '-' } }
-            $txt = @(
-                ('Seriennummer:      ' + $d.serialNumber),
-                ('Group Tag:         ' + $d.groupTag),
-                ('Profilstatus:      ' + $d.deploymentProfileAssignmentStatus),
-                ('Profil:            ' + $(if ($d.deploymentProfile) { $d.deploymentProfile.displayName } else { '-' })),
-                ('Profil zugewiesen: ' + (& $fmt $d.deploymentProfileAssignedDateTime)),
-                ('Intune:            ' + $d.enrollmentState),
-                ('Letzter Kontakt:   ' + (& $fmt $d.lastContactedDateTime)),
-                ('Benutzer:          ' + $it.Benutzer),
-                ('Name:              ' + $it.Name),
-                ('Modell:            ' + $d.manufacturer + ' ' + $d.model),
-                ('HUPilot:           ' + $it.HUPilot)
-            ) -join "`r`n"
-            [void][System.Windows.MessageBox]::Show($sw, $txt, ('Details ' + $d.serialNumber), 'OK', 'Information')
-        } catch { Out-Log ('Details ' + $it.Seriennr + ': ' + $_.Exception.Message) }
+            $rows = @($tags | ForEach-Object { [pscustomobject]@{ Tag = $_; Art = $(if ($_ -eq $c.GroupTag) { 'Standard' } else { 'Auswahl' }) } })
+            $pick = Show-Pick 'HUPilot - Tag ändern' ('Neuen Group Tag für ' + $sel.Count + ' Gerät(e) wählen.') $rows 'Diesen Tag setzen' $sw
+            if (-not $pick) { return }
+            $sns = @($sel | ForEach-Object { [string]$_.Seriennr })
+            $list = (@($sns | Select-Object -First 15) -join "`r`n") + $(if ($sns.Count -gt 15) { "`r`n... und " + ($sns.Count - 15) + ' weitere' } else { '' })
+            $q = [System.Windows.MessageBox]::Show($sw, ('Tag "' + $pick.Tag + '" setzen für ' + $sns.Count + ' Gerät(e):' + "`r`n`r`n" + $list + "`r`n`r`n" + 'Wirkung: Die Geräte wechseln in die Gruppe dieses Tags und bekommen dessen Autopilot-Profil. Das dauert einige Minuten. Bereits eingerichtete Geräte ändern sich erst beim nächsten Zurücksetzen.' + "`r`n`r`n" + 'Fortfahren?'), 'HUPilot - Tag ändern', 'YesNo', 'Question')
+            if ($q -ne 'Yes') { return }
+            $tok = Get-ApiToken; if (-not $tok) { Show-Msg $script:TokenMsg 'HUPilot - Tag ändern' 'Warning' $sw; return }
+            $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
+            $ok = 0
+            foreach ($r in $sel) {
+                $id = $script:ApIds[[string]$r.Seriennr]
+                if (-not $id) { Out-Log ($r.Seriennr + ': nicht in Autopilot gefunden, Tag nicht geändert.') 'Fehler'; continue }
+                try {
+                    Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = [string]$pick.Tag } | ConvertTo-Json) -TimeoutSec 30 | Out-Null
+                    Out-Log ($r.Seriennr + ': Tag auf "' + $pick.Tag + '" gesetzt') 'OK'; $ok++
+                } catch { $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }; Out-Log ($r.Seriennr + ': Tag konnte nicht geändert werden. Später nochmal versuchen.') 'Fehler' $m }
+                $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+            }
+            Show-Msg ('Tag "' + $pick.Tag + '" gesetzt: ' + $ok + ' von ' + $sel.Count + ' Gerät(en). Einzelheiten im Protokoll des Hauptfensters.') 'HUPilot - Tag ändern' $(if ($ok -eq $sel.Count) { 'Information' } else { 'Warning' }) $sw
+        } finally { $sst.Dialog = $false }
+        & $load
     })
+    # Autopilot-Sync: wirkt fuer den ganzen Tenant; 409/429 = laeuft bereits oder vor weniger als 10 Minuten
+    $g.bSync.Add_Click({
+        $sns = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Seriennr })
+        $sst.Dialog = $true
+        try {
+            $q = [System.Windows.MessageBox]::Show($sw, ('Autopilot-Sync anstoßen?' + "`r`n`r`n" + 'Microsoft gleicht dabei alle Autopilot-Geräte des Tenants ab, nicht nur einzelne.' + $(if ($sns.Count) { ' Markiert: ' + (@($sns | Select-Object -First 10) -join ', ') + $(if ($sns.Count -gt 10) { ' ...' } else { '' }) + '.' } else { '' }) + "`r`n" + 'Wirkung: neue Geräte und geänderte Tags werden schneller sichtbar. Geht höchstens alle 10 Minuten.' + "`r`n`r`n" + 'Fortfahren?'), 'HUPilot - Autopilot-Sync', 'YesNo', 'Question')
+            if ($q -ne 'Yes') { return }
+            $tok = Get-ApiToken; if (-not $tok) { Show-Msg $script:TokenMsg 'HUPilot - Autopilot-Sync' 'Warning' $sw; return }
+            try {
+                Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotSettings/sync' -Headers @{ Authorization = 'Bearer ' + $tok } -TimeoutSec 30 | Out-Null
+                Out-Log ('Autopilot-Sync angestoßen' + $(if ($sns.Count) { ' (markiert: ' + ($sns -join ', ') + ')' } else { '' })) 'OK'
+                Show-Msg 'Autopilot-Sync angestoßen. In ein paar Minuten "Aktualisieren" klicken.' 'HUPilot - Autopilot-Sync' 'Information' $sw
+            } catch {
+                $code = Get-HttpCode $_
+                if ($code -in 409, 429) { Out-Log 'Autopilot-Sync läuft bereits oder wurde vor weniger als 10 Minuten angestoßen. Einfach etwas warten.' 'Hinweis' ('HTTP ' + $code); Show-Msg 'Der Sync läuft bereits oder wurde vor weniger als 10 Minuten angestoßen. Einfach etwas warten.' 'HUPilot - Autopilot-Sync' 'Information' $sw }
+                else { Out-Log 'Autopilot-Sync konnte nicht angestoßen werden. Später nochmal versuchen.' 'Fehler' $_.Exception.Message; Show-Msg 'Autopilot-Sync konnte nicht angestoßen werden. Details im Protokoll des Hauptfensters.' 'HUPilot - Autopilot-Sync' 'Warning' $sw }
+            }
+        } finally { $sst.Dialog = $false }
+    })
+    $exportRows = { @($g.dGrid.Items) }
+    $fileBase = { 'HUPilot-Status_' + ((Get-Cfg).Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') }
     $g.bCsv.Add_Click({
-        $dlg = New-Object Microsoft.Win32.SaveFileDialog
-        $dlg.Filter = 'CSV (*.csv)|*.csv'
-        $dlg.FileName = 'HUPilot-Status_' + ($Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') + '.csv'
-        if ($dlg.ShowDialog()) {
-            $script:StatusView | Export-Csv -Path $dlg.FileName -Delimiter ';' -NoTypeInformation -Encoding UTF8
-            Out-Log ('Status gespeichert: ' + $dlg.FileName)
-        }
+        $sst.Dialog = $true
+        try {
+            $dlg = New-Object Microsoft.Win32.SaveFileDialog
+            $dlg.Filter = 'CSV (*.csv)|*.csv'; $dlg.FileName = (& $fileBase) + '.csv'
+            if ($dlg.ShowDialog()) {
+                $props = @($script:StatusCols | ForEach-Object { $k = $_.Key; @{ Name = $_.Header; Expression = [scriptblock]::Create('$_.' + $k) } })
+                @(& $exportRows) | Select-Object -Property $props | Export-Csv -Path $dlg.FileName -Delimiter ';' -NoTypeInformation -Encoding UTF8
+                Out-Log 'Status als CSV gespeichert' 'OK' $dlg.FileName
+            }
+        } catch { Out-Log 'CSV-Datei konnte nicht gespeichert werden. Ist sie noch in Excel offen?' 'Fehler' $_.Exception.Message }
+        finally { $sst.Dialog = $false }
     })
     $g.bXlsx.Add_Click({
-        $dlg = New-Object Microsoft.Win32.SaveFileDialog
-        $dlg.Filter = 'Excel (*.xlsx)|*.xlsx'
-        $dlg.FileName = 'HUPilot-Status_' + ($Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') + '.xlsx'
-        if ($dlg.ShowDialog()) {
-            try {
-                Export-StatusXlsx -Rows $script:StatusView -Cols $script:StatusCols -Path $dlg.FileName
-                Out-Log ('Status gespeichert: ' + $dlg.FileName)
-            } catch {
-                Out-Log ('FEHLER Excel speichern: ' + $_.Exception.Message)
-                [void][System.Windows.MessageBox]::Show($sw, ('Excel-Datei konnte nicht gespeichert werden (ist sie noch in Excel offen?)' + "`r`n`r`n" + $_.Exception.Message), 'HUPilot - Status', 'OK', 'Warning')
+        $sst.Dialog = $true
+        try {
+            $dlg = New-Object Microsoft.Win32.SaveFileDialog
+            $dlg.Filter = 'Excel (*.xlsx)|*.xlsx'; $dlg.FileName = (& $fileBase) + '.xlsx'
+            if ($dlg.ShowDialog()) {
+                try {
+                    Export-StatusXlsx -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Path $dlg.FileName
+                    Out-Log 'Status als Excel-Datei gespeichert' 'OK' $dlg.FileName
+                } catch {
+                    Out-Log 'Excel-Datei konnte nicht gespeichert werden. Ist sie noch in Excel offen?' 'Fehler' $_.Exception.Message
+                    [void][System.Windows.MessageBox]::Show($sw, ('Excel-Datei konnte nicht gespeichert werden (ist sie noch in Excel offen?)' + "`r`n`r`n" + $_.Exception.Message), 'HUPilot - Status', 'OK', 'Warning')
+                }
             }
-        }
+        } finally { $sst.Dialog = $false }
     })
     $g.bPrint.Add_Click({
+        $sst.Dialog = $true
         try {
             $pd = New-Object System.Windows.Controls.PrintDialog
-            # Querformat vorschlagen, im Druckdialog weiter aenderbar
+            # Querformat als Vorgabe im Dialog (wenn der Drucker es zulaesst); was am Ende gilt, liest Get-PrintPage nach dem Dialog
             try { Add-Type -AssemblyName System.Printing; $pd.PrintTicket.PageOrientation = [System.Printing.PageOrientation]::Landscape } catch { }
             if (-not $pd.ShowDialog()) { return }
             $flt = @()
             if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $flt += ('Tag ' + [string]$g.cTag.SelectedItem) }
-            if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus protokoll.csv' }
+            if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus dem Stick-Protokoll' }
+            if ($g.cToday.IsChecked) { $flt += 'heute' }
+            if ($g.cProblem.IsChecked) { $flt += 'nur Probleme' }
+            if ($sst.Tile) { $flt += ('Kachel ' + @{ ok = 'Fertig'; wait = 'Wartet auf Profil'; ready = 'Profil da'; prob = 'Problem' }[$sst.Tile]) }
             if ($g.cZeit.IsChecked) { $flt += ('letzte ' + [string]$g.cZeitSpan.SelectedItem + ' ' + [string]$g.cZeitBasis.SelectedItem) }
-            if ($g.tFind.Text) { $flt += ('Suche „' + $g.tFind.Text + '“') }
-            $sub = $g.tCount.Text + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
-            $doc = New-StatusPrintDoc -Rows $script:StatusView -Cols $script:StatusCols -Title ('HUPilot - Status ' + $Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pd.PrintableAreaWidth -PageH $pd.PrintableAreaHeight
-            $pd.PrintDocument(([System.Windows.Documents.IDocumentPaginatorSource]$doc).DocumentPaginator, 'HUPilot-Status')
-            Out-Log 'Status gedruckt'
-        } catch { Out-Log ('FEHLER Drucken: ' + $_.Exception.Message) }
+            if ($g.tFind.Text) { $flt += ('Suche "' + $g.tFind.Text + '"') }
+            $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
+            # tatsaechliche Seite (Papier, Ausrichtung, Rand) erst nach dem Dialog lesen und danach rechnen
+            $pg = Get-PrintPage $pd
+            $pr = New-StatusPrintDoc -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Title ('HUPilot - Status ' + (Get-Cfg).Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pg.W -PageH $pg.H -Margin $pg.Margin
+            $pd.PrintDocument($pr.Doc.DocumentPaginator, 'HUPilot-Status')
+            Out-Log ('Status gedruckt: ' + $pr.Pages + ' Seite(n), ' + $(if ($pg.Landscape) { 'Querformat' } else { 'Hochformat' }) + ', Schrift ' + $pr.Layout.Pt + ' pt, bis ' + $pr.PerPage + ' Geräte je Seite') 'OK' ($(if (@($pr.Layout.Dropped).Count) { 'ohne leere Spalten: ' + (@($pr.Layout.Dropped) -join ', ') + '. ' } else { '' }) + $(if (@($pr.Layout.Wrapped).Count) { 'umbrochen: ' + (@($pr.Layout.Wrapped) -join ', ') } else { 'keine Spalte umbrochen' }))
+        } catch { Out-Log 'Drucken fehlgeschlagen. Drucker prüfen und nochmal versuchen.' 'Fehler' $_.Exception.Message }
+        finally { $sst.Dialog = $false }
     })
-    & $refresh
+    $sw.Add_ContentRendered({ & $load $false; $tm.Start() })
     [void]$sw.ShowDialog()
+    $tm.Stop(); $wtm.Stop(); $ftm.Stop()
 }
 
-function Get-StatusData {
-    $tok = Get-ApiToken; if (-not $tok) { return $null }
+# Autopilot- und Intune-Geraete laden. -Progress: Skriptblock mit einem Text (Fortschritt), haelt das Fenster zwischen den Seiten bedienbar
+function Get-StatusData([scriptblock]$Progress = $null) {
+    $say = { param($t) if ($Progress) { & $Progress $t } }
+    & $say 'Anmeldung bei Microsoft ...'
+    $tok = Get-ApiTokenCached; if (-not $tok) { return $null }
     $h = @{ Authorization = 'Bearer ' + $tok }
-    Out-Log 'Lade Autopilot-Geräte ...'
     $all = @()
     try {
         $uri = 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?$top=500'
+        $page = 0
         while ($uri) {
-            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h
+            $page++; & $say ('lade Autopilot-Geräte, Seite ' + $page + ' ...')
+            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h -TimeoutSec 60
             $all += @($r.value)
             $uri = $r.'@odata.nextLink'
         }
-    } catch { Out-Log ('FEHLER Autopilot-Liste: ' + $_.Exception.Message); return $null }
+    } catch { Out-Log 'Autopilot-Geräte nicht lesbar. 1. Verbindung testen.' 'Fehler' $_.Exception.Message; return $null }
     # Optional: Intune-Geraete (Primaerer Benutzer, Geraetename, letzter Sync) - braucht DeviceManagementManagedDevices.Read.All
     $md = @{}
     try {
         $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime,enrolledDateTime&`$top=999"
+        $page = 0
         while ($uri) {
-            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h
+            $page++; & $say ('lade Intune-Geräte, Seite ' + $page + ' ...')
+            $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h -TimeoutSec 60
             foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $md['SN:' + [string]$m.serialNumber] = $m } }
             $uri = $r.'@odata.nextLink'
         }
-        Out-Log ('Intune-Geräte gelesen: ' + @($md.Keys | Where-Object { $_ -like 'SN:*' }).Count)
-    } catch { Out-Log 'Primärer Benutzer nicht lesbar (optional: Anwendungsberechtigung DeviceManagementManagedDevices.Read.All für HUPilot-Upload)' }
+    } catch { Out-Log 'Benutzer, Gerätename und letzter Sync nicht lesbar. Optional: der App die Berechtigung DeviceManagementManagedDevices.Read.All geben.' 'Hinweis' $_.Exception.Message }
+    & $say 'lese Stick-Protokoll ...'
     $proto = Read-Protokoll
     $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
     $script:ApIds = @{}
     foreach ($d in $all) { if ($d.serialNumber) { $script:ApIds[[string]$d.serialNumber] = [string]$d.id } }
-    # Zeiten fuer den Zeitfilter (nicht als Spalte): Reg = Intune-Registrierung, Imp = Autopilot-Import.
-    # Graph liefert keine Importzeit: genommen wird die HUPilot-Zeit aus protokoll.csv, sonst die Profil-Zuweisung
-    # (kommt meist wenige Minuten nach dem Import).
+    # Zeiten fuer die Zeitfilter (nicht als Spalte): Reg = Intune-Registrierung, Imp = Autopilot-Import.
+    # Graph liefert keine Importzeit: genommen wird die HUPilot-Zeit aus protokoll.csv, sonst die Profil-Zuweisung.
     $script:StatusTimes = @{}
     $rows = foreach ($d in $all) {
         $ps = [string]$d.deploymentProfileAssignmentStatus
-        $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($(try { ([datetime]$d.deploymentProfileAssignedDateTime).Year -gt 2000 } catch { $false })) { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
+        $hasDate = $false; try { $hasDate = ([datetime]$d.deploymentProfileAssignedDateTime).Year -gt 2000 } catch { }
+        $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($hasDate) { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
         $es = [string]$d.enrollmentState
-        $lc = ''
-        try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }
+        $stand = Get-DeviceStand $ps $es $hasDate
+        $lc = ''; $lcS = ''
+        try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $lcS = $dt.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { }
         $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
         $im = $null
         if ($d.managedDeviceId -and $md.ContainsKey([string]$d.managedDeviceId)) { $im = $md[[string]$d.managedDeviceId] }
         elseif ($md.ContainsKey('SN:' + [string]$d.serialNumber)) { $im = $md['SN:' + [string]$d.serialNumber] }
-        $sync = ''; $reg = ''
-        if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { } }
+        $sync = ''; $syncS = ''; $reg = ''; $regS = ''
+        if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $syncS = $sd.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { } }
         $tReg = $null; $tImp = $null
-        if ($im) { try { $rd = [datetime]$im.enrolledDateTime; if ($rd.Year -gt 2000) { $tReg = $rd.ToLocalTime(); $reg = $tReg.ToString('yyyy-MM-dd HH:mm') } } catch { } }
+        if ($im) { try { $rd = [datetime]$im.enrolledDateTime; if ($rd.Year -gt 2000) { $tReg = $rd.ToLocalTime(); $reg = $tReg.ToString('dd.MM.yyyy HH:mm'); $regS = $tReg.ToString('yyyy-MM-dd HH:mm') } } catch { } }
         $pt = [datetime]::MinValue
         if ($pr -and [datetime]::TryParseExact([string]$pr.Zeit, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$pt)) { $tImp = $pt }
         if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
         if ($d.serialNumber) { $script:StatusTimes[[string]$d.serialNumber] = @{ Reg = $tReg; Imp = $tImp } }
         [pscustomobject]@{
+            Stand          = $stand
+            WasTun         = (Get-DeviceTodo $stand $ps $es)
             Seriennr       = [string]$d.serialNumber
             Tag            = [string]$d.groupTag
-            Profil         = $prof
-            Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
+            Name           = $(if ($im) { [string]$im.deviceName } else { [string]$d.displayName })
+            Benutzer       = $(if ($im -and $im.userPrincipalName) { [string]$im.userPrincipalName } else { [string]$d.userPrincipalName })
             RegDatum       = $reg
             LetzterKontakt = $lc
-            Benutzer       = $(if ($im -and $im.userPrincipalName) { [string]$im.userPrincipalName } else { [string]$d.userPrincipalName })
-            Name           = $(if ($im) { [string]$im.deviceName } else { [string]$d.displayName })
             LetzterSync    = $sync
+            RegSort        = $regS
+            KontaktSort    = $lcS
+            SyncSort       = $syncS
+            HUPilotSort    = $(if ($pr) { [string]$pr.Zeit } else { '' })
             Modell         = [string]$d.model
-            HUPilot        = $(if ($pr) { [string]$pr.Zeit + ' ' + [string]$pr.Ergebnis } else { '' })
+            Profil         = $prof
+            Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
+            HUPilot        = $(if ($pr) { $(if ($pt -ne [datetime]::MinValue) { $pt.ToString('dd.MM.yyyy HH:mm') } else { [string]$pr.Zeit }) + ' ' + [string]$pr.Ergebnis } else { '' })
+            Klasse         = $script:StandClass[$stand]
         }
     }
-    # Neueste Intune-Registrierung oben, Geraete ohne Datum unten
     # noch nicht registrierte Geraete (gerade in Arbeit) OBEN, danach die registrierten, neueste zuerst
-    $rows = @(@($rows | Where-Object { -not $_.RegDatum }) + @($rows | Where-Object { $_.RegDatum } | Sort-Object RegDatum -Descending))
-    Out-Log ('' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus protokoll.csv')
+    $rows = @(@($rows | Where-Object { -not $_.RegSort }) + @($rows | Where-Object { $_.RegSort } | Sort-Object RegSort -Descending))
+    Out-Log ('Status geladen: ' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus dem Stick-Protokoll') 'OK'
     return @{ Rows = $rows; Proto = $proto }
 }
 $ui.bStatus.Add_Click({
-    try {
-        $d = Get-StatusData; if (-not $d) { return }
-        Show-Status -Rows @($d.Rows) -Proto $d.Proto -Tenant ((Get-Cfg).Tenant)
-    } catch { Out-Log ('Status: ' + $_.Exception.Message) }
+    try { Show-Status } catch { Out-Log 'Das Status-Fenster konnte nicht geöffnet werden.' 'Fehler' $_.Exception.Message; Set-Step 'Status' 'err' $_.Exception.Message }
 })
-
 # Desktop-Verknuepfung (nur wenn das Setup vom PC laeuft)
 if ($script:SrcOnUsb) { $ui.bLnk.Visibility = 'Collapsed' }
 $ui.bLnk.Add_Click({
@@ -1421,15 +3682,19 @@ $ui.bLnk.Add_Click({
         $sc.Description = 'HUPilot-Setup - ' + $srcStick
         $sc.WindowStyle = 7
         $sc.Save()
-        Out-Log ('Desktop-Verknüpfung angelegt: ' + $lnk)
-    } catch { Out-Log ('FEHLER Verknüpfung: ' + $_.Exception.Message) }
+        Out-Log 'Desktop-Verknüpfung angelegt' 'OK' $lnk
+    } catch { Out-Log 'Desktop-Verknüpfung konnte nicht angelegt werden.' 'Fehler' $_.Exception.Message }
 })
 
 Update-Drives
 Out-Log ('Quelle: '  + $srcStick)
 $ui.tSub.ToolTip = 'Quelle: ' + $srcStick
 if (Test-Path $srcCfg) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
-Out-Log ('ICD.exe: ' + $(if (Test-Path $icd) { 'gefunden' } else { 'NICHT gefunden - für 4. WLAN-Paket: Windows ADK mit Imaging and Configuration Designer installieren (Store-WCD reicht nicht)' }))
+# Ohne config.json: leeres Formular gilt als gespeicherter Stand (kein Hinweis "ungespeichert")
+if ($null -eq $script:SavedSnap) { $script:SavedSnap = Get-CfgSnap; Update-Dirty }
+if (Test-IcdHere) { Out-Log ((Get-IcdText $script:Icd) + ', WLAN-Pakete können gebaut werden') 'OK' $script:Icd.Path }
+else { Out-Log 'ICD.exe fehlt: WLAN-Pakete können hier nicht gebaut werden. Für "4. WLAN-Paket bauen" Windows ADK mit "Imaging and Configuration Designer" installieren (die Store-App reicht nicht), oder den Stick an einem PC mit ADK mit dem Häkchen "Paketbau mit auf den Stick" bespielen (Test).' 'Hinweis' $icdInst }
+try { Update-IcdUi -Report } catch { }
 Start-Log 'Fenster wird angezeigt'
 # Beim Start automatisch Secret-Ablauf anzeigen (nur wenn echte Werte eingetragen sind)
 $win.Add_ContentRendered({
@@ -1438,8 +3703,15 @@ $win.Add_ContentRendered({
     Out-Log 'Prüfe Secret ...'
     $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
     $tok = Get-ApiToken
-    if (-not $tok) { Set-SubSecret 'Secret UNGÜLTIG - siehe Protokoll' $true; return }
+    if (-not $tok) {
+        # Kein Netz oder Zeitueberschreitung: neutral - das Secret ist dann nur nicht geprueft, nicht ungueltig
+        if ($script:TokenErr -eq 'net') { Set-SubSecret 'Keine Verbindung - Secret nicht geprüft' $false; Set-Step 'Test' 'warn' 'keine Verbindung' }
+        elseif ($script:TokenErr -in 'expired', 'wrong') { Set-SubSecret ('Secret UNGÜLTIG (' + $(if ($script:TokenErr -eq 'expired') { 'abgelaufen' } else { 'falsch' }) + ') - siehe Protokoll') $true; Set-Step 'Test' 'err' $script:TokenMsg }
+        else { Set-SubSecret 'Anmeldung fehlgeschlagen - siehe Protokoll' $true; Set-Step 'Test' 'err' $script:TokenMsg }
+        return
+    }
     Show-SecretExpiry -Token $tok
+    Set-Step 'Test' 'ok' 'Secret gültig (Start)'
 })
 
 # ---------- Gemeinsam: Autopilot-Liste, Tag-Regeln ----------
@@ -1500,28 +3772,31 @@ function Show-Grid {
   </Window.Resources>
   <DockPanel Margin="10">
     <TextBlock x:Name="tInfo" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
-    <Button x:Name="bClose" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Content="Schließen" Padding="10,4" Margin="0,8,0,0"/>
-    <DataGrid x:Name="dGrid" AutoGenerateColumns="True" IsReadOnly="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column"/>
+    <Button x:Name="bClose" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Content="Schließen" Padding="10,4" Margin="0,8,0,0" ToolTip="Fenster schließen."/>
+    <DataGrid x:Name="dGrid" ToolTip="Je Tag: Geräte, passende Gruppe und Autopilot-Profil. Spaltenkopf anklicken = sortieren." AutoGenerateColumns="True" IsReadOnly="True" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $gx
     $gw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $gx))
+    Register-HuWindow $gw
     $gw.Owner = $win; $gw.Title = $Title
     if ($win.Icon) { $gw.Icon = $win.Icon }
+    Set-WinFit $gw
     $gw.FindName('tInfo').Text = $Info
     $gw.FindName('dGrid').ItemsSource = @($Rows)
     $gw.FindName('bClose').Add_Click({ $gw.Close() })
+    $gw.Add_ContentRendered({ $dg = $gw.FindName('dGrid'); Set-GridColumnsFit $dg @($dg.ItemsSource); Set-GridWindowWidth $gw $dg 640 })
     [void]$gw.ShowDialog()
 }
 
 # ---------- 2. Tags pruefen ----------
-$ui.bTags.Add_Click({
-    $tok = Get-ApiToken; if (-not $tok) { return }
-    $h = @{ Authorization = 'Bearer ' + $tok }
+# Je Tag: Geraete, passende Gruppe, Profil. Rueckgabe @{ Rows; Bad (am Stick waehlbar, ohne Profil); GErr; Info; Error }
+# Gemeinsam fuer "2. Tags pruefen" (Tabelle) und "Stick fertig machen" (nur Warnung)
+function Get-TagReport($h) {
     Out-Log 'Lade Profile, Gruppen und Geräte ...'
-    $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
-    try { $profs = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments' -Headers $h).value) }
-    catch { Out-Log ('FEHLER Profile lesen: ' + $_.Exception.Message); return }
+    try { $profs = @((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeploymentProfiles?$expand=assignments' -Headers $h -TimeoutSec 60).value) }
+    catch { Out-Log 'Autopilot-Profile nicht lesbar. 1. Verbindung testen.' 'Fehler' $_.Exception.Message; return @{ Rows = @(); Bad = @(); GErr = $false; Info = ''; Error = ('Profile nicht lesbar: ' + $_.Exception.Message) } }
     $gcache = @{}; $gErr = $false; $targets = @()
     foreach ($p in $profs) {
         foreach ($a in @($p.assignments)) {
@@ -1534,13 +3809,13 @@ $ui.bTags.Add_Click({
                 catch {
                     $em = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $em = $_.ErrorDetails.Message }
                     if ($em -match 'Authorization_RequestDenied|Forbidden|403|Insufficient privileges') { $gErr = $true; $gcache[$gid] = [pscustomobject]@{ displayName = $gid; membershipRule = '' } }
-                    else { Out-Log ('Profil "' + $p.displayName + '" ist einer nicht mehr vorhandenen Gruppe zugewiesen: ' + $gid); $gcache[$gid] = [pscustomobject]@{ displayName = ('(gelöscht) ' + $gid); membershipRule = '' } }
+                    else { Out-Log ('Profil "' + $p.displayName + '" ist einer Gruppe zugewiesen, die es nicht mehr gibt. In Intune die Zuweisung prüfen.') 'Hinweis' $gid; $gcache[$gid] = [pscustomobject]@{ displayName = ('(gelöscht) ' + $gid); membershipRule = '' } }
                 }
             }
             $targets += [pscustomobject]@{ Profil = [string]$p.displayName; Gruppe = [string]$gcache[$gid].displayName; Rule = [string]$gcache[$gid].membershipRule }
         }
     }
-    $devs = @(); try { $devs = @(Get-ApAll $h) } catch { Out-Log ('Autopilot-Liste: ' + $_.Exception.Message) }
+    $devs = @(); try { $devs = @(Get-ApAll $h) } catch { Out-Log 'Autopilot-Geräte nicht lesbar, die Spalte Geräte bleibt leer.' 'Hinweis' $_.Exception.Message }
     $c = Get-Cfg
     $tags = @(@($c.GroupTag) + @($c.TagChoices) + @($devs | ForEach-Object { [string]$_.groupTag }) | Where-Object { $_ } | Sort-Object -Unique)
     $rows = foreach ($t in $tags) {
@@ -1556,11 +3831,23 @@ $ui.bTags.Add_Click({
         }
     }
     $bad = @($rows | Where-Object { $_.Status -eq 'KEIN PROFIL' -and $_.AmStick })
-    Out-Log ('Tags: ' + @($rows).Count + ', ohne Profil (am Stick wählbar): ' + $bad.Count + $(if ($gErr) { '  - Gruppen nicht lesbar: Group.Read.All für HUPilot-Upload ergänzen' } else { '' }))
+    if ($bad.Count) { Out-Log ('Tags ohne Autopilot-Profil, aber am Stick wählbar: ' + (($bad | ForEach-Object { $_.Tag }) -join ', ') + '. In Intune eine dynamische Gruppe mit Profil für diesen Tag anlegen oder den Tag am Stick ändern.') 'Hinweis' }
+    elseif ($gErr) { Out-Log 'Tags nur teilweise geprüft: Gruppen nicht lesbar. Optional: der App die Berechtigung Group.Read.All geben.' 'Hinweis' }
+    else { Out-Log ('Tags geprüft: alle ' + @($rows).Count + ' Tags haben ein Profil') 'OK' }
     $info = 'Je Tag: Geräte in Autopilot, passende dynamische Gruppe ([OrderID]-Regel) und daran zugewiesenes Autopilot-Profil.'
-    if ($bad.Count) { $info += '  ACHTUNG: ' + (($bad | ForEach-Object { $_.Tag }) -join ', ') + ' am Stick wählbar, aber ohne Profil.' }
+    if ($bad.Count) { $info += '  Achtung: ' + (($bad | ForEach-Object { $_.Tag }) -join ', ') + ' am Stick wählbar, aber ohne Profil.' }
     if ($gErr) { $info += '  Gruppen nicht lesbar - Anwendungsberechtigung Group.Read.All ergänzen.' }
-    Show-Grid -Title ('HUPilot - Tags  (' + $c.Tenant + ')') -Rows $rows -Info $info
+    return @{ Rows = @($rows); Bad = $bad; GErr = $gErr; Info = $info; Error = '' }
+}
+$ui.bTags.Add_Click({
+    Set-Step 'Tags' 'run'
+    $tok = Get-ApiToken; if (-not $tok) { Set-Step 'Tags' 'err' $script:TokenMsg; return }
+    $h = @{ Authorization = 'Bearer ' + $tok }
+    $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+    $r = Get-TagReport $h
+    if ($r.Error) { Set-Step 'Tags' 'err' $r.Error; return }
+    Set-Step 'Tags' $(if ($r.Bad.Count -or $r.GErr) { 'warn' } else { 'ok' }) $(if ($r.Bad.Count) { 'ohne Profil: ' + (($r.Bad | ForEach-Object { $_.Tag }) -join ', ') } elseif ($r.GErr) { 'Gruppen nicht lesbar' } else { '' })
+    Show-Grid -Title ('HUPilot - Tags  (' + (Get-Cfg).Tenant + ')') -Rows $r.Rows -Info $r.Info
 })
 
 # ---------- 7. Offline-Hashes importieren ----------
@@ -1571,7 +3858,7 @@ function Read-HashCsv([string]$File) {
         if (-not $l -or $l -like 'Device Serial Number*') { continue }
         $p = $l.Split(',')
         if ($p.Count -lt 3 -or -not $p[0] -or -not $p[2]) { continue }
-        $out += [pscustomobject]@{ Seriennr = $p[0].Trim(); Tag = $(if ($p.Count -gt 3) { $p[3].Trim() } else { '' }); Benutzer = $(if ($p.Count -gt 4) { $p[4].Trim() } else { '' }); Status = 'offen'; Datei = $File; Hash = $p[2].Trim(); ImpId = ''; Done = $false }
+        $out += [pscustomobject]@{ Seriennr = $p[0].Trim(); Tag = $(if ($p.Count -gt 3) { $p[3].Trim() } else { '' }); Benutzer = $(if ($p.Count -gt 4) { $p[4].Trim() } else { '' }); Status = 'offen'; Datei = $File; Hash = $p[2].Trim(); ImpId = ''; Done = $false; Detail = '' }
     }
     return $out
 }
@@ -1610,30 +3897,36 @@ function Show-HashImport {
   <DockPanel Margin="10">
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Text="Offline gespeicherte Hashes (HUPilot\logs\hashes.csv aus Quelle und Ziel-Stick). Schon vorhandene Geräte bekommen nur den Tag. Erledigte Zeilen wandern nach hashes-erledigt.csv."/>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button x:Name="bAdd" Content="CSV hinzufügen ..." Padding="10,4"/>
-      <Button x:Name="bImp" Content="Importieren" FontWeight="SemiBold" Padding="10,4" Margin="8,0,0,0"/>
-      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0"/>
+      <Button x:Name="bAdd" Content="CSV hinzufügen ..." Padding="10,4" ToolTip="Weitere hashes.csv-Dateien laden (z. B. von anderen Sticks)."/>
+      <Button x:Name="bImp" Content="Importieren" FontWeight="SemiBold" Padding="10,4" Margin="8,0,0,0" ToolTip="Offene Zeilen nach Autopilot hochladen (dauert bis zu 15 Minuten). Schließen während des Imports bricht nach Rückfrage sauber ab."/>
+      <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen. Während eines Imports: Abbrechen mit Rückfrage."/>
     </StackPanel>
-    <TextBox x:Name="tHLog" DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
-    <DataGrid x:Name="dGrid" AutoGenerateColumns="False" IsReadOnly="True" AlternatingRowBackground="#F3F3F3" HeadersVisibility="Column">
+    <ListBox x:Name="tHLog" ToolTip="Protokoll des Imports: OK (grün), Hinweis (gelb), Fehler (rot). Technische Details per Doppelklick, steht auch in der Protokolldatei." DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" SelectionMode="Extended" ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontFamily="Consolas"/>
+    <DataGrid x:Name="dGrid" ToolTip="Gefundene Hashes mit Stand des Imports." AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Seriennr" Binding="{Binding Seriennr}"/>
         <DataGridTextColumn Header="Tag" Binding="{Binding Tag}"/>
         <DataGridTextColumn Header="Benutzer" Binding="{Binding Benutzer}"/>
-        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="260"/>
-        <DataGridTextColumn Header="Datei" Binding="{Binding Datei}" Width="*"/>
+        <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
+        <DataGridTextColumn Header="Datei" Binding="{Binding Datei}"/>
       </DataGrid.Columns>
     </DataGrid>
   </DockPanel>
 </Window>
 '@
+    Add-HuTheme $hx
     $hw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $hx))
+    Register-HuWindow $hw
     $hw.Owner = $win
     if ($win.Icon) { $hw.Icon = $win.Icon }
+    Set-WinFit $hw
     $g = @{}; foreach ($n in 'bAdd','bImp','bClose','tHLog','dGrid') { $g[$n] = $hw.FindName($n) }
     $script:HRows = @()
-    $hlog = { param($m) $g.tHLog.AppendText((Get-Date -Format 'HH:mm:ss') + '  ' + $m + "`r`n"); $g.tHLog.ScrollToEnd(); $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
-    $refresh = { $g.dGrid.ItemsSource = $null; $g.dGrid.ItemsSource = @($script:HRows); $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+    $hlog = { param($m, $lv = '', $dt = '') Out-SubLog $g.tHLog $hw 'Hashes importieren' $m $lv $dt }
+    $g.tHLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $g.tHLog); $e.Handled = $true } })
+    # Zeile eines Geraets: Stufe aus dem Stand, rohe Graph-Meldung als Detail
+    $hrow = { param($r) & $hlog ($r.Seriennr + ': ' + $r.Status) $(if ($r.Status -like 'Fehler*') { 'Fehler' } elseif ($r.Done) { 'OK' } elseif ($r.Status -like 'Import nach*' -or $r.Status -like 'abgebrochen*') { 'Hinweis' } else { '' }) ([string]$r.Detail) }
+    $refresh = { $g.dGrid.ItemsSource = $null; $g.dGrid.ItemsSource = @($script:HRows); Set-GridColumnsFit $g.dGrid $script:HRows; $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
     $addFile = {
         param($f)
         if (-not [System.IO.File]::Exists($f)) { return }
@@ -1644,24 +3937,36 @@ function Show-HashImport {
     & $addFile (Join-Path $srcHU 'logs\hashes.csv')
     $dr = Get-ReadyDrive; if ($dr) { & $addFile ($dr + '\HUPilot\logs\hashes.csv') }
     & $refresh
+    # Schliessen waehrend eines laufenden Imports: Rueckfrage, dann Abbruch-Merker (der Import endet sauber, erledigte Zeilen werden noch verschoben)
+    $hst = @{ Busy = $false; Abort = $false; CloseAfter = $false }
+    $hw.Add_Closing({
+        param($s, $e)
+        if (-not $hst.Busy) { return }
+        $e.Cancel = $true
+        if ($hst.Abort) { return }
+        $q = [System.Windows.MessageBox]::Show($hw, ('Der Import läuft noch.' + "`r`n`r`n" + 'Abbrechen? Bereits importierte Geräte bleiben in Autopilot, erledigte Zeilen werden noch nach hashes-erledigt.csv verschoben. Das Fenster schließt danach von selbst.'), 'HUPilot - Import abbrechen', 'YesNo', 'Question')
+        if ($q -eq 'Yes') { $hst.Abort = $true; $hst.CloseAfter = $true; & $hlog 'Abbruch angefordert, warte auf den laufenden Schritt ...' 'Hinweis' }
+    })
     $g.bClose.Add_Click({ $hw.Close() })
     $g.bAdd.Add_Click({
         $dlg = New-Object Microsoft.Win32.OpenFileDialog
         $dlg.Filter = 'CSV (*.csv)|*.csv'; $dlg.Multiselect = $true
         if ($dlg.ShowDialog()) { foreach ($f in $dlg.FileNames) { & $addFile $f }; & $refresh }
     })
-    $g.bImp.Add_Click({
+    $doImport = {
         $todo = @($script:HRows | Where-Object { -not $_.Done })
-        if (-not $todo.Count) { & $hlog 'Nichts zu importieren.'; return }
-        $tok = Get-ApiToken; if (-not $tok) { & $hlog 'Anmeldung fehlgeschlagen - siehe Hauptfenster'; return }
+        if (-not $todo.Count) { & $hlog 'Nichts zu importieren.'; Set-Step 'Hash' 'ok' 'nichts offen'; return }
+        $tok = Get-ApiToken; if (-not $tok) { & $hlog $script:TokenMsg 'Fehler'; Set-Step 'Hash' 'err' $script:TokenMsg; return }
         $h  = @{ Authorization = 'Bearer ' + $tok }
         $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
         $GB = 'https://graph.microsoft.com/beta/deviceManagement'
         $c = Get-Cfg
         foreach ($r in $todo) {
+            if ($hst.Abort) { & $hlog 'Abgebrochen, die restlichen Geräte wurden nicht angefasst.' 'Hinweis'; break }
             if (-not $r.Tag) { $r.Tag = $c.GroupTag }
             try {
-                $f = [uri]::EscapeDataString("contains(serialNumber,'" + $r.Seriennr + "')")
+                # OData: Hochkomma in der Seriennummer verdoppeln
+                $f = [uri]::EscapeDataString("contains(serialNumber,'" + ([string]$r.Seriennr).Replace("'", "''") + "')")
                 $ex = @(@((Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/windowsAutopilotDeviceIdentities?$filter=' + $f) -Headers $h).value) | Where-Object { $_.serialNumber -eq $r.Seriennr })[0]
                 if ($ex) {
                     if ([string]$ex.groupTag -ne $r.Tag) { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/windowsAutopilotDeviceIdentities/' + $ex.id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = $r.Tag } | ConvertTo-Json) | Out-Null; $r.Status = 'war vorhanden - Tag gesetzt' }
@@ -1678,28 +3983,30 @@ function Show-HashImport {
                     $imp = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities') -Headers $hj -Body ($body | ConvertTo-Json -Depth 4)
                     $r.ImpId = [string]$imp.id; $r.Status = 'Import läuft ...'
                 }
-            } catch { $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }; $r.Status = 'FEHLER: ' + $m }
-            & $hlog ($r.Seriennr + ': ' + $r.Status)
+            } catch { $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }; $r.Detail = $m; $r.Status = 'Fehler: von Microsoft abgelehnt, später nochmal versuchen (Details im Protokoll)' }
+            & $hrow $r
         }
         & $refresh
         $limit = (Get-Date).AddMinutes(15)
-        while (@($script:HRows | Where-Object { $_.ImpId -and -not $_.Done -and $_.Status -like 'Import*' }).Count -and (Get-Date) -lt $limit) {
-            for ($i = 0; $i -lt 10; $i++) { Start-Sleep -Milliseconds 1000; $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+        while (-not $hst.Abort -and @($script:HRows | Where-Object { $_.ImpId -and -not $_.Done -and $_.Status -like 'Import*' }).Count -and (Get-Date) -lt $limit) {
+            for ($i = 0; $i -lt 10 -and -not $hst.Abort; $i++) { Start-Sleep -Milliseconds 1000; $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+            if ($hst.Abort) { break }
             foreach ($r in @($script:HRows | Where-Object { $_.ImpId -and -not $_.Done -and $_.Status -like 'Import*' })) {
                 try {
                     $st = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities/' + $r.ImpId) -Headers $h
                     $s2 = [string]$st.state.deviceImportStatus
                     if ($s2 -eq 'complete') { $r.Status = 'OK - importiert'; $r.Done = $true }
-                    elseif ($s2 -eq 'error') { $r.Status = 'FEHLER: ' + [string]$st.state.deviceErrorName + ' (' + [string]$st.state.deviceErrorCode + ')' }
+                    elseif ($s2 -eq 'error') { $r.Status = 'Fehler: Import abgelehnt (' + [string]$st.state.deviceErrorName + ')'; $r.Detail = [string]$st.state.deviceErrorName + ' (' + [string]$st.state.deviceErrorCode + ')' }
                     if ($s2 -in 'complete', 'error') {
                         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities/' + $r.ImpId) -Headers $h | Out-Null } catch { }
-                        & $hlog ($r.Seriennr + ': ' + $r.Status)
+                        & $hrow $r
                     }
                 } catch { }
             }
             & $refresh
         }
-        foreach ($r in @($script:HRows | Where-Object { -not $_.Done -and $_.Status -like 'Import*' })) { $r.Status = 'Import nach 15 Min nicht fertig - später nochmal' }
+        $late = $(if ($hst.Abort) { 'abgebrochen - Import läuft bei Microsoft evtl. weiter, später nochmal importieren' } else { 'Import nach 15 Min nicht fertig - später nochmal' })
+        foreach ($r in @($script:HRows | Where-Object { -not $_.Done -and $_.Status -like 'Import*' })) { $r.Status = $late }
         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/windowsAutopilotSettings/sync') -Headers $h | Out-Null } catch { }
         # Erledigte Zeilen aus den Dateien nehmen und nach hashes-erledigt.csv verschieben
         foreach ($f in @($script:HRows | ForEach-Object { $_.Datei } | Select-Object -Unique)) {
@@ -1713,17 +4020,132 @@ function Show-HashImport {
                 if (-not (Test-Path $erl)) { Set-Content -Path $erl -Value 'Device Serial Number,Windows Product ID,Hardware Hash,Group Tag,Assigned User' -Encoding ASCII }
                 Add-Content -Path $erl -Value $moved -Encoding ASCII
                 Set-Content -Path $f -Value $keep -Encoding ASCII
-                & $hlog ('' + $moved.Count + ' erledigt -> ' + $erl)
-            } catch { & $hlog ('Datei ' + $f + ': ' + $_.Exception.Message) }
+                & $hlog ('' + $moved.Count + ' erledigte Zeile(n) nach hashes-erledigt.csv verschoben') 'OK' $erl
+            } catch { & $hlog ('Datei ' + $f + ' konnte nicht aktualisiert werden. Ist sie in Excel offen?') 'Fehler' $_.Exception.Message }
         }
         & $refresh
         $ok = @($script:HRows | Where-Object { $_.Done }).Count
-        & $hlog ('Fertig: ' + $ok + ' von ' + @($script:HRows).Count + ' erledigt.')
-        Out-Log ('Hashes importiert: ' + $ok + ' von ' + @($script:HRows).Count)
+        & $hlog ('Fertig: ' + $ok + ' von ' + @($script:HRows).Count + ' erledigt.') $(if ($ok -eq @($script:HRows).Count) { 'OK' } else { 'Hinweis' })
+        Out-Log ('Hashes importiert: ' + $ok + ' von ' + @($script:HRows).Count) $(if ($ok -eq @($script:HRows).Count) { 'OK' } else { 'Hinweis' })
+        Set-Step 'Hash' $(if ($ok -eq @($script:HRows).Count) { 'ok' } else { 'warn' }) ('' + $ok + ' von ' + @($script:HRows).Count + ' erledigt')
+    }
+    $g.bImp.Add_Click({
+        if ($hst.Busy) { return }
+        $hst.Busy = $true; $hst.Abort = $false; $hst.CloseAfter = $false
+        $g.bImp.IsEnabled = $false; $g.bAdd.IsEnabled = $false; $g.bClose.Content = 'Abbrechen'
+        Set-Step 'Hash' 'run'
+        try { & $doImport }
+        catch { & $hlog 'Import unerwartet abgebrochen.' 'Fehler' $_.Exception.Message; Set-Step 'Hash' 'err' $_.Exception.Message }
+        finally {
+            $hst.Busy = $false
+            $g.bImp.IsEnabled = $true; $g.bAdd.IsEnabled = $true; $g.bClose.Content = 'Schließen'
+            if ($hst.CloseAfter) { $hwRef = $hw; [void]$hw.Dispatcher.BeginInvoke([action]({ try { if ($hwRef.IsVisible) { $hwRef.Close() } } catch { } }.GetNewClosure())) }
+        }
     })
+    $hw.Add_ContentRendered({ Set-GridWindowWidth $hw $g.dGrid 760 })
     [void]$hw.ShowDialog()
 }
 $ui.bHash.Add_Click({ Show-HashImport })
+
+# ---------- Hauptknopf: Stick fertig machen (alle Schritte, Abbruch beim ersten echten Fehler mit Meldung in Klartext) ----------
+function Stop-Ready([string]$Step, [string]$Msg, [switch]$Quiet) {
+    if ($Step) { Set-Step $Step $(if ($Quiet) { 'open' } else { 'err' }) $Msg }
+    Set-Step 'Ready' $(if ($Quiet) { 'open' } else { 'err' }) $Msg
+    Set-ReadyText ($(if ($Quiet) { 'Abgebrochen. ' } else { 'Nicht fertig. ' }) + (Get-ReadyTodo $Msg)) $(if ($Quiet) { 'HuMuted' } else { 'HuErr' }) $Msg
+    Out-Log ('Stick nicht fertig: ' + ($Msg -replace "`r?`n", ' ')) $(if ($Quiet) { '' } else { 'Fehler' })
+    if (-not $Quiet) { Show-Msg $Msg 'HUPilot - Stick nicht fertig' 'Warning' }
+    try { Update-Drives -Auto } catch { }
+}
+function Invoke-StickReadyCore {
+    $nl = "`r`n"
+    $warn = @()
+    foreach ($s in 'Test', 'Tags', 'Write', 'Copy') { Set-Step $s 'open' }
+    if (-not $script:PkgBuildErr) { Set-Step 'Pkg' 'open' }
+    Set-Step 'Ready' 'run'; Set-ReadyText 'Prüfe Eingaben ...'; Out-Log '=== Stick fertig machen ==='; Step-Ui
+    # 1. Ziel-Stick
+    $dr = Get-ReadyDrive
+    if (-not $dr) { Stop-Ready 'Copy' ('Kein Ziel-Stick gewählt.' + $nl + $nl + 'Stick anstecken, er wird von selbst erkannt, dann nochmal Stick fertig machen.'); return }
+    # 2. Felder (wie beim Speichern, inklusive lokale Admins, MAK und Tags)
+    if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey') -Admin)) { Stop-Ready 'Write' ('Eine Eingabe fehlt oder ist ungültig:' + $nl + $script:FieldErr + $nl + $nl + 'Feld korrigieren und nochmal "Stick fertig machen" klicken.'); return }
+    # 3. Verbindung, Secret, Autopilot-Zugriff
+    Set-Step 'Test' 'run'; Set-ReadyText 'Prüfe Verbindung ...'; Step-Ui
+    $tok = Get-ApiToken
+    if (-not $tok) {
+        if ($script:TokenErr -eq 'net') {
+            Set-Step 'Test' 'warn' 'keine Verbindung'
+            $q = [System.Windows.MessageBox]::Show($win, ('Keine Verbindung zu Microsoft (Internet, Proxy?).' + $nl + 'Secret und Tags können deshalb nicht geprüft werden.' + $nl + $nl + 'Stick trotzdem fertig machen?'), 'HUPilot - keine Verbindung', 'YesNo', 'Warning')
+            if ($q -ne 'Yes') { Stop-Ready '' 'keine Verbindung zu Microsoft' -Quiet; return }
+            $warn += 'Secret und Tags nicht geprüft (keine Verbindung)'
+        } elseif ($script:TokenErr -eq 'expired') { Stop-Ready 'Test' ('Das Secret ist abgelaufen.' + $nl + $nl + 'In Entra bei der App-Registrierung ein neues Geheimnis anlegen, den WERT bei "Secret" eintragen und nochmal "Stick fertig machen" klicken.'); return }
+        elseif ($script:TokenErr -eq 'wrong') { Stop-Ready 'Test' ('Das Secret ist falsch.' + $nl + $nl + 'Häufiger Fehler: die Geheimnis-ID statt des WERTS kopiert. Den Wert bei "Secret" eintragen und nochmal versuchen.'); return }
+        else { Stop-Ready 'Test' ('Anmeldung bei Microsoft fehlgeschlagen:' + $nl + $script:TokenMsg + $nl + $nl + 'Tenant-ID, App-ID und Secret prüfen.'); return }
+    } else {
+        $apErr = Test-ApAccess $tok
+        if ($apErr) { Stop-Ready 'Test' ('Anmeldung OK, aber kein Zugriff auf Autopilot.' + $nl + $nl + 'Der App-Registrierung fehlt die Anwendungsberechtigung DeviceManagementServiceConfig.ReadWrite.All (mit Administratorzustimmung).' + $nl + 'Meldung: ' + $apErr); return }
+        Show-SecretExpiry -Token $tok
+        Set-Step 'Test' 'ok'
+        # 4. Tags: nur warnen
+        Set-Step 'Tags' 'run'; Set-ReadyText 'Prüfe Tags ...'; Step-Ui
+        try { $tr = Get-TagReport @{ Authorization = 'Bearer ' + $tok } }
+        catch { $tr = @{ Rows = @(); Bad = @(); GErr = $false; Info = ''; Error = ('Tags nicht prüfbar: ' + $_.Exception.Message) } }
+        if ($tr.Error) { Set-Step 'Tags' 'warn' $tr.Error; $warn += ('Tags nicht geprüft: ' + $tr.Error) }
+        elseif ($tr.Bad.Count) { $t = 'Tag(s) ohne Autopilot-Profil: ' + (($tr.Bad | ForEach-Object { $_.Tag }) -join ', '); Set-Step 'Tags' 'warn' $t; $warn += ($t + ' - Geräte mit diesem Tag bekommen kein Profil') }
+        elseif ($tr.GErr) { Set-Step 'Tags' 'warn' 'Gruppen nicht lesbar'; $warn += 'Tags nur teilweise geprüft (Group.Read.All fehlt)' }
+        else { Set-Step 'Tags' 'ok' }
+    }
+    # 5. Speichern
+    Set-ReadyText 'Speichere ...'; Step-Ui
+    if (-not (Save-Cfg)) { Stop-Ready 'Write' ('Speichern fehlgeschlagen:' + $nl + $script:FieldErr); return }
+    # 6. WLAN-Paket nur bauen, wenn es fehlt oder veraltet ist
+    $ps = Update-PkgState
+    if ($ps -in 'fehlt', 'veraltet', 'unbekannt') {
+        if (Test-IcdHere) {
+            Out-Log ('WLAN-Paket ' + $ps + ', wird jetzt gebaut'); Set-ReadyText 'Baue WLAN-Paket ...'; Step-Ui
+            if (-not (Build-Package -NoSave)) { Stop-Ready 'Pkg' ('Das WLAN-Paket konnte nicht gebaut werden. Details stehen im Protokoll.' + $nl + $nl + 'Das bisherige Paket (falls vorhanden) ist unverändert, nichts wurde auf den Stick kopiert.'); return }
+        } elseif ($ps -eq 'fehlt') { Stop-Ready 'Pkg' ('Es gibt noch kein WLAN-Paket, und ICD.exe fehlt auf diesem PC.' + $nl + $nl + 'Windows ADK mit "Imaging and Configuration Designer" installieren, das Paket auf einem PC mit ADK bauen (4. WLAN-Paket bauen), oder den Stick an einem PC mit ADK mit dem Häkchen "Paketbau mit auf den Stick" bespielen (Test).'); return }
+        elseif ($ps -eq 'veraltet') { Stop-Ready 'Pkg' ('WLAN oder lokale Admins wurden geändert, das WLAN-Paket ist veraltet.' + $nl + 'ICD.exe fehlt auf diesem PC, deshalb kann es hier nicht neu gebaut werden.' + $nl + $nl + 'Auf einem PC mit Windows ADK "4. WLAN-Paket bauen" klicken, oder die alten Werte wieder eintragen.'); return }
+        else {
+            $q = [System.Windows.MessageBox]::Show($win, ('Ob das vorhandene WLAN-Paket zu WLAN und lokalen Admins passt, ist unbekannt (gebaut mit einer älteren Version).' + $nl + 'ICD.exe fehlt auf diesem PC, neu bauen geht hier nicht.' + $nl + $nl + 'Vorhandenes Paket verwenden?'), 'HUPilot - WLAN-Paket', 'YesNo', 'Warning')
+            if ($q -ne 'Yes') { Stop-Ready 'Pkg' 'WLAN-Paket nicht bestätigt' -Quiet; return }
+            $warn += 'WLAN-Paket ungeprüft (älter, ICD.exe fehlt)'
+        }
+    }
+    # 7. Kopieren mit Kontrolle
+    $pre = Confirm-CopyPrereqs ('Stick ' + $dr) $win
+    if (-not $pre) { Stop-Ready 'Copy' 'vor dem Kopieren abgebrochen' -Quiet; return }
+    Set-Step 'Copy' 'run'; Set-ReadyText ('Kopiere auf ' + $dr + ' ...'); Step-Ui
+    if (-not (Copy-ToStick $dr $pre.WithMak)) { Stop-Ready 'Copy' ('Kopieren auf ' + $dr + ' fehlgeschlagen:' + $nl + $script:CopyErr + $nl + $nl + 'Stick neu anstecken und nochmal versuchen. Hilft das nicht: anderen Stick nehmen oder "Sticks vorbereiten" (formatiert).'); return }
+    Set-Step 'Copy' 'ok' ('Stick ' + $dr)
+    Set-Step 'Ready' $(if ($warn.Count) { 'warn' } else { 'ok' }) $(if ($warn.Count) { $warn -join '; ' } else { 'Stick ' + $dr + ' fertig' })
+    Set-ReadyText ('Stick ' + $dr + ' ist fertig und kontrolliert (' + (Get-Date -Format 'HH:mm') + ')' + $(if ($warn.Count) { ', mit Hinweisen im Protokoll' } else { '' })) $(if ($warn.Count) { 'HuWarn' } else { 'HuText' }) $(if ($warn.Count) { 'Hinweise:' + "`n" + ($warn -join "`n") } else { '' })
+    Out-Log ('Stick ' + $dr + ' ist fertig und kontrolliert' + $(if ($warn.Count) { ', mit Hinweisen' } else { '' })) $(if ($warn.Count) { 'Hinweis' } else { 'OK' })
+    Show-Msg ('Stick ' + $dr + ' ist fertig und kontrolliert.' + $(if ($warn.Count) { $nl + $nl + 'Hinweise:' + $nl + (($warn | ForEach-Object { '- ' + $_ }) -join $nl) } else { '' }) + $nl + $nl + 'Der Stick kann jetzt abgezogen werden.') 'HUPilot - Stick fertig' $(if ($warn.Count) { 'Warning' } else { 'Information' })
+    # waehrend der Meldung kann der Stick schon getauscht sein: sofort neu lesen, der Fertig-Text bleibt nur beim selben Stick
+    try { Update-Drives -Auto } catch { }
+}
+function Invoke-StickReady {
+    if ($script:Busy) { return }
+    Set-UiBusy $true
+    try { Invoke-StickReadyCore }
+    catch { Stop-Ready '' ('Unerwarteter Fehler: ' + $_.Exception.Message) }
+    finally { Set-UiBusy $false }
+}
+$ui.bReady.Add_Click({ Invoke-StickReady })
+
+# Schliessen: Rueckfrage bei ungespeicherten Aenderungen (nie im Starttest, nicht beim Update-Neustart)
+$script:NoClosePrompt = $false
+$win.Add_Closing({
+    param($s, $e)
+    if ($SmokeTest) { return }
+    # Laufender Vorgang geht vor allem anderen (auch vor dem Update-Neustart)
+    if ($script:Busy) { $e.Cancel = $true; Show-Msg 'Ein Vorgang läuft noch (Stick fertig machen, Kopieren oder Paketbau). Bitte warten, bis er fertig ist.' 'HUPilot-Setup'; return }
+    if ($script:NoClosePrompt) { return }
+    Update-Dirty
+    if (-not $script:Dirty) { return }
+    $q = [System.Windows.MessageBox]::Show($win, ('Es gibt ungespeicherte Änderungen.' + "`r`n`r`n" + 'Ja = speichern und schließen' + "`r`n" + 'Nein = verwerfen und schließen' + "`r`n" + 'Abbrechen = weiterarbeiten'), 'HUPilot-Setup schließen', 'YesNoCancel', 'Question')
+    if ($q -eq 'Cancel' -or $q -eq 'None') { $e.Cancel = $true; return }
+    if ($q -eq 'Yes' -and -not (Save-Cfg)) { $e.Cancel = $true; Show-Msg ('Nicht gespeichert: ' + $script:FieldErr + "`r`n`r`n" + 'Feld korrigieren oder "Nein" wählen, um ohne Speichern zu schließen.') 'HUPilot-Setup' 'Warning' }
+})
 # Nach einem Update einmal erinnern: die USB-Sticks haben noch die alte Version -> "5. Auf Stick kopieren"
 #   Merker Config\stickhint.json = Update-Stand (Programmversion aus version.json + Datum aus installed.json), fuer den der Hinweis schon kam.
 #   Unabhaengig davon, welche Pull.ps1-Version das Update gemacht hat. Angezeigt wird die Version aus version.json (wie im Fenstertitel).
@@ -1734,14 +4156,14 @@ function Show-UpdateStickHint {
     $key = $SetupVer + ' ' + [string]$i.Date
     $seen = Join-Path $CfgDirHU 'stickhint.json'
     try { if (Test-Path -LiteralPath $seen) { $s = Get-Content -LiteralPath $seen -Raw -Encoding UTF8 | ConvertFrom-Json; if ([string]$s.Key -eq $key) { return } } } catch { }
-    try { [pscustomobject]@{ Key = $key } | ConvertTo-Json | Set-Content -LiteralPath $seen -Encoding UTF8 -ErrorAction Stop } catch { Out-Log ('Hinweis-Merker nicht schreibbar: ' + $_.Exception.Message) }
+    try { [pscustomobject]@{ Key = $key } | ConvertTo-Json | Set-Content -LiteralPath $seen -Encoding UTF8 -ErrorAction Stop } catch { Out-Log 'Merker für den Update-Hinweis nicht schreibbar, der Hinweis kommt beim nächsten Start nochmal.' 'Hinweis' $_.Exception.Message }
     $ver = 'v' + $SetupVer
     $nl = [Environment]::NewLine
     $t = 'HUPilot ist jetzt auf ' + $ver + '.' + $nl + $nl
     if ($srcDrive) { $t += 'Dieser Stick (' + $srcDrive + ') ist schon aktualisiert. Alle ANDEREN Sticks haben noch die alte Version.' + $nl + $nl }
     else { $t += 'Die USB-Sticks haben noch die alte Version.' + $nl + $nl }
-    $t += 'Jeden Stick neu bespielen:' + $nl + '   1. Stick anstecken' + $nl + '   2. bei "Stick" auswählen (ggf. "Aktualisieren")' + $nl + '   3. "5. Auf Stick kopieren" klicken' + $nl + $nl + 'config.json und WLAN-Paket kommen dabei mit.'
-    Out-Log ('Update auf ' + $ver + ' - Sticks jetzt mit "5. Auf Stick kopieren" neu bespielen')
+    $t += 'Jeden Stick neu bespielen:' + $nl + '   1. Stick anstecken' + $nl + '   2. bei "Stick" auswählen (er erscheint von selbst)' + $nl + '   3. "Stick fertig machen" (oder "5. Auf Stick kopieren") klicken' + $nl + $nl + 'config.json und WLAN-Paket kommen dabei mit.'
+    Out-Log ('Update auf ' + $ver + ' fertig. Jetzt jeden Stick mit "Stick fertig machen" neu bespielen.') 'Hinweis'
     Show-Msg $t 'HUPilot - Update fertig: auf Stick kopieren'
 }
 if ($SmokeTest) {
@@ -1749,11 +4171,21 @@ if ($SmokeTest) {
     $script:SmokeOk = $false
     $tm = New-Object System.Windows.Threading.DispatcherTimer
     $tm.Interval = [TimeSpan]::FromSeconds(2)
-    $tm.Add_Tick({ $tm.Stop(); $script:SmokeOk = $win.IsLoaded; $win.Close() })
+    $tm.Add_Tick({
+        $tm.Stop()
+        # beide Themes einmal anzeigen, dann zurueck
+        $t0 = $script:HuTheme
+        foreach ($th in @($(if ($t0 -eq 'hell') { 'dunkel' } else { 'hell' }), $t0)) { Set-HuTheme $th; $win.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Render) }
+        $script:SmokeOk = $win.IsLoaded
+        $win.Close()
+    })
     $win.Add_ContentRendered({ $tm.Start() })
 } else {
     $win.Add_ContentRendered({ Show-UpdateStickHint; Invoke-UpdateCheck -Quiet })
+    # Sticks von selbst erkennen (nicht im Starttest)
+    $win.Add_ContentRendered({ $script:DriveTimer.Start() })
 }
+$win.Add_Closed({ try { $script:DriveTimer.Stop() } catch { } })
 [void]$win.ShowDialog()
 if ($SmokeTest) { try { Set-Content -LiteralPath $SmokeTest -Value $(if ($script:SmokeOk) { 'OK v' + $SetupVer } else { 'FEHLER: Fenster nicht geladen' }) -Encoding UTF8 } catch { } }
 Start-Log 'Fenster geschlossen'
