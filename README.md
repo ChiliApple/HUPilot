@@ -26,6 +26,8 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen: <c
 
 Jedes Ende zeigt drei Sätze: was passiert ist, was jetzt passiert und was zu tun ist.
 
+<p align="center"><img src="Assets/screenshot-go-fertig.png" width="520" alt="Grünes Abschlussbild am Gerät"/></p>
+
 | Farbe | Bedeutung |
 |---|---|
 | Grün | Upload fertig, Stick abziehen |
@@ -39,6 +41,12 @@ Jedes Ende zeigt drei Sätze: was passiert ist, was jetzt passiert und was zu tu
 2. `Stick\` auf Stick oder in einen Ordner kopieren, **`HUPilot-Setup.cmd`** starten, Felder ausfüllen
 3. Stick anstecken, auswählen und **Stick fertig machen** klicken: prüft Eingaben, Verbindung, Secret und Tags, speichert, baut das WLAN-Paket wenn nötig, kopiert und kontrolliert den Stick. Die Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit Ampel.
 4. Danach *6. Status* (Stand jedes Geräts in Klartext, mit "Was tun") und ggf. *7. Hashes importieren*
+
+<p align="center"><a href="Assets/screenshot-status.png"><img src="Assets/screenshot-status.png" width="800" alt="Status-Fenster mit Stand und Was tun"/></a></p>
+
+Die Oberfläche gibt es dunkel und hell, umschaltbar mit dem Knopf oben rechts.
+
+<p align="center"><img src="Assets/screenshot-setup-hell.png" width="420" alt="HUPilot-Setup, helle Oberfläche"/></p>
 
 > **Status:** in Erprobung. Upload, Tag-Wechsel, Tag-Prüfung, Offline-Hashes, Zurücksetzen (auch im Akkubetrieb), WLAN-Paket und Autopilot laufen. **Noch nicht auf einem unberührten Neugerät bestätigt:** dass nach dem Zurücksetzen keine Hersteller-Programme zurückkommen.
 
