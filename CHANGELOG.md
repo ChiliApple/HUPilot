@@ -38,6 +38,13 @@
 - **Behoben: altes Paket auf dem Stick:** Wurden WLAN oder lokale Admins geändert, kam bisher still das alte Paket auf den Stick. Jetzt fragt das Setup nach: neu bauen, trotzdem kopieren oder abbrechen.
 - **"4. WLAN-Paket bauen" speichert vorher:** braucht deshalb alle Pflichtfelder.
 - **Altes Paket auf dem Stick wird entfernt:** liegt auf dem Stick ein WLAN-Paket, das nicht aus der Quelle stammt (z. B. beim Kopieren ohne Paket), entfernt das Setup es und nennt es im Protokoll.
+- **Paketbau mitnehmen (Test):** Der neue Knopf neben "4. WLAN-Paket bauen" kopiert den Paketbau (ICD.exe aus dem Windows ADK, rund 80 MB) vom eigenen PC in die Quelle. Damit soll das Setup auch an einem PC ohne ADK WLAN-Pakete bauen.
+  - Läuft das Setup vom Stick, landet die Kopie direkt auf diesem Stick. Läuft es vom PC-Ordner, nehmen "Stick fertig machen", "5. Auf Stick kopieren" und "Sticks vorbereiten" sie mit, wenn das Häkchen "Paketbau mit auf den Stick" gesetzt ist (gemerkt, Standard aus).
+  - Vor dem Kopieren wird der freie Platz geprüft, danach jede Datei per SHA256. Daneben liegt eine Prüfliste mit Version, Datum und Prüfsummen.
+  - Vor jedem Bau mit der Kopie prüft das Setup die Prüfsummen, sucht nach fremden Dateien und kontrolliert die Signatur von Microsoft. Stimmt etwas nicht, wird nicht gebaut.
+  - Gesucht wird zuerst das installierte ADK, dann die Kopie. Welche benutzt wird und in welcher Version, steht im Protokoll und im Tooltip der Ampel.
+  - Ist am PC eine neuere Version installiert, heißt der Knopf "Kopie aktualisieren". "Kopie entfernen" löscht die Kopie wieder. Die Kopie lädt nie selbst etwas aus dem Internet.
+  - Das ADK gehört Microsoft und wird nicht mit HUPilot ausgeliefert, auch nicht per Update. Die Kopie ist nur für den eigenen Gebrauch.
 
 ### 🔐 Secret und MAK
 - **Ablauf des Secrets:** Das Setup merkt sich das Ablaufdatum, wenn es lesbar ist (optional Application.Read.All).
@@ -78,9 +85,10 @@
 - Testversion: am echten Gerät und mit echtem Tenant noch nicht geprüft.
 - "Autopilot-Sync anstoßen" wirkt laut Microsoft immer für den ganzen Tenant, nicht für einzelne Geräte.
 - Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
+- Paketbau mitnehmen: noch nicht an einem PC ohne ADK bestätigt. Ein Teil der Programmdateien des ADK ist schon im Original nicht signiert, diese Dateien schützt nur die Prüfsumme.
 
 ### ✅ Qualität
-- 118 automatische Tests.
+- 126 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung

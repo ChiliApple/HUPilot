@@ -1,4 +1,4 @@
-# Installation
+﻿# Installation
 
 ## 1. App-Registrierung (je Tenant)
 Entra > App-Registrierungen > **Neue Registrierung** > Name `HUPilot-Upload`, nur dieses Verzeichnis, keine Umleitungs-URI
@@ -31,6 +31,16 @@ Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der
 ## 3. WLAN-Paket
 *WLAN-Paket bauen* braucht das **Windows ADK** mit *Imaging and Configuration Designer* (`ICD.exe`). Das Setup merkt sich, für welches WLAN und welche Admins das Paket gebaut ist, und zeigt "aktuell" oder "veraltet".
 Ohne ADK: `Tools\New-WcdProjekt.ps1`, in WCD öffnen, als `HUPilot-WLAN.ppkg` exportieren (das Setup zeigt dann "unbekannt").
+
+### Paketbau mitnehmen (Test)
+Damit auch ein PC ohne ADK Pakete bauen kann, kopiert das Setup an einem PC mit ADK den Paketbau in die Quelle:
+1. Setup am PC mit ADK starten, neben *4. WLAN-Paket bauen* auf *Paketbau mitnehmen ...* klicken. Läuft das Setup vom Stick, kommt die Kopie direkt auf diesen Stick (rund 80 MB).
+2. Läuft das Setup vom PC-Ordner, das Häkchen *Paketbau mit auf den Stick* setzen. Dann nehmen *Stick fertig machen*, *5. Auf Stick kopieren* und *Sticks vorbereiten* die Kopie mit.
+3. Am PC ohne ADK das Setup vom Stick starten und *4. WLAN-Paket bauen* klicken. Das Protokoll nennt, welche `ICD.exe` benutzt wird.
+
+Die Kopie liegt in `HUPilot\ADK-ICD`, daneben die Prüfliste `HUPilot-ICD.json`. Vor jedem Bau prüft das Setup Prüfsummen, fremde Dateien und die Signatur von Microsoft, sonst baut es nicht. Updates und das Repo lassen den Ordner unberührt. *Kopie entfernen ...* löscht ihn wieder.
+
+Das Windows ADK gehört Microsoft und wird **nicht** mit HUPilot ausgeliefert. Die Kopie ist immer die eigene des Anwenders und nur für den eigenen Gebrauch. Noch nicht an einem PC ohne ADK bestätigt.
 Das Paket enthält nur das WLAN und optional die lokalen Admins, kein CleanPC, kein BPRT, kein HideOobe.
 Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go.ps1 an bereits eingerichteten Geräten kein neues Paket installieren, das vorhandene bleibt.
 

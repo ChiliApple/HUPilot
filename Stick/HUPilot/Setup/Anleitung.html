@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
@@ -169,6 +169,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td><span class="ui">2. Tags prüfen</span></td><td>je Tag: Geräte in Autopilot, passende dynamische Gruppe und Autopilot-Profil. Zeigt Tags ohne Profil, bevor es losgeht (Gruppen lesen: <code>Group.Read.All</code>)</td></tr>
 <tr><td><span class="ui">3. Speichern</span></td><td>prüft die Eingaben und schreibt <code>config.json</code></td></tr>
 <tr><td><span class="ui">4. WLAN-Paket bauen</span></td><td>speichert zuerst und baut dann <code>HUPilot-WLAN.ppkg</code>. Braucht das <b>Windows ADK</b> mit <i>Imaging and Configuration Designer</i>. Sind <b>lokale Admins</b> eingetragen (Admin und optional Admin 2, z. B. Elternverein), kommen sie mit ins Paket: Sie werden nach jedem Zurücksetzen angelegt, Kennwort und Konto laufen nie ab.<br>Daneben steht der Stand des Pakets: <b>aktuell</b> (passt zu WLAN und Admins), <b>veraltet</b> (WLAN oder Admins geändert, neu bauen), <b>fehlt</b> oder <b>unbekannt</b> (mit einer älteren Version gebaut, einmal neu bauen).</td></tr>
+<tr><td><span class="ui">Paketbau mitnehmen ...</span></td><td><b>Test.</b> Nur an einem PC mit Windows ADK sichtbar. Kopiert den Paketbau (<code>ICD.exe</code>, rund 80 MB) in die Quelle, damit auch ein PC ohne ADK Pakete bauen kann. Läuft das Setup vom Stick, kommt die Kopie direkt auf diesen Stick, sonst mit dem Häkchen <span class="ui">Paketbau mit auf den Stick</span> bei jedem Kopieren. Vor jedem Bau werden Prüfsummen und die Signatur von Microsoft kontrolliert. Ist am PC eine neuere Version installiert, heißt der Knopf <span class="ui">Kopie aktualisieren ...</span>, <span class="ui">Kopie entfernen ...</span> löscht sie wieder. Das ADK gehört Microsoft und kommt nicht mit HUPilot, die Kopie ist nur für den eigenen Gebrauch. Noch nicht an einem PC ohne ADK bestätigt.</td></tr>
 <tr><td><span class="ui">5. Auf Stick kopieren</span></td><td>speichert, kopiert alles 1:1 auf den gewählten Stick (ohne <code>logs</code>) und kontrolliert die Dateien. Mit dem gleichen Rückfragen wie der Hauptknopf: veraltetes oder fehlendes Paket (neu bauen, trotzdem kopieren, abbrechen), Secret, MAK.</td></tr>
 <tr><td><span class="ui">Sticks vorbereiten</span></td><td>nur wenn das Setup vom PC läuft: mehrere USB-Sticks formatieren (NTFS), benennen, befüllen und kontrollieren, gleichzeitig angesteckt oder nacheinander (tauschen, dann <i>Neu einlesen</i>). Interne Laufwerke werden nie angeboten.</td></tr>
 <tr><td><span class="ui">6. Status</span></td><td>Liste aller Autopilot-Geräte mit Stand in Klartext, siehe <a href="#status">Status-Fenster</a></td></tr>
@@ -274,7 +275,8 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><th>Meldung / Problem</th><th>Lösung</th></tr>
 <tr><td>Secret abgelaufen oder falsch</td><td>Am Gerät wird der Hash am Stick gespeichert (gelb). Neues Secret (Wert, nicht ID) im Setup eintragen, <i>Stick fertig machen</i>, dann <i>7. Hashes importieren</i>.</td></tr>
 <tr><td>"Keine Verbindung - Secret nicht geprüft" im Setup</td><td>Kein Internet am PC. Das Secret kann trotzdem gültig sein, später <i>1. Verbindung testen</i>.</td></tr>
-<tr><td>"Paket: veraltet" oder "unbekannt"</td><td><i>4. WLAN-Paket bauen</i> (oder <i>Stick fertig machen</i>, das baut es selbst). Ohne Windows ADK auf einem anderen PC bauen.</td></tr>
+<tr><td>"Paket: veraltet" oder "unbekannt"</td><td><i>4. WLAN-Paket bauen</i> (oder <i>Stick fertig machen</i>, das baut es selbst). Ohne Windows ADK auf einem anderen PC bauen, oder dort <i>Paketbau mitnehmen</i> klicken (Test).</td></tr>
+<tr><td>"Die Kopie des Paketbaus ist nicht in Ordnung"</td><td>Eine Datei der Kopie fehlt, ist verändert oder nicht von Microsoft signiert. Es wurde nichts gebaut. An einem PC mit Windows ADK <i>Paketbau mitnehmen</i> klicken und nochmal bauen.</td></tr>
 <tr><td>"Stick X: Kontrolle nicht bestanden"</td><td>Stick neu anstecken, <i>Aktualisieren</i>, nochmal. Hilft das nicht: anderen Stick nehmen oder <i>Sticks vorbereiten</i> (formatiert).</td></tr>
 <tr><td>Kein Internet nach 2 Minuten (Gerät)</td><td>Hash wird am Stick gespeichert (gelb). WLAN-Reichweite, Kennwort, Firewall prüfen (Autopilot- und Intune-Adressen, <code>D:\diag</code> &gt; 5 zeigt, was erreichbar ist). LAN mit 802.1X geht nicht. Die Uhrzeit stellt go selbst.</td></tr>
 <tr><td>Gerät ist in einem anderen Tenant</td><td>beim anderen Tenant oder Händler aus Autopilot entfernen lassen</td></tr>
