@@ -42,36 +42,70 @@ Describe 'Setup: Fenster (XAML)' {
     It 'alle Fenster-Bloecke werden gefunden' {
         @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'dx', 'sx', 'gx', 'hx')
     }
-    It 'jedes Fenster laedt mit XamlReader (STA), ohne und mit Dark Theme' {
-        $theme = [regex]::Match($script:SetupText, "(?s)\`$script:HuThemeXaml = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
-        $fn = @($script:SetupAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Add-HuTheme' } | ForEach-Object { $_.Extent.Text }) -join "`n"
+    It 'jedes Fenster laedt mit XamlReader (STA), ohne Theme, dunkel und hell, und schaltet zur Laufzeit um' {
+        $get = { param($n) [regex]::Match($script:SetupText, "(?s)\`$script:$n = @'\r?\n(.*?)\r?\n'@").Groups[1].Value }
+        $theme = & $get 'HuThemeXaml'; $dark = & $get 'HuColorsDark'; $light = & $get 'HuColorsLight'
+        $fn = @($script:SetupAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -in 'Add-HuTheme', 'Get-HuColorsXaml', 'Register-HuWindow', 'Set-HuTheme' } | ForEach-Object { $_.Extent.Text }) -join "`n"
         $theme | Should -Match '<ResourceDictionary'
-        $fn | Should -Match 'function Add-HuTheme'
+        $fn | Should -Match 'function Set-HuTheme'
         $load = {
-            param($blocks, $themeText, $fnText)
+            param($blocks, $themeText, $darkText, $lightText, $fnText)
             Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-            $script:HuThemeXaml = $themeText
+            $script:HuThemeXaml = $themeText; $script:HuColorsDark = $darkText; $script:HuColorsLight = $lightText
+            $script:HuWindows = New-Object System.Collections.ArrayList
             . ([scriptblock]::Create($fnText))
             foreach ($b in $blocks) {
-                foreach ($mode in 'ohne', 'mit') {
+                foreach ($mode in 'ohne', 'dunkel', 'hell') {
                     try {
                         $x = [xml]$b.Xaml
-                        if ($mode -eq 'mit') { Add-HuTheme $x }
+                        if ($mode -ne 'ohne') { $script:HuTheme = $mode; Add-HuTheme $x }
                         $w = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $x))
-                        if ($mode -eq 'mit' -and "$($w.Background)" -ne '#FF1E1E1E') { throw "Hintergrund $($w.Background)" }
+                        if ($mode -ne 'ohne') {
+                            $soll = $(if ($mode -eq 'hell') { '#FFF3F3F3' } else { '#FF1E1E1E' })
+                            if ("$($w.Background)" -ne $soll) { throw "Hintergrund $($w.Background)" }
+                            # zur Laufzeit auf das andere Theme und zurueck
+                            Register-HuWindow $w
+                            $other = $(if ($mode -eq 'hell') { 'dunkel' } else { 'hell' })
+                            Set-HuTheme $other
+                            $soll2 = $(if ($other -eq 'hell') { '#FFF3F3F3' } else { '#FF1E1E1E' })
+                            if ("$($w.Background)" -ne $soll2) { throw "nach Umschalten Hintergrund $($w.Background)" }
+                            Set-HuTheme $mode
+                            $script:HuWindows.Clear()
+                        }
                         "$($b.Name) $($mode): OK"
                     } catch { "$($b.Name) $($mode): $($_.Exception.Message)" }
                 }
             }
         }
         $res = @()
-        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') { $res = @(& $load $script:XamlBlocks $theme $fn) }
+        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') { $res = @(& $load $script:XamlBlocks $theme $dark $light $fn) }
         else {
             $rs = [runspacefactory]::CreateRunspace(); $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
-            try { $ps = [powershell]::Create(); $ps.Runspace = $rs; [void]$ps.AddScript($load).AddArgument($script:XamlBlocks).AddArgument($theme).AddArgument($fn); $res = @($ps.Invoke() | ForEach-Object { "$_" }) } finally { $rs.Close() }
+            try { $ps = [powershell]::Create(); $ps.Runspace = $rs; [void]$ps.AddScript($load).AddArgument($script:XamlBlocks).AddArgument($theme).AddArgument($dark).AddArgument($light).AddArgument($fn); $res = @($ps.Invoke() | ForEach-Object { "$_" }) } finally { $rs.Close() }
         }
         @($res | Where-Object { $_ -notmatch ': OK$' }) | Should -BeNullOrEmpty
-        $res.Count | Should -Be (2 * $script:XamlBlocks.Count)
+        $res.Count | Should -Be (3 * $script:XamlBlocks.Count)
+    }
+    It 'helles und dunkles Farb-Woerterbuch haben dieselben Schluessel, alle verwendeten Schluessel sind definiert' {
+        $get = { param($n) [regex]::Match($script:SetupText, "(?s)\`$script:$n = @'\r?\n(.*?)\r?\n'@").Groups[1].Value }
+        $keys = { param($t) @([regex]::Matches($t, 'x:Key="([^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object) }
+        $kd = & $keys (& $get 'HuColorsDark'); $kl = & $keys (& $get 'HuColorsLight')
+        ($kd -join ',') | Should -Be ($kl -join ',')
+        $used = @([regex]::Matches($script:SetupText, '(?:DynamicResource |SetResourceReference\([^,]+, '')(Hu[A-Za-z]+)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+        $used += @([regex]::Matches($script:SetupText, "= '(Hu(?:Ok|Warn|Err|Muted|LampOpen|Run))'") | ForEach-Object { $_.Groups[1].Value })
+        $missing = @($used | Sort-Object -Unique | Where-Object { $kd -notcontains $_ })
+        $missing | Should -BeNullOrEmpty
+    }
+    It 'keine festen Farben mehr in den Fenstern ausser Druck, Excel und Bildlaufleisten' {
+        $blocks = @($script:XamlBlocks | ForEach-Object { $_.Xaml }) -join "`n"
+        $hex = @([regex]::Matches($blocks, '(?:Foreground|Background|BorderBrush|Fill|Value)="(#[0-9A-Fa-f]{6,8})"') | ForEach-Object { $_.Value } | Where-Object { $_ -notmatch '#FF6A6A6A|#18808080' } | Sort-Object -Unique)
+        $hex | Should -BeNullOrEmpty
+    }
+    It 'Theme gemerkt in ui.json, Starttest zeigt beide Themes' {
+        $script:SetupText | Should -Match "Set-UiSetting 'Theme' \`$script:HuTheme"
+        $script:SetupText | Should -Match "if \(\[string\]\`$tj\.Theme -eq 'hell'\) \{ \`$script:HuTheme = 'hell' \}"
+        $script:SetupText | Should -Match "foreach \(\`$th in @\(\`$\(if \(\`$t0 -eq 'hell'\) \{ 'dunkel' \} else \{ 'hell' \}\), \`$t0\)\) \{ Set-HuTheme \`$th"
+        foreach ($v in 'win', 'pw', 'vw', 'dw', 'sw', 'gw', 'hw') { $script:SetupText | Should -Match ('Register-HuWindow \$' + $v + '\b') }
     }
     It 'jedes Fenster bekommt das Dark Theme vor dem Laden' {
         foreach ($v in 'xaml', 'px', 'vx', 'dx', 'sx', 'gx', 'hx') { $script:SetupText | Should -Match ('Add-HuTheme \$' + $v + '\r?\n\s*\$\w+ = \[Windows\.Markup\.XamlReader\]::Load\(\(New-Object System\.Xml\.XmlNodeReader \$' + $v + '\)\)') }
