@@ -12,7 +12,7 @@ BeforeAll {
     $script:SetupAst = $ast
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
-        'Test-StickCopy', 'Get-CfgBytesNoMak'
+        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
     . ([scriptblock]::Create($script:FnText))
@@ -80,8 +80,9 @@ Describe 'Setup: Fenster (XAML)' {
         $x = [xml]$script:XamlBlocks[0].Xaml
         $ns = New-Object System.Xml.XmlNamespaceManager($x.NameTable)
         $ns.AddNamespace('w', 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'); $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
-        $x.SelectSingleNode("//w:ScrollViewer[@x:Name='svMain']//w:TextBox[@x:Name='tLog']", $ns) | Should -BeNullOrEmpty
-        $x.SelectSingleNode("//w:TextBox[@x:Name='tLog']", $ns) | Should -Not -BeNullOrEmpty
+        $x.SelectSingleNode("//w:ScrollViewer[@x:Name='svMain']//*[@x:Name='lLog']", $ns) | Should -BeNullOrEmpty
+        $x.SelectSingleNode("//w:ListBox[@x:Name='lLog']", $ns) | Should -Not -BeNullOrEmpty
+        $x.SelectSingleNode("//w:Button[@x:Name='bLogCopy']", $ns) | Should -Not -BeNullOrEmpty
         foreach ($n in 'bReady', 'thLog', 'bLogRev', 'bLogClear', 'eTest', 'eTags', 'eWrite', 'ePkg', 'eCopy', 'eStatus', 'eHash', 'tDirty', 'tPkg', 'pKey', 'pAdmPw', 'pAdm2Pw') {
             $x.SelectSingleNode("//*[@x:Name='$n']", $ns) | Should -Not -BeNullOrEmpty -Because $n
         }
@@ -122,7 +123,7 @@ Describe 'Setup: Feldpruefung an den Aufrufer gebunden' {
         $script:TestCfg = New-TestCfg
         $script:TestCfg.AdminName = 'admin'; $script:TestCfg.AdminPassword = 'langesKennwort'; $script:TestCfg.Admin2Name = 'admin'; $script:TestCfg.Admin2Password = 'langesKennwort'
         Test-Fields $script:SaveNames -Admin | Should -BeFalse
-        $script:FieldErr | Should -Match 'denselben Namen'
+        $script:FieldErr | Should -Match 'sind gleich'
     }
     It 'falscher MAK und allgemeiner Schluessel nur beim Speichern' {
         $script:TestCfg.EditionKey = 'ABC'
@@ -316,5 +317,38 @@ Describe 'Setup: Kopieren auf den Stick' {
     }
     It 'Starttest bekommt nie eine Rueckfrage beim Schliessen' {
         $script:SetupText | Should -Match "\`$win\.Add_Closing\(\{\s+param\(\`$s, \`$e\)\s+if \(\`$SmokeTest -or \`$script:NoClosePrompt\) \{ return \}"
+    }
+}
+
+Describe 'Setup: Protokoll mit drei Stufen' {
+    It 'alte Zeilenanfaenge werden zu Fehler oder Hinweis' {
+        (Split-LogLevel 'FEHLER Anmeldung: x')[0] | Should -Be 'Fehler'
+        (Split-LogLevel 'FEHLER Anmeldung: x')[1] | Should -Be 'Anmeldung: x'
+        (Split-LogLevel 'FEHLT: WlanKey')[0] | Should -Be 'Fehler'
+        (Split-LogLevel 'ACHTUNG: alt')[0] | Should -Be 'Hinweis'
+        (Split-LogLevel 'Gespeichert')[0] | Should -Be ''
+        (Split-LogLevel 'Fehlerfrei gespeichert')[0] | Should -Be ''
+    }
+    It 'Secrets, Kennwoerter und Schluessel kommen nie ins Protokoll' {
+        $o = Hide-LogSecrets 'Secret abc~geheim1, WLAN wlanpasswort, MAK AAAAA-BBBBB-CCCCC-DDDDD-EEEEE' @('abc~geheim1', 'wlanpasswort', '', 'ab')
+        $o | Should -Not -Match 'abc~geheim1'
+        $o | Should -Not -Match 'wlanpasswort'
+        $o | Should -Not -Match 'AAAAA-BBBBB'
+        $o | Should -Match '\*\*\*\*\*-\*\*\*\*\*-\*\*\*\*\*-\*\*\*\*\*-EEEEE'
+        Hide-LogSecrets 'ab ab' @('ab') | Should -Be 'ab ab'
+    }
+    It 'fehlende Felder heissen wie im Fenster, mit naechstem Schritt' {
+        $script:TestCfg = New-TestCfg; $script:TestCfg.WlanKey = ''
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Be 'WLAN-Kennwort fehlt. Bitte oben eintragen.'
+        $script:TestCfg.WlanSsid = ''
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Be 'Es fehlen: WLAN-Name, WLAN-Kennwort. Bitte oben eintragen.'
+    }
+    It 'keine alten Praefixe mehr in den Meldungen, Protokolldatei ohne Stick-Kopie' {
+        @([regex]::Matches($script:SetupText, "(Out-Log|& \`$plog|& \`$hlog|Stop-Field) \(?'(FEHLER|FEHLT|ACHTUNG|WARNUNG|ABBRUCH)")).Count | Should -Be 0
+        $script:SetupText | Should -Match "'setup_' \+ \(Get-Date -Format 'yyyyMMdd_HHmm'\) \+ '\.log'"
+        $script:SetupText | Should -Match "Select-Object -Skip 19"
+        $script:SetupText | Should -Match "Where-Object \{ \`$_\.Name -ne 'logs' -and"
     }
 }
