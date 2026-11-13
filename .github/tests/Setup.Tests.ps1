@@ -541,3 +541,28 @@ Describe 'Setup: Befunde der Pruefung' {
         ([pscustomobject]$o | ConvertTo-Json -Compress) | Should -Be '{"StatusCols":["Stand|0|120"]}'
     }
 }
+
+Describe 'Setup: Tabellen ganz anzeigen, nichts klebt zusammen' {
+    It 'Unterfenster bleiben ganz im Bildschirm (nicht nur mittig ueber dem Hauptfenster)' {
+        $script:SetupText | Should -Not -Match 'if \(\$w\.Owner -and \$fits\) \{ return \}'
+        $script:SetupText | Should -Match '\$w\.Top = \[math\]::Max\(\$wa\.Top, \[math\]::Min\(\$top, \$wa\.Bottom - \$wh\)\)'
+    }
+    It 'Fenster so breit wie die Spalten: Status, Versionsauswahl, Tags, Hashes' {
+        $script:SetupText | Should -Match 'function Set-GridWindowWidth\('
+        $script:SetupText | Should -Match '\$vw\.Add_ContentRendered\(\{ Set-GridWindowWidth \$vw'
+        $script:SetupText | Should -Match '\$gw\.Add_ContentRendered\(\{ Set-GridWindowWidth \$gw'
+        $script:SetupText | Should -Match '\$hw\.Add_ContentRendered\(\{ Set-GridWindowWidth \$hw'
+        $script:SetupText | Should -Match 'else \{ Set-GridWindowWidth \$sw \$g\.dGrid 1060 \}'
+        $script:SetupText | Should -Not -Match 'MaxWidth = 460'
+        $script:SetupText | Should -Not -Match 'Header="Datei" Binding="\{Binding Datei\}" Width="\*"'
+    }
+    It 'Gemerkte Spaltenbreiten nur, wenn sie mindestens so breit wie der Inhalt sind' {
+        $script:SetupText | Should -Match 'if \(\$sv -and \$sv -ge \$dc\.ActualWidth\)'
+    }
+    It 'Luft in den Zellen, Stand nur als farbiges Schild' {
+        $script:SetupText | Should -Match '<Setter Property="Padding" Value="8,3,12,3"/>'
+        $script:SetupText | Should -Match '<Setter Property="MinRowHeight" Value="26"/>'
+        $script:SetupText | Should -Match "if \(\`$col\.Key -eq 'Stand'\) \{ try \{ \`$dc\.ElementStyle = \`$standStyle \}"
+        $script:SetupText | Should -Match 'HuStandOkBg'
+    }
+}

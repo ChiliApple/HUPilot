@@ -620,16 +620,34 @@ foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecr
 # Fenster an den Bildschirm anpassen: nie groesser als der Arbeitsbereich (ohne Taskleiste) und ganz sichtbar.
 # Auf kleinen Notebooks (z. B. 1366x768 oder hohe Skalierung) ragte das Fenster sonst unter die Taskleiste.
 # Unterfenster (mit Owner), die schon passen, bleiben mittig ueber dem Hauptfenster.
+# Unterfenster stehen mittig ueber dem Hauptfenster, aber immer ganz im Arbeitsbereich (nie ueber den Rand hinaus).
 function Set-WinFit($w) {
     try {
         $wa = [System.Windows.SystemParameters]::WorkArea
-        $fits = $true
-        if ($w.Height -gt $wa.Height) { $w.Height = [math]::Max($w.MinHeight, $wa.Height); $fits = $false }
-        if ($w.Width -gt $wa.Width) { $w.Width = [math]::Max($w.MinWidth, $wa.Width); $fits = $false }
-        if ($w.Owner -and $fits) { return }
+        if ($w.Height -gt $wa.Height) { $w.Height = [math]::Max($w.MinHeight, $wa.Height) }
+        if ($w.Width -gt $wa.Width) { $w.Width = [math]::Max($w.MinWidth, $wa.Width) }
+        $ww = $(if ($w.ActualWidth -gt 0 -and [double]::IsNaN($w.Width)) { $w.ActualWidth } else { $w.Width })
+        $wh = $(if ($w.ActualHeight -gt 0 -and [double]::IsNaN($w.Height)) { $w.ActualHeight } else { $w.Height })
+        $left = $wa.Left + ($wa.Width - $ww) / 2; $top = $wa.Top + ($wa.Height - $wh) / 2
+        $o = $w.Owner
+        if ($o -and $o.IsLoaded) { $left = $o.Left + ($o.ActualWidth - $ww) / 2; $top = $o.Top + ($o.ActualHeight - $wh) / 2 }
         $w.WindowStartupLocation = 'Manual'
-        $w.Left = $wa.Left + [math]::Max(0, ($wa.Width - $w.Width) / 2)
-        $w.Top = $wa.Top + [math]::Max(0, ($wa.Height - $w.Height) / 2)
+        $w.Left = [math]::Max($wa.Left, [math]::Min($left, $wa.Right - $ww))
+        $w.Top = [math]::Max($wa.Top, [math]::Min($top, $wa.Bottom - $wh))
+    } catch { }
+}
+# Fenster so breit wie die Spalten der Tabelle (Inhalt plus Luft aus dem Zellabstand), mindestens $Min, hoechstens der
+# Arbeitsbereich; danach wieder ganz in den Bildschirm. Nur wenn der Bildschirm zu schmal ist, bleibt der Querbalken.
+function Set-GridWindowWidth($w, $grid, [double]$Min = 0) {
+    try {
+        $w.UpdateLayout()
+        $cols = 0.0; foreach ($c in $grid.Columns) { if ([string]$c.Visibility -eq 'Visible') { $cols += $c.ActualWidth } }
+        if ($cols -le 0) { return }
+        $chrome = $w.ActualWidth - $grid.ActualWidth
+        $need = [math]::Ceiling($cols + $chrome + 20)
+        $wa = [System.Windows.SystemParameters]::WorkArea
+        $w.Width = [math]::Min($wa.Width, [math]::Max([math]::Max($Min, $w.MinWidth), $need))
+        Set-WinFit $w
     } catch { }
 }
 Set-WinFit $win
@@ -1243,6 +1261,7 @@ function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkTe
     $g.bOk.Add_Click({ if ($g.gV.SelectedItem) { $st.Sel = $g.gV.SelectedItem; $vw.Close() } })
     $g.gV.Add_MouseDoubleClick({ if ($g.gV.SelectedItem) { $st.Sel = $g.gV.SelectedItem; $vw.Close() } })
     $g.bNo.Add_Click({ $vw.Close() })
+    $vw.Add_ContentRendered({ Set-GridWindowWidth $vw $g.gV 600 })
     [void]$vw.ShowDialog()
     return $st.Sel
 }
@@ -2226,14 +2245,14 @@ function Show-Status {
     </Style>
   </Window.Resources>
   <DockPanel Margin="10">
-    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
       <Button x:Name="kAll" Style="{StaticResource HuTile}" Tag="" ToolTip="Alle Geräte (mit den Filtern unten). Klick hebt den Kachel-Filter auf."><StackPanel><TextBlock x:Name="nAll" Text="-" FontSize="22" FontWeight="Bold"/><TextBlock Text="Geräte gesamt"/></StackPanel></Button>
       <Button x:Name="kOk" Style="{StaticResource HuTile}" Tag="ok" ToolTip="Fertig: in Intune angemeldet. Klick zeigt nur diese, zweiter Klick wieder alle."><StackPanel><TextBlock x:Name="nOk" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuOk}"/><TextBlock Text="Fertig"/></StackPanel></Button>
       <Button x:Name="kWait" Style="{StaticResource HuTile}" Tag="wait" ToolTip="Hochgeladen, Microsoft weist das Profil noch zu (meist 5 bis 15 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nWait" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wartet auf Profil"/></StackPanel></Button>
       <Button x:Name="kReady" Style="{StaticResource HuTile}" Tag="ready" ToolTip="Profil ist da, das Gerät hat sich aber noch nicht angemeldet. Klick filtert."><StackPanel><TextBlock x:Name="nReady" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Profil da, noch nicht angemeldet"/></StackPanel></Button>
       <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Problem"/></StackPanel></Button>
     </WrapPanel>
-    <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+    <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
       <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,4"/>
       <ComboBox x:Name="cTag" Width="140" Margin="0,0,0,4" ToolTip="Nur Geräte mit diesem Group Tag"/>
       <CheckBox x:Name="cProto" Content="nur Geräte aus dem Stick-Protokoll" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
@@ -2244,14 +2263,14 @@ function Show-Status {
       <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte Registriert).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
       <TextBox x:Name="tFind" Width="160" Margin="14,0,0,4" VerticalAlignment="Center" ToolTip="Suche in Seriennummer, Gerätename und Benutzer"/>
     </WrapPanel>
-    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,4,10">
       <Button x:Name="bReload" DockPanel.Dock="Right" Content="Aktualisieren" Padding="10,2" ToolTip="Alle Daten jetzt neu aus Autopilot und Intune laden"/>
       <CheckBox x:Name="cAuto" DockPanel.Dock="Right" Content="alle 60 s aktualisieren" VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Liste jede Minute neu laden (nicht, während ein Dialog offen ist). Auswahl, Sortierung und Filter bleiben."/>
-      <TextBlock x:Name="tStamp" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="{DynamicResource HuMuted}" ToolTip="Zeitpunkt der letzten erfolgreichen Abfrage"/>
+      <TextBlock x:Name="tStamp" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,16,0" Foreground="{DynamicResource HuMuted}" ToolTip="Zeitpunkt der letzten erfolgreichen Abfrage"/>
       <Ellipse x:Name="ePulse" Width="10" Height="10" Fill="{DynamicResource HuOk}" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Daten werden geladen"/>
       <TextBlock x:Name="tLoad" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" ToolTip="Fortschritt beim Laden"/>
     </DockPanel>
-    <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
         <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4" ToolTip="Angezeigte Zeilen als CSV (Strichpunkt getrennt) speichern, mit denselben Spalten wie im Fenster"/>
         <Button x:Name="bXlsx" Content="Excel speichern" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen als Excel-Datei (.xlsx) speichern:&#x0a;Kopfzeile fixiert mit Filter, Datum als echtes Datum, Stand eingefärbt.&#x0a;Excel muss dafür nicht installiert sein."/>
@@ -2276,20 +2295,34 @@ function Show-Status {
     if ($win.Icon) { $sw.Icon = $win.Icon }
     Set-WinFit $sw
     $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid') { $g[$n] = $sw.FindName($n) }
-    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true }
+    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; SavedW = $null }
     $script:SRows = @(); $script:StatusView = @()
     # Spalten fest (deutsche Ueberschriften), Reihenfolge und Breite aus ui.json
+    $standStyle = $null; $wrapStyle = $null
+    try {
+        $standXaml = '<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">' +
+            '<Setter Property="Padding" Value="8,2"/><Setter Property="HorizontalAlignment" Value="Left"/><Setter Property="FontWeight" Value="SemiBold"/><Style.Triggers>'
+        foreach ($k in @(@('ok', 'HuStandOkBg'), @('warn', 'HuStandWarnBg'), @('err', 'HuStandErrBg'))) { $standXaml += '<DataTrigger Binding="{Binding Klasse}" Value="' + $k[0] + '"><Setter Property="Background" Value="{DynamicResource ' + $k[1] + '}"/><Setter Property="Foreground" Value="{DynamicResource HuStandText}"/></DataTrigger>' }
+        $standStyle = [Windows.Markup.XamlReader]::Parse($standXaml + '</Style.Triggers></Style>')
+
+        $wrapStyle = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="TextWrapping" Value="Wrap"/></Style>')
+    } catch { }
     foreach ($col in $script:StatusCols) {
         $dc = New-Object System.Windows.Controls.DataGridTextColumn
         $dc.Header = $col.Header; $dc.Binding = New-Object System.Windows.Data.Binding($col.Key); $dc.SortMemberPath = $col.Key
         $dc.Width = New-Object System.Windows.Controls.DataGridLength(1, [System.Windows.Controls.DataGridLengthUnitType]::Auto)
-        if ($col.Key -eq 'WasTun') { $dc.MaxWidth = 460 }
+        # Stand: nur diese Zelle deutlich eingefaerbt (Schild), die Zeile bleibt neutral bzw. leicht getoent
+        if ($col.Key -eq 'Stand') { try { $dc.ElementStyle = $standStyle } catch { } }
+        # Was tun: bricht um, wenn der Bildschirm fuer alle Spalten zu schmal ist (dann fuellt sie den Rest)
+        if ($col.Key -eq 'WasTun') { try { $dc.ElementStyle = $wrapStyle } catch { } }
         $g.dGrid.Columns.Add($dc)
     }
     try {
         $saved = @(Get-UiSetting 'StatusCols' @())
         $byKey = @{}; foreach ($dc in $g.dGrid.Columns) { $byKey[$dc.SortMemberPath] = $dc }
-        foreach ($s in $saved) { $p = ([string]$s) -split '\|'; if ($p.Count -eq 3 -and $byKey.ContainsKey($p[0])) { $w = [double]$p[2]; if ($w -ge 30 -and $w -le 1200) { $byKey[$p[0]].Width = New-Object System.Windows.Controls.DataGridLength($w) } } }
+        # Gemerkte Breiten erst nach dem ersten Laden und nur, wenn sie mindestens so breit wie der Inhalt sind (siehe $fitStatus)
+        $sst.SavedW = @{}
+        foreach ($s in $saved) { $p = ([string]$s) -split '\|'; if ($p.Count -eq 3 -and $byKey.ContainsKey($p[0])) { $w = [double]$p[2]; if ($w -ge 30 -and $w -le 1200) { $sst.SavedW[$p[0]] = $w } } }
         $order = @($saved | ForEach-Object { $p = ([string]$_) -split '\|'; if ($p.Count -eq 3 -and $byKey.ContainsKey($p[0])) { [pscustomobject]@{ Key = $p[0]; Ix = [int]$p[1] } } } | Sort-Object Ix)
         if ($order.Count -eq $g.dGrid.Columns.Count) { for ($i = 0; $i -lt $order.Count; $i++) { $byKey[$order[$i].Key].DisplayIndex = $i } }
     } catch { }
@@ -2387,6 +2420,22 @@ function Show-Status {
         }
         # Auffrischen der Liste abgesichert: ein Fehler darf das Fenster (und den Timer-Aufruf) nicht abstuerzen lassen
         try { & $refresh } catch { Out-Log 'Die Liste im Status-Fenster konnte nicht aufgefrischt werden.' 'Fehler' $_.Exception.Message }
+        # Nach dem ersten Laden mit Daten: Fenster so breit wie die Spalten (spaeteres Aktualisieren aendert die Groesse nicht)
+        if (-not $sst.Fitted -and @($script:StatusView).Count) { $sst.Fitted = $true; try { & $fitStatus } catch { } }
+    }
+    $fitStatus = {
+        $sw.UpdateLayout()
+        if ($sst.SavedW) { foreach ($dc in $g.dGrid.Columns) { $sv = $sst.SavedW[$dc.SortMemberPath]; if ($sv -and $sv -ge $dc.ActualWidth) { $dc.Width = New-Object System.Windows.Controls.DataGridLength($sv) } } }
+        $sw.UpdateLayout()
+        $cols = 0.0; foreach ($dc in $g.dGrid.Columns) { $cols += $dc.ActualWidth }
+        $need = $cols + ($sw.ActualWidth - $g.dGrid.ActualWidth) + 20
+        $wa = [System.Windows.SystemParameters]::WorkArea
+        if ($need -gt $wa.Width) {
+            # Zu schmaler Bildschirm: Was tun fuellt den Rest und bricht um, damit die anderen Spalten sichtbar bleiben
+            foreach ($dc in $g.dGrid.Columns) { if ($dc.SortMemberPath -eq 'WasTun') { $dc.Width = New-Object System.Windows.Controls.DataGridLength(1, [System.Windows.Controls.DataGridLengthUnitType]::Star); $dc.MinWidth = 220 } }
+            $sw.Width = $wa.Width
+            Set-WinFit $sw
+        } else { Set-GridWindowWidth $sw $g.dGrid 1060 }
     }
     foreach ($k in @($tiles.Keys)) { $tiles[$k].Add_Click({ $t = [string]$this.Tag; if (-not $t -or $sst.Tile -eq $t) { $sst.Tile = '' } else { $sst.Tile = $t }; & $refresh }) }
     $g.cTag.Add_SelectionChanged({ if (-not $sst.Loading) { & $refresh } })
@@ -2723,6 +2772,7 @@ function Show-Grid {
     $gw.FindName('tInfo').Text = $Info
     $gw.FindName('dGrid').ItemsSource = @($Rows)
     $gw.FindName('bClose').Add_Click({ $gw.Close() })
+    $gw.Add_ContentRendered({ Set-GridWindowWidth $gw $gw.FindName('dGrid') 640 })
     [void]$gw.ShowDialog()
 }
 
@@ -2843,8 +2893,8 @@ function Show-HashImport {
         <DataGridTextColumn Header="Seriennr" Binding="{Binding Seriennr}"/>
         <DataGridTextColumn Header="Tag" Binding="{Binding Tag}"/>
         <DataGridTextColumn Header="Benutzer" Binding="{Binding Benutzer}"/>
-        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="260"/>
-        <DataGridTextColumn Header="Datei" Binding="{Binding Datei}" Width="*"/>
+        <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
+        <DataGridTextColumn Header="Datei" Binding="{Binding Datei}"/>
       </DataGrid.Columns>
     </DataGrid>
   </DockPanel>
@@ -2978,6 +3028,7 @@ function Show-HashImport {
             if ($hst.CloseAfter) { [void]$hw.Dispatcher.BeginInvoke([action]{ $hw.Close() }) }
         }
     })
+    $hw.Add_ContentRendered({ Set-GridWindowWidth $hw $g.dGrid 760 })
     [void]$hw.ShowDialog()
 }
 $ui.bHash.Add_Click({ Show-HashImport })
