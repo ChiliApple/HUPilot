@@ -145,4 +145,11 @@ Describe 'Edition Home -> Pro' {
         $s | Should -Match 'EditionKey = \(Get-EdKey\)'
         $s | Should -Match 'Set-EdKey \(\[string\]\$c\.EditionKey\)'
     }
+    It 'allgemeine Schluessel werden als MAK abgelehnt, gleiche Liste in Setup und go.ps1' {
+        $re = "@\(('[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}'(?:, )?)+\)"
+        $g = [regex]::Match((Get-Content (Join-Path $script:Root 'Stick\HUPilot\go.ps1') -Raw -Encoding UTF8), '\$EdGenericKeys = (' + $re + ')').Groups[1].Value
+        $s = [regex]::Match((Get-Content (Join-Path $script:Root 'Stick\HUPilot\Setup\HUPilot-Setup.ps1') -Raw -Encoding UTF8), '\$c\.EditionKey -and (' + $re + ') -contains').Groups[1].Value
+        $g | Should -Match 'VK7JG-NPHTM-C97JM-9MPGT-3V66T'
+        $s | Should -Be $g
+    }
 }

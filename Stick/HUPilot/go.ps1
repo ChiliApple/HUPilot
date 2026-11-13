@@ -19,7 +19,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.14'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.15'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -403,6 +403,9 @@ Say ('Windows      : ' + $os.Caption + ' ' + $os.Version)
 # Im OOBE tat changepk mit dem MAK direkt nichts (Test 13.11.2026, Dienste vermutlich gestoppt) - daher dieser Weg.
 $EdKey = ([string]$cfg.EditionKey).Trim().ToUpper()
 if ($EdKey -and $EdKey -notmatch '^[A-Z0-9]{5}(-[A-Z0-9]{5}){4}$') { Fail 'config.json: EditionKey (MAK) hat nicht die Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX' }
+# Allgemeine Schluessel von Microsoft (Installation/KMS-Client) aktivieren nicht - als MAK abgelehnt (Verwechslung im Test 13.11.2026)
+$EdGenericKeys = @('VK7JG-NPHTM-C97JM-9MPGT-3V66T', '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT', 'YTMG3-N6DKC-DKB77-7M9GH-8HVX7', 'W269N-WFGWX-YVC9B-4J6C9-T83GX', 'MH37W-N47XK-V7XM9-C7227-GCQG9')
+$EdKeyIsGeneric = ($EdKey -and $EdGenericKeys -contains $EdKey)
 $EdMarkLocal = 'C:\Windows\Temp\HUPilot-Edition.json'
 $EdMarkStick = Join-Path $CfgDir ('logs\edition_' + $Serial + '.json')
 $EdMark = $null
@@ -440,6 +443,7 @@ $IsHome = $EdId -match '^Core' -or ($os.Caption -notmatch 'Pro|Education|Enterpr
 if ($IsHome) {
     $homeMsg = 'Edition "' + $os.Caption + '" lässt keine Intune-Verwaltung zu - nötig ist Pro oder Pro Education (auch Education, Enterprise)'
     if (-not $EdKey) { Fail ($homeMsg + '. Umstellen auf Pro: im Setup den MAK (Pro) eintragen') }
+    if ($EdKeyIsGeneric) { Fail ($homeMsg + '. Im Setup steht bei MAK (Pro) der allgemeine Schlüssel von Microsoft (' + (Get-KeyTail $EdKey) + '), der aktiviert nicht - den MAK der Schule eintragen') }
     $edRetry = $false
     if ($EdMark) {
         # Frueherer Versuch gescheitert: nie von selbst wiederholen, nur auf ausdruecklichen Tastendruck
@@ -525,7 +529,8 @@ if ($IsHome) {
     Fail ('Windows hat nach 2 Versuchen nicht auf Pro umgestellt - Edition weiter ' + $EdId + '. Nochmal: D:\go und W drücken. Sonst über Windows: Einrichtung mit lokalem Konto abschließen, Einstellungen > Aktivierung > Product Key ändern, dann HUPilot erneut')
 }
 # Nach erfolgreicher Umstellung: Merkdatei da, Edition jetzt Pro -> nach dem Netz aktivieren (siehe unten)
-$EdActivate = ($EdMark -and $EdKey -and -not $EdMark.Aktiviert -and $EdId -match '^Professional')
+$EdActivate = ($EdMark -and $EdKey -and -not $EdKeyIsGeneric -and -not $EdMark.Aktiviert -and $EdId -match '^Professional')
+if ($EdMark -and $EdKeyIsGeneric -and -not $EdMark.Aktiviert -and $EdId -match '^Professional') { Say ('WARNUNG: keine Aktivierung - bei MAK (Pro) steht der allgemeine Schlüssel von Microsoft (' + (Get-KeyTail $EdKey) + '). Im Setup den MAK der Schule eintragen') 'Yellow' }
 if ($EdMark -and $EdId -match '^Professional') { Say ('Edition      : auf ' + $EdId + ' umgestellt (' + [string]$EdMark.Zeit + ')') 'Green' }
 if ($null -ne $cfg.MinBattery) { $MinBattery = [int]$cfg.MinBattery }
 

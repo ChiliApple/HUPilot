@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.7.15 - 2026-11-13
+### 🪟 Windows-Edition
+- **Allgemeiner Schlüssel wird als MAK abgelehnt:** Steht im Feld "MAK (Pro)" einer der allgemeinen Schlüssel von Microsoft, speichert das Setup nicht und sagt warum. Diese Schlüssel stellen nur um, sie aktivieren nicht.
+  - Am Gerät bricht go bei Windows Home mit Hinweis ab, bevor umgestellt wird.
+  - Ist das Gerät schon umgestellt, läuft go weiter und zeigt eine gelbe Warnung statt eines Aktivierungsversuchs.
+- **Am Gerät bestätigt:** Die Umstellung von Windows Home auf Pro im Einrichtungsbildschirm hat an einem Testgerät geklappt, mit Neustart und anschließendem Import in Autopilot.
+
+### 🚧 Grenzen
+- Die Aktivierung mit einem MAK im Einrichtungsbildschirm ist noch an keinem Gerät bestätigt.
+
+### ✅ Qualität
+- 14 automatische Tests.
+
 ## v2.7.14 - 2026-11-13
 ### 🪟 Windows-Edition
 - **Klarere Texte zu Windows Home:** Setup, Meldungen am Gerät und Anleitung sagen jetzt, worum es geht: Windows Home lässt keine Intune-Verwaltung zu, nötig ist Pro oder Pro Education (auch Education, Enterprise).
