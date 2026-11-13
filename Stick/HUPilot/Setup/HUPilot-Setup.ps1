@@ -645,6 +645,25 @@ function Set-WinFit($w) {
         $w.Top = [math]::Max($wa.Top, [math]::Min($top, $wa.Bottom - $wh))
     } catch { }
 }
+# Arbeitsbereich (ohne Taskleiste) des Bildschirms, auf dem das Fenster steht, in WPF-Einheiten. Rueckfall: Hauptbildschirm
+function Get-WinWorkArea($w) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        $h = (New-Object System.Windows.Interop.WindowInteropHelper($w)).Handle
+        $src = [System.Windows.PresentationSource]::FromVisual($w)
+        if ($h -eq [IntPtr]::Zero -or -not $src) { return [System.Windows.SystemParameters]::WorkArea }
+        $wa = [System.Windows.Forms.Screen]::FromHandle($h).WorkingArea
+        $m = $src.CompositionTarget.TransformFromDevice
+        return New-Object System.Windows.Rect($m.Transform((New-Object System.Windows.Point($wa.Left, $wa.Top))), $m.Transform((New-Object System.Windows.Point($wa.Right, $wa.Bottom))))
+    } catch { return [System.Windows.SystemParameters]::WorkArea }
+}
+# Linker Rand nach einer Breitenaenderung: bleibt, nur wenn das Fenster rechts oder links aus dem Arbeitsbereich ragt,
+# so weit verschieben wie noetig
+function Get-KeptLeft([double]$Left, [double]$Width, [double]$AreaLeft, [double]$AreaRight) {
+    if ($Left + $Width -gt $AreaRight) { $Left = $AreaRight - $Width }
+    if ($Left -lt $AreaLeft) { $Left = $AreaLeft }
+    return $Left
+}
 # ---------- Spaltenbreite = breitester Inhalt (Kopf eingeschlossen) plus ein festes Stueck Luft, nie mehr ----------
 #   Gemessen wird der Text selbst ueber ALLE Zeilen (die Auto-Breite der Tabelle misst nur sichtbare Zeilen und wird nie kleiner).
 #   Keine Stern-Breite, keine gemerkten Breiten. Obergrenze je Spalte, darueber Auslassung mit Tooltip auf den vollen Text.
@@ -655,8 +674,19 @@ function Get-FitWidth([double]$Content, [double]$Header, [double]$Air = 18, [dou
 }
 # Gemessen wird im selben Modus wie die Anzeige: Add-HuTheme stellt TextFormattingMode=Display ein (Zeichen auf ganze
 # Pixel gerundet, breiter als die ideale Messung). Dazu 2 px Reserve fuer Rundung, sonst wird der letzte Buchstabe angeschnitten.
+$script:TextWidthCache = @{}
 function Measure-TextWidth([string]$Text, $Typeface, [double]$Size) {
     if (-not $Text) { return 0.0 }
+    # Zwischenspeicher: gleicher Text, gleiche Schrift (Familie, Gewicht) und Groesse = gleiche Breite
+    $ck = $null
+    try { $ck = [string]$Typeface.FontFamily + '|' + [string]$Typeface.Weight + '|' + $Size + '|' + $Text } catch { }
+    if ($ck -and $null -ne $script:TextWidthCache -and $script:TextWidthCache.ContainsKey($ck)) { return $script:TextWidthCache[$ck] }
+    if ($null -eq $script:TextWidthCache -or $script:TextWidthCache.Count -gt 20000) { $script:TextWidthCache = @{} }
+    $wv = Measure-TextWidthRaw $Text $Typeface $Size
+    if ($ck) { $script:TextWidthCache[$ck] = $wv }
+    return $wv
+}
+function Measure-TextWidthRaw([string]$Text, $Typeface, [double]$Size) {
     $ft = $null
     try { $ft = New-Object System.Windows.Media.FormattedText($Text, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $Typeface, $Size, [System.Windows.Media.Brushes]::Black, $null, [System.Windows.Media.TextFormattingMode]::Display, 1.0) } catch { $ft = $null }
     if (-not $ft) { $ft = New-Object System.Windows.Media.FormattedText($Text, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $Typeface, $Size, [System.Windows.Media.Brushes]::Black); return [math]::Ceiling($ft.WidthIncludingTrailingWhitespace * 1.06) + 2 }
@@ -1253,8 +1283,12 @@ function Show-PrepSticks {
     $ptm = New-Object System.Windows.Threading.DispatcherTimer
     $ptm.Interval = [TimeSpan]::FromSeconds(2)
     $ptm.Add_Tick({
-        if ($pst.Busy -or $script:Busy) { return }
-        try { $s = & $prepSig; if ($s -ne $pst.Sig) { $pst.Sig = $s; & $scan $true } } catch { }
+        param($tmr, $e)
+        try {
+            if (-not $pw -or -not $pw.IsVisible) { $tmr.Stop(); return }
+            if ($pst.Busy -or $script:Busy) { return }
+            $s = & $prepSig; if ($s -ne $pst.Sig) { $pst.Sig = $s; & $scan $true }
+        } catch { }
     })
     $g.bScan.Add_Click({ if (-not $pst.Busy) { $pst.Sig = & $prepSig; & $scan $false } })
     $g.bAll.Add_Click({ $g.lSticks.SelectAll() })
@@ -2960,27 +2994,39 @@ function Show-Status {
         $chrome = $sw.ActualWidth - $g.dGrid.ActualWidth
         $g.spBotL.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity)); $g.spBotR.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity)); $g.spTopR.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
         $minW = [math]::Max($g.spBotL.DesiredSize.Width + $g.spBotR.DesiredSize.Width + 24, $g.spTopR.DesiredSize.Width + 260) + $chrome
-        $wa = [System.Windows.SystemParameters]::WorkArea
+        $wa = Get-WinWorkArea $sw
         $target = [math]::Ceiling([math]::Min($wa.Width, [math]::Max($cols + $chrome + 20, $minW)))
         if (-not $sst.Fitted -or [math]::Abs($target - $sw.ActualWidth) -gt 1) {
+            $firstFit = -not $sst.Fitted
             $sst.Fitted = $true; $sst.SizingByCode = $true
-            $sw.Width = $target; Set-WinFit $sw
-            [void]$sw.Dispatcher.BeginInvoke([action]{ $sst.SizingByCode = $false }, [System.Windows.Threading.DispatcherPriority]::ContextIdle)
+            $sw.Width = $target
+            # beim ersten Anpassen mittig ueber dem Hauptfenster, danach bleibt die Position (nur so weit verschieben wie noetig)
+            if ($firstFit) { Set-WinFit $sw } else { $sw.Left = Get-KeptLeft $sw.Left $target $wa.Left $wa.Right }
+            # Verzoegert, wenn die Groessenaenderung durch ist. Der Block darf keine Variablen dieser Funktion brauchen (das Fenster
+            # kann vorher geschlossen sein): Zustand per Closure festhalten, Fenster pruefen, Fehler abfangen.
+            $stRef = $sst; $winRef = $sw
+            [void]$sw.Dispatcher.BeginInvoke([action]({ try { if ($winRef.IsVisible -and $stRef) { $stRef.SizingByCode = $false } } catch { } }.GetNewClosure()), [System.Windows.Threading.DispatcherPriority]::ContextIdle)
         }
     }
     # Pause nach dem Tippen in der Suche, bevor das Fenster seine Breite aendert
     $wtm = New-Object System.Windows.Threading.DispatcherTimer
     $wtm.Interval = [TimeSpan]::FromMilliseconds(400)
-    $wtm.Add_Tick({ $wtm.Stop(); try { & $fitWin } catch { } })
+    # Timer-Bloecke: den Timer ueber den Absender stoppen und nur bei offenem Fenster arbeiten
+    $wtm.Add_Tick({ param($s, $e) try { $s.Stop(); if ($sw -and $sw.IsVisible) { & $fitWin } } catch { } })
+    # Suche erst nach einer kurzen Tipp-Pause auswerten (nicht je Tastendruck)
+    $ftm = New-Object System.Windows.Threading.DispatcherTimer
+    $ftm.Interval = [TimeSpan]::FromMilliseconds(250)
+    $ftm.Add_Tick({ param($s, $e) try { $s.Stop(); if ($sw -and $sw.IsVisible) { $sst.FromSearch = $true; try { & $refresh } finally { $sst.FromSearch = $false } } } catch { } })
     # Der Anwender hat das Fenster selbst in der Groesse geaendert oder maximiert: Breite nicht mehr anfassen
     $sw.Add_SizeChanged({ param($s, $e) if ($sst.Fitted -and -not $sst.SizingByCode -and $e.PreviousSize.Width -gt 0) { $sst.UserSized = $true } })
-    $sw.Add_StateChanged({ if ([string]$sw.WindowState -ne 'Normal') { $sst.UserSized = $true } })
+    # nur Maximieren schaltet die automatische Breite ab, Minimieren nicht
+    $sw.Add_StateChanged({ if ([string]$sw.WindowState -eq 'Maximized') { $sst.UserSized = $true } })
     foreach ($k in @($tiles.Keys)) { $tiles[$k].Add_Click({ $t = [string]$this.Tag; if (-not $t -or $sst.Tile -eq $t) { $sst.Tile = '' } else { $sst.Tile = $t }; & $refresh }) }
     $g.cTag.Add_SelectionChanged({ if (-not $sst.Loading) { & $refresh } })
     foreach ($cb in 'cProto', 'cToday', 'cProblem', 'cZeit') { $g[$cb].Add_Click({ & $refresh }) }
     $g.cZeitSpan.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
     $g.cZeitBasis.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
-    $g.tFind.Add_TextChanged({ $sst.FromSearch = $true; try { & $refresh } finally { $sst.FromSearch = $false } })
+    $g.tFind.Add_TextChanged({ $ftm.Stop(); $ftm.Start() })
     $g.dGrid.Add_SelectionChanged({ $g.tCount.Text = ('' + @($script:StatusView).Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' })) })
     $g.bReload.Add_Click({ & $load $false; if ($g.cAuto.IsChecked -and -not $sst.Paused) { $tm.Start() } })
     $g.bClose.Add_Click({ $sw.Close() })
@@ -2988,9 +3034,9 @@ function Show-Status {
     # Automatisch aktualisieren: nicht waehrend Laden oder offenem Dialog
     $tm = New-Object System.Windows.Threading.DispatcherTimer
     $tm.Interval = [TimeSpan]::FromSeconds(60)
-    $tm.Add_Tick({ if ($g.cAuto.IsChecked -and -not $sst.Loading -and -not $sst.Dialog) { & $load $true } })
+    $tm.Add_Tick({ param($s, $e) try { if (-not $sw -or -not $sw.IsVisible) { $s.Stop(); return }; if ($g.cAuto.IsChecked -and -not $sst.Loading -and -not $sst.Dialog) { & $load $true } } catch { } })
     $sw.Add_Closing({
-        $tm.Stop()
+        $tm.Stop(); $wtm.Stop(); $ftm.Stop()
         # nur die Reihenfolge merken, keine Breiten
         try { Set-UiSetting 'StatusCols' @($g.dGrid.Columns | ForEach-Object { [string]$_.Binding.Path.Path + '|' + $_.DisplayIndex }) } catch { }
     })
@@ -3105,7 +3151,7 @@ function Show-Status {
     })
     $sw.Add_ContentRendered({ & $load $false; $tm.Start() })
     [void]$sw.ShowDialog()
-    $tm.Stop(); $wtm.Stop()
+    $tm.Stop(); $wtm.Stop(); $ftm.Stop()
 }
 
 # Autopilot- und Intune-Geraete laden. -Progress: Skriptblock mit einem Text (Fortschritt), haelt das Fenster zwischen den Seiten bedienbar
@@ -3569,7 +3615,7 @@ function Show-HashImport {
         finally {
             $hst.Busy = $false
             $g.bImp.IsEnabled = $true; $g.bAdd.IsEnabled = $true; $g.bClose.Content = 'Schließen'
-            if ($hst.CloseAfter) { [void]$hw.Dispatcher.BeginInvoke([action]{ $hw.Close() }) }
+            if ($hst.CloseAfter) { $hwRef = $hw; [void]$hw.Dispatcher.BeginInvoke([action]({ try { if ($hwRef.IsVisible) { $hwRef.Close() } } catch { } }.GetNewClosure())) }
         }
     })
     $hw.Add_ContentRendered({ Set-GridWindowWidth $hw $g.dGrid 760 })

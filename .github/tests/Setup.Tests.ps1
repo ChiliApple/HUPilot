@@ -14,7 +14,7 @@ BeforeAll {
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
         'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FitWidth', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick',
         'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion',
-        'Get-DriveSelection', 'Get-PrepKeep', 'Get-PrepKey', 'Get-ReadyTodo', 'New-StickId', 'Compare-StickId', 'Get-StickKey'
+        'Get-DriveSelection', 'Get-PrepKeep', 'Get-PrepKey', 'Get-ReadyTodo', 'New-StickId', 'Compare-StickId', 'Get-StickKey', 'Get-KeptLeft'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
     . ([scriptblock]::Create($script:FnText))
@@ -449,7 +449,7 @@ Describe 'Setup: Status in Klartext' {
         $script:SetupText | Should -Not -Match "Method DELETE -Uri \('https://graph\.microsoft\.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/"
     }
     It 'Automatisch aktualisieren: Timer stoppt beim Schliessen, nicht bei offenem Dialog' {
-        $script:SetupText | Should -Match '\$tm\.Add_Tick\(\{ if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\)'
+        $script:SetupText | Should -Match 'if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\) \{ & \$load \$true \}'
         $script:SetupText | Should -Match '\$sw\.Add_Closing\(\{\s+\$tm\.Stop\(\)'
     }
 }
@@ -535,7 +535,7 @@ Describe 'Setup: Befunde der Pruefung' {
         $i1 | Should -BeLessThan $i2
     }
     It 'Status: stilles Aktualisieren, Token wiederverwenden, Pause nach zwei Netzfehlern, Auffrischen abgesichert' {
-        $script:SetupText | Should -Match '\$tm\.Add_Tick\(\{ if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\) \{ & \$load \$true \} \}\)'
+        $script:SetupText | Should -Match 'if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\) \{ & \$load \$true \} \} catch \{ \} \}\)'
         $script:SetupText | Should -Match '\$tok = Get-ApiTokenCached; if \(-not \$tok\) \{ return \$null \}'
         $script:SetupText | Should -Match "if \(\`$sst\.Fails -ge 2 -and \`$script:TokenErr -eq 'net'\) \{ \`$tm\.Stop\(\)"
         $script:SetupText | Should -Match 'try \{ & \$refresh \} catch \{ Out-Log'
@@ -575,7 +575,7 @@ Describe 'Setup: Tabellen ganz anzeigen, nichts klebt zusammen' {
         $ref | Should -Match '\$script:StatusView = \$v'
         $ref | Should -Match 'try \{ & \$fitCols \} catch \{ \}'
         $ref | Should -Match 'if \(\$sst\.FromSearch\) \{ \$wtm\.Stop\(\); \$wtm\.Start\(\) \} else \{ try \{ & \$fitWin \} catch \{ \} \}'
-        $script:SetupText | Should -Match '\$g\.tFind\.Add_TextChanged\(\{ \$sst\.FromSearch = \$true;'
+        $script:SetupText | Should -Match '\$sst\.FromSearch = \$true; try \{ & \$refresh \} finally \{ \$sst\.FromSearch = \$false \}'
         $script:SetupText | Should -Match '\$wtm\.Interval = \[TimeSpan\]::FromMilliseconds\(400\)'
         # von Hand gezogene Spalten werden uebersprungen
         $script:SetupText | Should -Match "@\('Stand'\) @\(\`$sst\.ManualCols\.Keys\)"
@@ -585,7 +585,7 @@ Describe 'Setup: Tabellen ganz anzeigen, nichts klebt zusammen' {
         $script:SetupText | Should -Match '\$sw\.Add_StateChanged\('
     }
     It 'Breite je Spalte = breitester Text der uebergebenen (angezeigten) Zeilen, leere Spalte = Ueberschrift' {
-        $fn = @($script:SetupAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -in 'Get-FitWidth', 'Measure-TextWidth', 'Get-TrimStyle', 'Set-GridColumnsFit' } | ForEach-Object { $_.Extent.Text }) -join "`n"
+        $fn = @($script:SetupAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -in 'Get-FitWidth', 'Measure-TextWidth', 'Measure-TextWidthRaw', 'Get-TrimStyle', 'Set-GridColumnsFit' } | ForEach-Object { $_.Extent.Text }) -join "`n"
         $fn | Should -Match 'function Set-GridColumnsFit'
         $calc = {
             param($fnText)
@@ -911,5 +911,38 @@ Describe 'Setup: Sticks von selbst erkennen, kurzer Hinweis beim Hauptknopf' {
         $script:SetupText | Should -Match '\$pw\.Add_Closed\(\{ \$ptm\.Stop\(\) \}\)'
         # Sicherheitspruefung direkt vor dem Formatieren unveraendert
         $script:SetupText | Should -Match "if \(\[string\]\`$disk\.BusType -ne 'USB' -or \`$disk\.IsBoot -or \`$disk\.IsSystem -or \[int\]\`$disk\.Number -eq \`$script:SrcDisk\) \{ throw 'kein reiner USB-Stick mehr - übersprungen' \}"
+    }
+}
+
+Describe 'Setup: Status-Fenster stabil (verzoegerte Aktionen, Position, Messung)' {
+    It 'verzoegerte Aktionen und Timer brauchen keine Variablen einer beendeten Funktion' {
+        # kein BeginInvoke mehr mit $sst oder $hw direkt im Block
+        $script:SetupText | Should -Not -Match 'BeginInvoke\(\[action\]\{ \$sst\.'
+        $script:SetupText | Should -Not -Match 'BeginInvoke\(\[action\]\{ \$hw\.Close\(\) \}\)'
+        @([regex]::Matches($script:SetupText, 'BeginInvoke\(\[action\]\(\{ try \{[^\r\n]*\}\.GetNewClosure\(\)\)')).Count | Should -BeGreaterOrEqual 2
+        # Timer im Status und in Sticks vorbereiten: stoppen ueber den Absender, nur bei offenem Fenster, Fehler abgefangen
+        $script:SetupText | Should -Match '\$tm\.Add_Tick\(\{ param\(\$s, \$e\) try \{ if \(-not \$sw -or -not \$sw\.IsVisible\) \{ \$s\.Stop\(\); return \}'
+        $script:SetupText | Should -Match '\$wtm\.Add_Tick\(\{ param\(\$s, \$e\) try \{ \$s\.Stop\(\); if \(\$sw -and \$sw\.IsVisible\)'
+        $script:SetupText | Should -Match 'if \(-not \$pw -or -not \$pw\.IsVisible\) \{ \$tmr\.Stop\(\); return \}'
+        $script:SetupText | Should -Match '\$tm\.Stop\(\); \$wtm\.Stop\(\); \$ftm\.Stop\(\)'
+    }
+    It 'Breitenaenderung behaelt die Position, nur so weit verschieben wie noetig' {
+        Get-KeptLeft 100 800 0 1920 | Should -Be 100
+        Get-KeptLeft 1500 800 0 1920 | Should -Be 1120
+        # zweiter Bildschirm rechts (Arbeitsbereich 1920 bis 3840)
+        Get-KeptLeft 2000 900 1920 3840 | Should -Be 2000
+        Get-KeptLeft 3500 900 1920 3840 | Should -Be 2940
+        Get-KeptLeft 1800 900 1920 3840 | Should -Be 1920
+        # breiter als der Arbeitsbereich: links buendig
+        Get-KeptLeft 50 2500 0 1920 | Should -Be 0
+        $script:SetupText | Should -Match 'if \(\$firstFit\) \{ Set-WinFit \$sw \} else \{ \$sw\.Left = Get-KeptLeft \$sw\.Left \$target \$wa\.Left \$wa\.Right \}'
+        $script:SetupText | Should -Match '\$wa = Get-WinWorkArea \$sw'
+        # nur Maximieren schaltet die automatische Breite ab
+        $script:SetupText | Should -Match "\`$sw\.Add_StateChanged\(\{ if \(\[string\]\`$sw\.WindowState -eq 'Maximized'\) \{ \`$sst\.UserSized = \`$true \} \}\)"
+    }
+    It 'Textbreiten zwischengespeichert, Suche nach kurzer Pause' {
+        $script:SetupText | Should -Match '\$script:TextWidthCache\.ContainsKey\(\$ck\)'
+        $script:SetupText | Should -Match '\$ftm\.Interval = \[TimeSpan\]::FromMilliseconds\(250\)'
+        $script:SetupText | Should -Match '\$g\.tFind\.Add_TextChanged\(\{ \$ftm\.Stop\(\); \$ftm\.Start\(\) \}\)'
     }
 }
