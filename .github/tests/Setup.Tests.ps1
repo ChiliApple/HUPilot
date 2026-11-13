@@ -13,7 +13,7 @@ BeforeAll {
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
         'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FitWidth', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick',
-        'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion', 'Test-IsLink',
+        'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion', 'Test-IsLink', 'Get-IcdPlan', 'Get-IcdPcVersion', 'Get-IcdState', 'Sync-IcdToTarget', 'Copy-IcdTree',
         'Get-DriveSelection', 'Get-PrepKeep', 'Get-PrepKey', 'Get-ReadyTodo', 'New-StickId', 'Compare-StickId', 'Get-StickKey', 'Get-KeptLeft'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
@@ -790,11 +790,21 @@ Describe 'Setup: Paketbau mitnehmen (Test)' {
         Test-SkipForStick 'config.json' | Should -BeTrue
         Test-SkipForStick 'Setup' | Should -BeFalse
         Test-SkipForStick 'go.ps1' | Should -BeFalse
-        $script:SetupText | Should -Match "Copy-IcdToStick \`$dst \(\[bool\]\`$ui\.cIcdStick\.IsChecked"
-        $script:SetupText | Should -Match "\`$ui\.cIcdStick\.IsChecked = \(\[string\]\(Get-UiSetting 'IcdToStick' \`$false\) -eq 'True'\)"
+        $script:SetupText | Should -Match "Copy-IcdToStick \`$dst \(\[bool\]\`$ui\.cIcdStick\.IsChecked -and \`$script:IcdCanUse\)"
+        $script:SetupText | Should -Match "else \{ \`$ui\.cIcdStick\.IsChecked = \(\[string\]\(Get-UiSetting 'IcdToStick' \`$false\) -eq 'True'\) \}"
         $script:SetupText | Should -Match "Set-UiSetting 'IcdToStick'"
-        # Pruefliste als letzte Datei beim Kopieren auf den Stick
-        $script:SetupText | Should -Match "Sort-Object \{ \`$_\.Name -eq 'HUPilot-ICD\.json' \}"
+        # Pruefliste als letzte Datei: in Copy-IcdTree erst alle Dateien, dann die Pruefliste, dann die Pruefung, dann der Tausch
+        $ct = [regex]::Match($script:SetupText, '(?s)function Copy-IcdTree.*?\r?\n\}\r?\n').Value
+        $iCopy = $ct.IndexOf('[System.IO.File]::Copy('); $iMan = $ct.IndexOf("'HUPilot-ICD.json'), (`$man | ConvertTo-Json"); $iChk = $ct.IndexOf('Test-IcdCopy $sx86'); $iMove = $ct.IndexOf('[System.IO.Directory]::Move($stage, $tRoot)')
+        ($iCopy -gt 0 -and $iCopy -lt $iMan -and $iMan -lt $iChk -and $iChk -lt $iMove) | Should -BeTrue
+        # kein eigener Knopf mehr, Haekchen in der Zeile Stick mit Rechtsklick-Menue
+        $script:SetupText | Should -Not -Match 'x:Name="bIcdTake"'
+        $script:SetupText | Should -Not -Match 'x:Name="bIcdDel"'
+        $script:SetupText | Should -Match '\$ui\.cIcdStick\.ContextMenu = \$cmI'
+        $script:SetupText | Should -Match "& \`$addI 'Zustand anzeigen'"
+        $script:SetupText | Should -Match "& \`$addI 'Kopie aktualisieren'"
+        $script:SetupText | Should -Match "& \`$addI 'Kopie entfernen \.\.\.'"
+        $script:SetupText | Should -Match 'ContextMenuService\.ShowOnDisabled="True"'
         $dst = Join-Path $script:IcdTmp 'Stick\HUPilot'
         New-Item -ItemType Directory -Path (Join-Path $dst 'ADK-ICD\x86') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $dst 'ADK-ICD\x86\ICD.exe') -Value 'alt'
@@ -810,7 +820,7 @@ Describe 'Setup: Paketbau mitnehmen (Test)' {
         $loop = [regex]::Match($b, '(?s)foreach \(\$store in \$stores\) \{.*?Start-Process -FilePath \$icd').Value
         $loop | Should -Match 'if \(-not \(& \$icdCheck\)\) \{ return \$false \}'
         $b | Should -Match "Set-Step 'Pkg' 'err' 'Kopie des Paketbaus ungültig'; return \`$false"
-        $b | Should -Match 'an einem PC mit ADK "Paketbau mitnehmen" klicken'
+        $b | Should -Match 'mit dem Häkchen "Paketbau mit auf den Stick" bespielen'
         # Aussteller ueber die Zertifikatskette, nicht ueber den Text des Zertifikats
         $sig = [regex]::Match($script:SetupText, '(?s)function Get-IcdSig.*?\r?\n\}\r?\n').Value
         $sig | Should -Match 'X509Chain'
@@ -991,5 +1001,58 @@ Describe 'Setup: Status-Fenster stabil (verzoegerte Aktionen, Position, Messung)
         $script:SetupText | Should -Match '\$script:TextWidthCache\.ContainsKey\(\$ck\)'
         $script:SetupText | Should -Match '\$ftm\.Interval = \[TimeSpan\]::FromMilliseconds\(250\)'
         $script:SetupText | Should -Match '\$g\.tFind\.Add_TextChanged\(\{ \$ftm\.Stop\(\); \$ftm\.Start\(\) \}\)'
+    }
+}
+
+Describe 'Setup: Paketbau mit auf den Stick, Entscheidung' {
+    It 'Haekchen aus: nichts tun, eine Kopie am Ziel bleibt' {
+        (Get-IcdPlan $false '10.0.28000.1' 'keine' '' 'keine' '').Action | Should -Be 'nichts'
+        (Get-IcdPlan $false '10.0.28000.1' 'keine' '' 'ok' '10.0.28000.1').Action | Should -Be 'bleibt'
+        (Get-IcdPlan $false '' 'keine' '' 'kaputt' '').Action | Should -Be 'bleibt'
+    }
+    It 'Haekchen an: Ziel ohne Kopie wird kopiert, Herkunft zuerst das ADK, sonst die Kopie in der Quelle' {
+        $p = Get-IcdPlan $true '10.0.28000.1' 'ok' '10.0.26100.1' 'keine' ''
+        $p.Action | Should -Be 'kopieren'; $p.Source | Should -Be 'ADK'; $p.Have | Should -Be '10.0.28000.1'
+        $p = Get-IcdPlan $true '' 'ok' '10.0.28000.1' 'keine' ''
+        $p.Action | Should -Be 'kopieren'; $p.Source | Should -Be 'Quelle'
+    }
+    It 'Haekchen an: gleiche Version schon da = nichts kopieren' {
+        $p = Get-IcdPlan $true '10.0.28000.1' 'keine' '' 'ok' '10.0.28000.1'
+        $p.Action | Should -Be 'schon-da'
+        (Get-IcdPlan $true '' 'ok' '10.0.28000.1' 'ok' '10.0.28000.1').Action | Should -Be 'schon-da'
+    }
+    It 'Haekchen an: aeltere Version wird aktualisiert, neuere nicht ueberschrieben, kaputte ersetzt' {
+        (Get-IcdPlan $true '10.0.28000.1' 'keine' '' 'ok' '10.0.26100.1').Action | Should -Be 'aktualisieren'
+        (Get-IcdPlan $true '10.0.26100.1' 'keine' '' 'ok' '10.0.28000.1').Action | Should -Be 'nicht-ueberschreiben'
+        (Get-IcdPlan $true '10.0.28000.1' 'keine' '' 'kaputt' '').Action | Should -Be 'ersetzen'
+        (Get-IcdPlan $true '' 'ok' '10.0.28000.1' 'kaputt' '').Action | Should -Be 'ersetzen'
+    }
+    It 'keine Herkunft (kein ADK, keine gueltige Kopie) = grau; Verweis am Ziel = nicht anfassen' {
+        (Get-IcdPlan $true '' 'keine' '' 'keine' '').Action | Should -Be 'grau'
+        (Get-IcdPlan $true '' 'kaputt' '' 'keine' '').Action | Should -Be 'grau'
+        (Get-IcdPlan $true '' 'verweis' '' 'kaputt' '').Action | Should -Be 'grau'
+        (Get-IcdPlan $true '10.0.28000.1' 'keine' '' 'verweis' '').Action | Should -Be 'verweis'
+    }
+    It 'Setup laeuft vom Stick: nur das ADK ist Herkunft, die eigene Kopie zaehlt als Ziel' {
+        (Get-IcdPlan $true '10.0.28000.1' 'ok' '10.0.28000.1' 'keine' '' $true).Action | Should -Be 'kopieren'
+        (Get-IcdPlan $true '10.0.28000.1' 'ok' '10.0.28000.1' 'ok' '10.0.28000.1' $true).Action | Should -Be 'schon-da'
+        # ohne ADK: vorhandene gueltige Kopie dieses Sticks ist da, sonst grau
+        (Get-IcdPlan $true '' 'ok' '10.0.28000.1' 'ok' '10.0.28000.1' $true).Action | Should -Be 'schon-da'
+        (Get-IcdPlan $true '' 'ok' '10.0.28000.1' 'keine' '' $true).Action | Should -Be 'grau'
+        (Get-IcdPlan $true '' 'keine' '' 'kaputt' '' $true).Action | Should -Be 'grau'
+        # Haekchen entfernen loescht nicht sofort, sondern fragt
+        $script:SetupText | Should -Match "if \(-not \(Remove-IcdCopy \`$icdCopyRoot 'von diesem Stick'\)\)"
+        $script:SetupText | Should -Match "'Paketbau ' \+ \`$Where \+ ' entfernen\?'"
+    }
+    It 'Ausfuehrung: vorhandene Kopie zaehlt nur nach bestandener Pruefung, je Fall eine Protokollzeile' {
+        $s = [regex]::Match($script:SetupText, '(?s)function Sync-IcdToTarget.*?\r?\n\}\r?\n').Value
+        $s | Should -Match '\$dst = Get-IcdState \$tRoot -Full:\$On'
+        $s | Should -Match "'Paketbau ist schon ' \+ \`$Where \+ ' \(Version ' \+ \`$dst\.Version \+ '\), geprüft'"
+        $s | Should -Match "aktualisiert von Version ' \+ \`$dst\.Version \+ ' auf ' \+ \`$p\.Have"
+        $s | Should -Match 'hat eine neuere Version'
+        $s | Should -Match 'ist beschädigt oder unvollständig und wird ersetzt'
+        $s | Should -Match 'kein Windows ADK an diesem PC und keine gültige Kopie in der Quelle'
+        # nie ins Internet
+        $s | Should -Not -Match 'Invoke-WebRequest|Invoke-RestMethod'
     }
 }

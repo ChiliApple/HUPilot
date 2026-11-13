@@ -599,16 +599,14 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geräte in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob für einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTags" Style="{StaticResource HuLamp}"/><TextBlock Text="2. Tags prüfen"/></StackPanel></Button>
       <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eWrite" Style="{StaticResource HuLamp}"/><TextBlock Text="3. Speichern"/></StackPanel></Button>
       <TextBlock x:Name="tDirty" Text="* ungespeichert" Foreground="{DynamicResource HuWarn}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,0,4" Visibility="Collapsed" ToolTip="Es gibt Änderungen, die noch nicht in config.json stehen.&#x0a;3. Speichern oder Stick fertig machen speichert sie." ToolTipService.ShowDuration="30000"/>
-      <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: die Kopie aus &quot;Paketbau mitnehmen&quot; in der Quelle (Test), oder Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md.&#x0a;Welche ICD.exe benutzt wird, steht im Tooltip der Ampel." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
+      <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: die Kopie aus dem Häkchen &quot;Paketbau mit auf den Stick&quot; (Test), oder Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md.&#x0a;Welche ICD.exe benutzt wird, steht im Tooltip der Ampel." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
       <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="6,0,0,4" Foreground="{DynamicResource HuMuted}" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut&#x0a;unbekannt = gebaut mit einer älteren Version, neu bauen empfohlen" ToolTipService.ShowDuration="30000"/>
-      <Button x:Name="bIcdTake" Content="Paketbau mitnehmen ..." Padding="8,2" Margin="10,0,0,4" Visibility="Collapsed" ToolTip="TEST: Kopiert den Paketbau (ICD.exe aus dem Windows ADK dieses PCs, rund 80 MB) in die Quelle.&#x0a;Läuft das Setup vom Stick, landet er direkt auf diesem Stick. Danach kann ein PC ohne ADK WLAN-Pakete bauen.&#x0a;Vor jedem Start werden Prüfsummen und Signaturen kontrolliert. Das schützt vor beschädigten oder zufällig veränderten Dateien&#x0a;und vor fremden Programmdateien. Wer den Stick gezielt verändern kann, kann auch das Setup selbst ändern: Stick nicht aus der Hand geben.&#x0a;Das ADK wird nicht mit HUPilot ausgeliefert,&#x0a;die Kopie ist nur für den eigenen Gebrauch. Geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK, mit einem echten Stick an einem fremden PC noch nicht." ToolTipService.ShowDuration="60000"/>
-      <Button x:Name="bIcdDel" Content="Kopie entfernen ..." Padding="8,2" Margin="8,0,0,4" Visibility="Collapsed" ToolTip="Löscht die Kopie des Paketbaus (HUPilot\ADK-ICD) aus der Quelle, mit Rückfrage.&#x0a;Ist ein Ziel-Stick gewählt, der auch eine Kopie trägt, wird danach gefragt." ToolTipService.ShowDuration="30000"/>
     </WrapPanel>
     <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Kopieren auf den Stick, der unten beim grünen Knopf ausgewählt ist." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen. Danach Kontrolle der kopierten Dateien." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eCopy" Style="{StaticResource HuLamp}"/><TextBlock Text="5. Auf Stick kopieren"/></StackPanel></Button>
       <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,4"/>
-      <CheckBox x:Name="cIcdStick" Content="Paketbau mit auf den Stick (Test)" VerticalAlignment="Center" Margin="12,0,0,4" Visibility="Collapsed" ToolTip="Stick fertig machen, 5. Auf Stick kopieren und Sticks vorbereiten nehmen die Kopie des Paketbaus (HUPilot\ADK-ICD, rund 80 MB) mit.&#x0a;Damit kann man mit dem Stick an jedem PC WLAN-Pakete bauen. Ohne Häkchen bleibt eine Kopie, die schon am Stick liegt, unverändert.&#x0a;Wird gemerkt." ToolTipService.ShowDuration="30000"/>
+      <CheckBox x:Name="cIcdStick" Content="Paketbau mit auf den Stick" VerticalAlignment="Center" Margin="12,0,0,4" ToolTipService.ShowDuration="60000" ToolTipService.ShowOnDisabled="True" ContextMenuService.ShowOnDisabled="True" ToolTip="Paketbau mit auf den Stick"/>
     </WrapPanel>
     <WrapPanel Grid.Row="7" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Nach dem Einsatz der Sticks: Stand in Autopilot ansehen, offline gespeicherte Hashes hochladen." ToolTipService.ShowDuration="30000"/>
@@ -624,7 +622,7 @@ Add-HuTheme $xaml
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 Register-HuWindow $win
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','bIcdTake','bIcdDel','cIcdStick') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick') { $ui[$n] = $win.FindName($n) }
 
 # Fenster an den Bildschirm anpassen: nie groesser als der Arbeitsbereich (ohne Taskleiste) und ganz sichtbar.
 # Auf kleinen Notebooks (z. B. 1366x768 oder hohe Skalierung) ragte das Fenster sonst unter die Taskleiste.
@@ -927,7 +925,9 @@ $script:Busy = $false; $script:BusyDepth = 0
 function Set-UiBusy([bool]$On) {
     if ($On) { $script:BusyDepth++ } else { $script:BusyDepth = [math]::Max(0, $script:BusyDepth - 1) }
     $script:Busy = ($script:BusyDepth -gt 0)
-    foreach ($n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd', 'bStatus', 'bHash', 'bReload', 'cDrive', 'bLnk', 'bIcdTake', 'bIcdDel', 'cIcdStick') { try { $ui[$n].IsEnabled = -not $script:Busy } catch { } }
+    foreach ($n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd', 'bStatus', 'bHash', 'bReload', 'cDrive', 'bLnk') { try { $ui[$n].IsEnabled = -not $script:Busy } catch { } }
+    # Haekchen Paketbau: grau auch ohne Herkunft (kein ADK, keine Kopie)
+    try { $ui.cIcdStick.IsEnabled = (-not $script:Busy) -and $script:IcdCanUse } catch { }
 }
 function Get-Drive { if ($ui.cDrive.SelectedItem) { return ([string]$ui.cDrive.SelectedItem).Substring(0, 2) } return $null }
 # Gewaehlter Stick nur, wenn er noch da ist. Prueft ueber .NET (nicht ueber PowerShell-Laufwerke): ein abgezogener oder
@@ -1001,6 +1001,7 @@ function Update-Drives([switch]$Auto) {
     } elseif (-not $list.Count) { Out-Log 'Kein Ziel-Stick erkannt. Für "Stick fertig machen" und "5. Auf Stick kopieren" einen Stick anstecken, er wird von selbst erkannt.' 'Hinweis' }
     Update-ReadyLabel
     Update-ReadyHint
+    try { Update-IcdUi } catch { }
 }
 # Hauptknopf zeigt den gewaehlten Stick
 function Update-ReadyLabel {
@@ -1770,7 +1771,7 @@ function ConvertTo-UtcDate($v) {
 }
 # Vertrag mit go.ps1: SecretExpires = UTC als yyyy-MM-ddTHH:mm:ssZ, leer = unbekannt
 function Format-UtcText($d) { if (-not $d) { return '' } return $d.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) + 'Z' }
-# ---------- Paketbau mitnehmen (Test): Kopie von ICD.exe samt Ordner in HUPilot\ADK-ICD ----------
+# ---------- Paketbau mitnehmen (Test): Kopie von ICD.exe samt Ordner in HUPilot\ADK-ICD (Haekchen "Paketbau mit auf den Stick") ----------
 #   Suchreihenfolge: installiertes Windows ADK am PC, sonst die Kopie in der Quelle. Die Kopie wird vor jedem Start geprueft:
 #   Pruefliste HUPilot-ICD.json (Pfad, SHA256, Groesse, eigene Signatur) neben dem Ordner x86, keine zusaetzlichen Dateien,
 #   und jede Datei, die Microsoft selbst signiert hat (eigene Signatur, nicht nur ueber den Katalog des installierten ADK),
@@ -1957,45 +1958,145 @@ function Get-IcdCopyVersion([string]$Dir, [string]$ManPath) {
 function Test-SkipForStick([string]$Name) {
     return ($Name -eq 'logs' -or $Name -eq 'config.json' -or $Name.StartsWith('_') -or $Name -like 'ADK-ICD*')
 }
-# Kopie des Paketbaus auf einen Stick ($Dst = <Stick>\HUPilot). Nur mit Haekchen; ohne Haekchen bleibt eine vorhandene Kopie am Stick.
-function Copy-IcdToStick([string]$Dst, [bool]$With) {
-    $tRoot = Join-Path $Dst 'ADK-ICD'
-    if (-not $With) {
-        if ([System.IO.Directory]::Exists($tRoot)) { Out-Log ('Am Stick liegt eine Kopie des Paketbaus (HUPilot\ADK-ICD). Sie bleibt unverändert. Entfernen: am Stick das Setup starten und "Kopie entfernen" klicken.') 'Hinweis' $tRoot }
-        return
+# ---------- Paketbau mit auf den Stick: Entscheidung, Zustand, Kopieren ----------
+# Reine Entscheidung fuer die Kopie des Paketbaus am Ziel.
+#   $On: Haekchen gesetzt. $PcVer: Version des installierten ADK ('' = keins oder dem Setup unbekannt).
+#   $SrcState/$SrcVer: Kopie in der Quelle, $DstState/$DstVer: Kopie am Ziel. Zustaende: ok, keine, kaputt, verweis.
+#   $Self: das Ziel ist die Quelle selbst (Setup laeuft vom Stick), dann kommen die Dateien nur aus dem ADK.
+#   Action: nichts, bleibt (Haekchen aus, Kopie am Ziel bleibt), grau (keine Herkunft), schon-da, kopieren, aktualisieren,
+#   ersetzen, nicht-ueberschreiben (Ziel neuer), verweis (Ziel ist Junction oder Symlink). Source: ADK, Quelle oder leer.
+function Get-IcdPlan([bool]$On, [string]$PcVer, [string]$SrcState, [string]$SrcVer, [string]$DstState, [string]$DstVer, [bool]$Self = $false) {
+    $src = $(if ($PcVer) { 'ADK' } elseif (-not $Self -and $SrcState -eq 'ok') { 'Quelle' } else { '' })
+    $have = $(if ($src -eq 'ADK') { $PcVer } elseif ($src -eq 'Quelle') { $SrcVer } else { '' })
+    $act = ''
+    if (-not $On) { $act = $(if ($DstState -and $DstState -ne 'keine') { 'bleibt' } else { 'nichts' }) }
+    elseif ($DstState -eq 'verweis') { $act = 'verweis' }
+    elseif ($DstState -eq 'ok') {
+        if (-not $have) { $act = 'schon-da' }
+        else { $c = Compare-IcdVersion $DstVer $have; $act = $(if ($c -eq 0) { 'schon-da' } elseif ($c -lt 0) { 'aktualisieren' } else { 'nicht-ueberschreiben' }) }
     }
-    if (-not [System.IO.Directory]::Exists($icdCopyDir)) { return }
-    if ([System.IO.Path]::GetFullPath($tRoot).TrimEnd('\') -ieq [System.IO.Path]::GetFullPath($icdCopyRoot).TrimEnd('\')) { return }
-    if ((Test-IsLink $tRoot) -or (Test-IsLink $icdCopyRoot)) { Out-Log 'HUPilot\ADK-ICD ist ein Verweis auf einen anderen Ordner. Die Kopie des Paketbaus wird nicht kopiert und nicht gelöscht.' 'Fehler' $tRoot; return }
+    elseif (-not $src) { $act = 'grau' }
+    elseif ($DstState -eq 'kaputt') { $act = 'ersetzen' }
+    else { $act = 'kopieren' }
+    return [pscustomobject]@{ Action = $act; Source = $src; Have = $have }
+}
+# Version des installierten ADK, nur wenn das Setup sie kennt (sonst wuerde die Kopie vor dem Start abgelehnt)
+function Get-IcdPcVersion {
+    if (-not [System.IO.File]::Exists($icdInst)) { return '' }
+    $v = Get-IcdVersion $icdInst
+    if ($script:IcdKnown.ContainsKey($v)) { return $v }
+    return ''
+}
+# Zustand einer Kopie unter $Root (= ...\HUPilot\ADK-ICD). -Full: mit Pruefsummen und Signaturen (nur dann zaehlt "ok"
+# als gueltig). Rueckgabe: State (ok, keine, kaputt, verweis), Version, Issues
+function Get-IcdState([string]$Root, [switch]$Full) {
+    $x86 = Join-Path $Root 'x86'; $man = Join-Path $Root 'HUPilot-ICD.json'
+    $v = Get-IcdCopyVersion $x86 $man
+    if (-not $v) { return [pscustomobject]@{ State = 'keine'; Version = ''; Issues = @() } }
+    if ($v -eq 'Verweis') { return [pscustomobject]@{ State = 'verweis'; Version = ''; Issues = @('Verweis') } }
+    if ($v -eq 'unvollständig') { return [pscustomobject]@{ State = 'kaputt'; Version = ''; Issues = @('ohne Prüfliste') } }
+    if ($Full) {
+        $bad = @(Test-IcdCopy $x86 $man -Tick { param($n, $all) if ($n % 30 -eq 0) { Step-Ui } })
+        if ($bad.Count) { return [pscustomobject]@{ State = 'kaputt'; Version = $v; Issues = $bad } }
+    }
+    return [pscustomobject]@{ State = 'ok'; Version = $v; Issues = @() }
+}
+# Groesse des Paketbaus in MB (ADK-Ordner, sonst Pruefliste der Kopie in der Quelle), fuer Haekchen und Platzpruefung
+function Get-IcdSizeMB {
+    try { if ([System.IO.File]::Exists($icdInst)) { return [math]::Round(((@(Get-ChildItem -LiteralPath (Split-Path $icdInst -Parent) -Recurse -File -Force) | Measure-Object Length -Sum).Sum) / 1MB) } } catch { }
+    try { $m = Get-Content -LiteralPath $icdCopyMan -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json; return [math]::Round(((@($m.Files) | Measure-Object Size -Sum).Sum) / 1MB) } catch { }
+    return 0
+}
+# Kopie von $FromX86 nach $TargetHU\ADK-ICD ueber den Zwischenordner ADK-ICD.neu: kopieren, jede Datei per SHA256 gegen
+# das Original, Pruefliste als LETZTE Datei, Pruefung wie vor einem Start, erst dann die alte Kopie ersetzen.
+# $Where: Ort fuer die Meldungen. $AskLowSpace: bei wenig freiem Platz nachfragen. Rueckgabe: $true = Kopie gueltig
+function Copy-IcdTree([string]$FromX86, [string]$TargetHU, [string]$Ver, [string]$Where, [bool]$AskLowSpace = $false) {
+    $tRoot = Join-Path $TargetHU 'ADK-ICD'; $stage = Join-Path $TargetHU 'ADK-ICD.neu'; $oldDir = Join-Path $TargetHU 'ADK-ICD.alt'
+    if ((Test-IsLink $tRoot) -or (Test-IsLink $FromX86) -or (Test-IsLink (Split-Path $FromX86 -Parent))) { Out-Log ('HUPilot\ADK-ICD ' + $Where + ' oder die Herkunft ist ein Verweis auf einen anderen Ordner. Es wird nichts kopiert und nichts gelöscht.') 'Fehler' $tRoot; return $false }
+    $files = @(); try { $files = @(Get-ChildItem -LiteralPath $FromX86 -Recurse -File -Force -ErrorAction Stop | Where-Object { $_.Name -ne 'HUPilot-ICD.json' }) } catch { Out-Log 'Der Paketbau ist nicht lesbar.' 'Fehler' $_.Exception.Message; return $false }
+    $size = [int64](($files | Measure-Object Length -Sum).Sum); $mb = [math]::Ceiling($size / 1MB)
+    $old = 0; try { if ([System.IO.Directory]::Exists($tRoot)) { $old = [int64]((@(Get-ChildItem -LiteralPath $tRoot -Recurse -File -Force) | Measure-Object Length -Sum).Sum) } } catch { }
+    $free = [int64]::MaxValue
+    try { $free = (New-Object System.IO.DriveInfo([System.IO.Path]::GetPathRoot($TargetHU))).AvailableFreeSpace } catch { Out-Log 'Freier Platz am Ziel ist nicht prüfbar (Netzwerkpfad), es wird ohne Prüfung kopiert.' 'Hinweis' $TargetHU }
+    if ($free -lt $size + 20MB) { Out-Log ('Zu wenig Platz ' + $Where + ' für den Paketbau: nötig ' + ($mb + 20) + ' MB, frei ' + [math]::Floor($free / 1MB) + ' MB.') 'Fehler'; return $false }
+    if ($AskLowSpace -and $free - $size -lt 200MB) {
+        if ([System.Windows.MessageBox]::Show($win, ('Nach dem Kopieren des Paketbaus (' + $mb + ' MB) bleiben ' + $Where + ' nur noch ' + [math]::Floor(($free - $size) / 1MB) + ' MB frei.' + "`r`n`r`n" + 'Trotzdem kopieren?'), 'HUPilot - Paketbau', 'YesNo', 'Warning') -ne 'Yes') { Out-Log 'Paketbau nicht kopiert (wenig Platz)'; return $false }
+    }
+    $okCopy = $false
     try {
-        $tMan = Join-Path $tRoot 'HUPilot-ICD.json'
-        if ([System.IO.File]::Exists($tMan) -and (Get-FileSha $tMan) -eq (Get-FileSha $icdCopyMan) -and -not @(Test-IcdCopy (Join-Path $tRoot 'x86') $tMan -NoSig).Count) {
-            Out-Log 'Kopie des Paketbaus ist am Stick schon aktuell' 'OK' $tRoot; return
-        }
-        $srcBad = @(Test-IcdCopy $icdCopyDir $icdCopyMan -NoSig)
-        if ($srcBad.Count) { Out-Log 'Die Kopie des Paketbaus in der Quelle ist nicht in Ordnung und wurde nicht auf den Stick kopiert. An einem PC mit Windows ADK "Paketbau mitnehmen" klicken.' 'Fehler' (@($srcBad | Select-Object -First 8) -join '; '); return }
-        $need = (@(Get-ChildItem -LiteralPath $icdCopyRoot -Recurse -File -Force) | Measure-Object Length -Sum).Sum
-        $old = 0; if ([System.IO.Directory]::Exists($tRoot)) { $old = (@(Get-ChildItem -LiteralPath $tRoot -Recurse -File -Force) | Measure-Object Length -Sum).Sum }
-        $free = (New-Object System.IO.DriveInfo([System.IO.Path]::GetPathRoot($Dst))).AvailableFreeSpace
-        if ($free + $old -lt $need + 10MB) { Out-Log ('Zu wenig Platz am Stick für die Kopie des Paketbaus (nötig ' + [math]::Ceiling($need / 1MB) + ' MB, frei ' + [math]::Floor($free / 1MB) + ' MB). Der Stick ist sonst fertig.') 'Fehler'; return }
-        Out-Log ('Kopiere den Paketbau auf den Stick (' + [math]::Ceiling($need / 1MB) + ' MB) ...'); Step-Ui
-        if ([System.IO.Directory]::Exists($tRoot)) { Remove-Item -LiteralPath $tRoot -Recurse -Force -ErrorAction Stop }
-        # Pruefliste als LETZTE Datei: eine abgebrochene Kopie gilt nicht als vorhanden
-        $files = @(@(Get-ChildItem -LiteralPath $icdCopyRoot -Recurse -File -Force) | Sort-Object { $_.Name -eq 'HUPilot-ICD.json' })
-        $rootFull = [System.IO.Path]::GetFullPath($icdCopyRoot).TrimEnd('\') + '\'
-        $i = 0
+        foreach ($d in @($stage, $oldDir)) { if ([System.IO.Directory]::Exists($d)) { if (Test-IsLink $d) { throw ($d + ' ist ein Verweis') }; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop } }
+        $sx86 = Join-Path $stage 'x86'
+        [void][System.IO.Directory]::CreateDirectory($sx86)
+        $rootFull = [System.IO.Path]::GetFullPath($FromX86).TrimEnd('\') + '\'
+        Out-Log ('Kopiere den Paketbau ' + $Where + ' (' + $files.Count + ' Dateien, ' + $mb + ' MB) ...') '' $FromX86
+        $i = 0; $done = 0.0
         foreach ($fi in $files) {
-            $to = Join-Path $tRoot $fi.FullName.Substring($rootFull.Length)
+            $to = Join-Path $sx86 $fi.FullName.Substring($rootFull.Length)
             $td = Split-Path $to -Parent
             if (-not [System.IO.Directory]::Exists($td)) { [void][System.IO.Directory]::CreateDirectory($td) }
             [System.IO.File]::Copy($fi.FullName, $to, $true)
-            $i++; if ($i % 15 -eq 0) { Step-Ui }
+            $i++; $done += $fi.Length
+            if ($i % 10 -eq 0 -or $i -eq $files.Count) { Set-ReadyText ('Kopiere Paketbau ' + [math]::Floor(100 * $done / [math]::Max(1, $size)) + ' % ...'); Step-Ui }
         }
-        try { Write-VolumeCache -DriveLetter $Dst.Substring(0, 1) -ErrorAction Stop } catch { }
-        $chk = @(Test-IcdCopy (Join-Path $tRoot 'x86') $tMan -NoSig)
-        if ($chk.Count) { Out-Log 'Kopie des Paketbaus am Stick: Kontrolle nicht bestanden. Stick neu anstecken und nochmal kopieren.' 'Fehler' (@($chk | Select-Object -First 8) -join '; '); return }
-        Out-Log ('Kopie des Paketbaus am Stick, kontrolliert (' + $files.Count + ' Dateien, SHA256)') 'OK' $tRoot
-    } catch { Out-Log 'Kopie des Paketbaus konnte nicht auf den Stick kopiert werden. Der Stick ist sonst fertig.' 'Fehler' $_.Exception.Message }
+        try { $dl = [System.IO.Path]::GetPathRoot($TargetHU).Substring(0, 1); if ($dl -match '[A-Za-z]') { Write-VolumeCache -DriveLetter $dl -ErrorAction Stop } } catch { }
+        $diff = @(); $i = 0
+        foreach ($fi in $files) {
+            $rel = $fi.FullName.Substring($rootFull.Length)
+            if ((Get-FileSha $fi.FullName) -ne (Get-FileSha (Join-Path $sx86 $rel))) { $diff += $rel }
+            $i++; if ($i % 10 -eq 0 -or $i -eq $files.Count) { Set-ReadyText ('Kontrolliere Paketbau ' + [math]::Floor(100 * $i / [math]::Max(1, $files.Count)) + ' % ...'); Step-Ui }
+        }
+        if ($diff.Count) { throw ('Kontrolle nicht bestanden, abweichend: ' + (@($diff | Select-Object -First 8) -join ', ')) }
+        $man = New-IcdManifest $sx86 $Ver $null { param($n, $all) if ($n % 20 -eq 0) { Step-Ui } }
+        $man | Add-Member -NotePropertyName From -NotePropertyValue $FromX86
+        # Pruefliste als LETZTE Datei: eine abgebrochene Kopie gilt nie als vorhanden
+        [System.IO.File]::WriteAllText((Join-Path $stage 'HUPilot-ICD.json'), ($man | ConvertTo-Json -Depth 4), $enc)
+        $chk = @(Test-IcdCopy $sx86 (Join-Path $stage 'HUPilot-ICD.json') -Tick { param($n, $all) if ($n % 10 -eq 0) { Set-ReadyText ('Prüfe Paketbau ' + [math]::Floor(100 * $n / [math]::Max(1, $all)) + ' % ...'); Step-Ui } })
+        if ($chk.Count) { throw ('Prüfung der Kopie nicht bestanden: ' + (@($chk | Select-Object -First 8) -join '; ')) }
+        if ([System.IO.Directory]::Exists($tRoot)) { [System.IO.Directory]::Move($tRoot, $oldDir) }
+        [System.IO.Directory]::Move($stage, $tRoot)
+        if ([System.IO.Directory]::Exists($oldDir)) { Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue }
+        $okCopy = $true
+    } catch {
+        Out-Log ('Paketbau konnte nicht ' + $Where + ' kopiert werden. Eine bisherige Kopie bleibt unverändert.') 'Fehler' $_.Exception.Message
+        if ([System.IO.Directory]::Exists($oldDir) -and -not [System.IO.Directory]::Exists($tRoot)) { try { [System.IO.Directory]::Move($oldDir, $tRoot) } catch { } }
+    } finally {
+        if ([System.IO.Directory]::Exists($stage) -and -not (Test-IsLink $stage)) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    return $okCopy
+}
+# Abgleich der Kopie am Ziel ($TargetHU = <Stick>\HUPilot) nach Get-IcdPlan: nur das Noetige tun, je Fall eine Protokollzeile.
+# Rueckgabe: die Entscheidung (Action)
+function Sync-IcdToTarget([string]$TargetHU, [bool]$On, [string]$Where, [bool]$Self = $false) {
+    $tRoot = Join-Path $TargetHU 'ADK-ICD'
+    $pc = Get-IcdPcVersion
+    # Zustand am Ziel: mit Pruefung nur, wenn das Haekchen gesetzt ist (eine vorhandene Kopie zaehlt nur nach bestandener Pruefung)
+    if ($On) { Set-ReadyText 'Prüfe Paketbau am Ziel ...'; Step-Ui }
+    $dst = Get-IcdState $tRoot -Full:$On
+    $srcSt = [pscustomobject]@{ State = 'keine'; Version = '' }
+    if ($On -and -not $Self -and -not $pc -and [System.IO.Path]::GetFullPath($tRoot).TrimEnd('\') -ine [System.IO.Path]::GetFullPath($icdCopyRoot).TrimEnd('\')) { $srcSt = Get-IcdState $icdCopyRoot -Full }
+    $p = Get-IcdPlan $On $pc $srcSt.State $srcSt.Version $dst.State $dst.Version $Self
+    switch ($p.Action) {
+        'nichts' { }
+        'bleibt' { Out-Log ('Paketbau: ' + $Where + ' liegt eine Kopie, sie bleibt unverändert (Häkchen aus).') '' $tRoot }
+        'grau' { Out-Log 'Paketbau nicht mitgenommen: kein Windows ADK an diesem PC und keine gültige Kopie in der Quelle.' 'Hinweis' }
+        'verweis' { Out-Log ('Paketbau: HUPilot\ADK-ICD ' + $Where + ' ist ein Verweis auf einen anderen Ordner. Er wird nicht verwendet und nicht überschrieben.') 'Fehler' $tRoot }
+        'schon-da' { Out-Log ('Paketbau ist schon ' + $Where + ' (Version ' + $dst.Version + '), geprüft') 'OK' $tRoot }
+        'nicht-ueberschreiben' { Out-Log ('Paketbau ' + $Where + ' hat eine neuere Version (' + $dst.Version + ') als hier (' + $p.Have + '). Sie bleibt.') 'Hinweis' $tRoot }
+        default {
+            $from = $(if ($p.Source -eq 'ADK') { Split-Path $icdInst -Parent } else { $icdCopyDir })
+            if ($p.Action -eq 'ersetzen') { Out-Log ('Paketbau ' + $Where + ' ist beschädigt oder unvollständig und wird ersetzt.') 'Hinweis' (@($dst.Issues | Select-Object -First 6) -join '; ') }
+            if (Copy-IcdTree $from $TargetHU $p.Have $Where $Self) {
+                if ($p.Action -eq 'aktualisieren') { Out-Log ('Paketbau ' + $Where + ' aktualisiert von Version ' + $dst.Version + ' auf ' + $p.Have + ', geprüft') 'OK' $tRoot }
+                else { Out-Log ('Paketbau ' + $Where + ' kopiert (Version ' + $p.Have + '), geprüft') 'OK' $tRoot }
+            }
+        }
+    }
+    return $p.Action
+}
+# Kopie des Paketbaus auf einen Stick ($Dst = <Stick>\HUPilot), Teil von "5. Auf Stick kopieren" (Fehler machen den Stick nicht unbrauchbar)
+function Copy-IcdToStick([string]$Dst, [bool]$With) {
+    try { [void](Sync-IcdToTarget $Dst $With ('am Stick ' + [System.IO.Path]::GetPathRoot($Dst).TrimEnd('\')) $false) }
+    catch { Out-Log 'Paketbau konnte nicht auf den Stick kopiert werden. Der Stick ist sonst fertig.' 'Fehler' $_.Exception.Message }
 }
 # Warnstufe fuer das Secret beim Kopieren: expired / soon (< 3 Tage) / ok / unknown
 function Get-SecretWarnLevel($EndUtc, $NowUtc) {
@@ -2242,7 +2343,7 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         }
         Out-Log ('Auf Stick ' + $dr + ' kopiert') '' ($srcStick + ' nach ' + $dr + '\, ohne logs, Ordner mit _ und ohne die Kopie des Paketbaus')
         # Kopie des Paketbaus nur mit Haekchen (Fehler dabei machen den Stick nicht unbrauchbar, sie stehen rot im Protokoll)
-        Copy-IcdToStick $dst ([bool]$ui.cIcdStick.IsChecked -and $ui.cIcdStick.Visibility -eq 'Visible')
+        Copy-IcdToStick $dst ([bool]$ui.cIcdStick.IsChecked -and $script:IcdCanUse)
         $rootPkg = @(Get-ChildItem -Path ($dr + '\') -Filter *.ppkg -File -ErrorAction SilentlyContinue)
         if ($rootPkg.Count) { Out-Log ('Auf Stick ' + $dr + ' liegt ein Paket direkt im Hauptordner (' + (($rootPkg | ForEach-Object { $_.Name }) -join ', ') + '). Bitte löschen, Windows würde es sonst im Einrichtungsbildschirm anwenden.') 'Hinweis' }
         # Schreibcache leeren, dann kontrollieren
@@ -2343,7 +2444,7 @@ function Build-Package([switch]$NoSave) {
 function Build-PackageCore([switch]$NoSave) {
     if (-not $NoSave) { if (-not (Save-Cfg)) { Set-Step 'Pkg' 'err' 'nicht gespeichert'; return $false } }
     if (-not (Test-Fields @('WlanSsid', 'WlanKey') -Admin)) { Set-Step 'Pkg' 'err' $script:FieldErr; return $false }
-    if (-not (Test-IcdHere)) { Out-Log 'WLAN-Paket kann hier nicht gebaut werden: ICD.exe fehlt. Windows ADK mit "Imaging and Configuration Designer" installieren (die Store-App reicht nicht), an einem PC mit ADK "Paketbau mitnehmen" klicken (Test), oder ohne ADK Tools\New-WcdProjekt.ps1 laut INSTALL.md nehmen.' 'Fehler' $icdInst; Set-Step 'Pkg' 'err' 'ICD.exe fehlt'; return $false }
+    if (-not (Test-IcdHere)) { Out-Log 'WLAN-Paket kann hier nicht gebaut werden: ICD.exe fehlt. Windows ADK mit "Imaging and Configuration Designer" installieren (die Store-App reicht nicht), den Stick an einem PC mit ADK mit dem Häkchen "Paketbau mit auf den Stick" bespielen (Test), oder ohne ADK Tools\New-WcdProjekt.ps1 laut INSTALL.md nehmen.' 'Fehler' $icdInst; Set-Step 'Pkg' 'err' 'ICD.exe fehlt'; return $false }
     $icd = $script:Icd.Path
     $fromCopy = ($script:Icd.Source -eq 'Kopie')
     Set-Step 'Pkg' 'run'; Step-Ui
@@ -2354,7 +2455,7 @@ function Build-PackageCore([switch]$NoSave) {
         Out-Log 'Prüfe die Kopie des Paketbaus (Signaturen und Prüfsummen) ...'; Step-Ui
         $icdBad = @(Test-IcdCopy $icdCopyDir $icdCopyMan -Tick { param($n, $all) if ($n % 50 -eq 0) { Step-Ui } })
         if ($icdBad.Count) {
-            Out-Log 'Die Kopie des Paketbaus ist nicht in Ordnung und wird nicht gestartet. An einem PC mit Windows ADK "Paketbau mitnehmen" klicken, dann nochmal bauen.' 'Fehler' ((@($icdBad | Select-Object -First 12) -join '; ') + $(if ($icdBad.Count -gt 12) { '; und ' + ($icdBad.Count - 12) + ' weitere' } else { '' }))
+            Out-Log 'Die Kopie des Paketbaus ist nicht in Ordnung und wird nicht gestartet. Den Stick an einem PC mit Windows ADK mit dem Häkchen "Paketbau mit auf den Stick" neu bespielen, dann nochmal bauen.' 'Fehler' ((@($icdBad | Select-Object -First 12) -join '; ') + $(if ($icdBad.Count -gt 12) { '; und ' + ($icdBad.Count - 12) + ' weitere' } else { '' }))
             Set-Step 'Pkg' 'err' 'Kopie des Paketbaus ungültig'; return $false
         }
         Out-Log ((Get-IcdText $script:Icd) + ': Signaturen und Prüfsummen in Ordnung') 'OK' $icd
@@ -2438,131 +2539,121 @@ function Build-PackageCore([switch]$NoSave) {
     return $okBuild
 }
 $ui.bPkg.Add_Click({ if (-not $script:Busy) { [void](Build-Package) } })
-# ---------- Paketbau mitnehmen, aktualisieren, entfernen (Test) ----------
-# Knoepfe und Haekchen nach Stand: "mitnehmen" nur mit installiertem ADK, "Kopie entfernen" und Haekchen nur mit Kopie.
-# -Report: einmal beim Start ins Protokoll, wenn am PC eine neuere Version installiert ist als in der Kopie.
+# ---------- Haekchen "Paketbau mit auf den Stick" (Test) ----------
+# Am PC: gemerkt in ui.json, Standard aus; "Stick fertig machen", "5. Auf Stick kopieren" und "Sticks vorbereiten" gleichen
+# den Ziel-Stick selbst ab (Sync-IcdToTarget). Laeuft das Setup vom Stick, zeigt das Haekchen den Zustand DIESES Sticks:
+# setzen holt die Kopie sofort, entfernen fragt nach. Rechtsklick: Zustand, Kopie aktualisieren, Kopie entfernen.
+$script:IcdSelf = [bool]$srcDrive
+$script:IcdCanUse = $false
+$script:IcdMB = 0
+$script:IcdUiSet = $false
+function Get-IcdStateText($St) {
+    switch ($St.State) { 'ok' { 'Version ' + $St.Version } 'keine' { 'keine' } 'verweis' { 'Verweis, wird nicht verwendet' } default { 'unvollständig oder beschädigt' } }
+}
+# Text kuerzen, wenn die Zeile "Stick" sonst umbricht (Groesse dann nur im Tooltip)
+function Update-IcdLabelFit {
+    try {
+        $long = 'Paketbau mit auf den Stick' + $(if ($script:IcdMB) { ' (' + $script:IcdMB + ' MB)' } else { '' })
+        $ui.cIcdStick.Content = $long
+        $ui.cIcdStick.UpdateLayout(); $ui.bCopy.UpdateLayout()
+        $y = $ui.cIcdStick.TranslatePoint((New-Object System.Windows.Point(0, 0)), $ui.bCopy).Y
+        if ([math]::Abs($y) -gt 8) { $ui.cIcdStick.Content = 'Paketbau mitnehmen' }
+    } catch { }
+}
 function Update-IcdUi([switch]$Report) {
     $hasInst = [System.IO.File]::Exists($icdInst)
-    $instV = $(if ($hasInst) { Get-IcdVersion $icdInst } else { '' })
-    $cpV = Get-IcdCopyVersion $icdCopyDir $icdCopyMan
-    $usable = ($cpV -and $cpV -notin 'unvollständig', 'Verweis')
-    $newer = ($hasInst -and $cpV -and $cpV -ne 'Verweis' -and (-not $usable -or (Compare-IcdVersion $instV $cpV) -gt 0))
-    $ui.bIcdTake.Visibility = $(if ($hasInst) { 'Visible' } else { 'Collapsed' })
-    $ui.bIcdTake.Content = $(if ($newer) { 'Kopie aktualisieren ...' } else { 'Paketbau mitnehmen ...' })
-    $ui.bIcdDel.Visibility = $(if ($cpV) { 'Visible' } else { 'Collapsed' })
-    $ui.cIcdStick.Visibility = $(if ($usable) { 'Visible' } else { 'Collapsed' })
-    $ui.bIcdDel.ToolTip = 'Löscht die Kopie des Paketbaus (HUPilot\ADK-ICD, Version ' + $cpV + ') aus der Quelle, mit Rückfrage.' + "`n" + 'Ist ein Ziel-Stick gewählt, der auch eine Kopie trägt, wird danach gefragt.'
-    if ($Report -and $newer) { Out-Log ('Am PC ist ICD.exe ' + $instV + ' installiert, die Kopie des Paketbaus in der Quelle hat ' + $cpV + '. "Kopie aktualisieren" klicken.') 'Hinweis' $icdCopyRoot }
-    elseif ($Report -and $cpV -eq 'Verweis') { Out-Log 'HUPilot\ADK-ICD ist ein Verweis auf einen anderen Ordner und wird nicht verwendet.' 'Fehler' $icdCopyRoot }
-    elseif ($Report -and $cpV -eq 'unvollständig') { Out-Log 'In der Quelle liegt eine unvollständige Kopie des Paketbaus (ohne Prüfliste). Sie wird nicht verwendet. "Kopie entfernen" oder neu mitnehmen.' 'Hinweis' $icdCopyRoot }
-    elseif ($Report -and $cpV) { Out-Log ('Kopie des Paketbaus in der Quelle: Version ' + $cpV + ' (Test)') '' $icdCopyRoot }
-}
-function Invoke-IcdTake {
-    $nl = "`r`n"
-    if (-not [System.IO.File]::Exists($icdInst)) { Out-Log 'Auf diesem PC ist kein Windows ADK mit "Imaging and Configuration Designer" installiert, es gibt nichts mitzunehmen.' 'Fehler' $icdInst; return }
-    $from = Split-Path $icdInst -Parent
-    $ver = Get-IcdVersion $icdInst
-    $cpV = Get-IcdCopyVersion $icdCopyDir $icdCopyMan
-    if ($cpV -eq 'Verweis') { Out-Log 'HUPilot\ADK-ICD ist ein Verweis auf einen anderen Ordner (Junction oder Symlink). Er wird nicht verwendet und nicht überschrieben. Den Verweis von Hand entfernen.' 'Fehler' $icdCopyRoot; return }
-    if (-not $script:IcdKnown.ContainsKey($ver)) { Out-Log ('Die ICD-Version ' + $ver + ' kennt dieses Setup noch nicht. Eine Kopie würde vor dem Start abgelehnt, weil die unsignierten Dateien dieser Version nicht hinterlegt sind.') 'Fehler' $icdInst; return }
-    $files = @(); $size = 0
-    try { $files = @(Get-ChildItem -LiteralPath $from -Recurse -File -Force -ErrorAction Stop) } catch { Out-Log 'Der Ordner des Windows ADK ist nicht lesbar.' 'Fehler' $_.Exception.Message; return }
-    $size = ($files | Measure-Object Length -Sum).Sum
-    $mb = [math]::Ceiling($size / 1MB)
-    $where = $(if ($srcDrive) { 'auf diesen Stick (' + $srcDrive + ')' } else { 'in den Ordner ' + $srcHU })
-    if (-not $cpV) {
-        $txt = 'TEST: Den Paketbau (ICD.exe ' + $ver + ' aus dem Windows ADK, ' + $files.Count + ' Dateien, ' + $mb + ' MB) ' + $where + ' kopieren?' + $nl + $nl + 'Danach kann das Setup auch an einem PC ohne ADK WLAN-Pakete bauen (geprüft mit ICD 10.0.28000.1 unter Windows 11).' + $nl + $nl + 'Das ADK gehört Microsoft und wird nicht mit HUPilot ausgeliefert. Die Kopie ist nur für den eigenen Gebrauch.'
-    } elseif ((Compare-IcdVersion $ver $cpV) -gt 0 -or $cpV -eq 'unvollständig') {
-        $txt = 'Am PC ist ICD.exe ' + $ver + ' installiert, die Kopie in der Quelle hat ' + $cpV + '.' + $nl + $nl + 'Kopie jetzt aktualisieren (' + $mb + ' MB)?'
-    } else {
-        $txt = 'Die Kopie in der Quelle hat schon Version ' + $cpV + '.' + $nl + $nl + 'Trotzdem neu kopieren (' + $mb + ' MB)?'
-    }
-    if ([System.Windows.MessageBox]::Show($win, $txt, 'HUPilot - Paketbau mitnehmen', 'YesNo', 'Question') -ne 'Yes') { Out-Log 'Paketbau mitnehmen abgebrochen'; return }
-    # Freier Platz: bei einer Quelle auf einem UNC-Pfad nicht pruefbar, dann ohne Pruefung weiter (das Kopieren meldet Platzmangel selbst)
-    $free = [int64]::MaxValue
-    try { $free = (New-Object System.IO.DriveInfo([System.IO.Path]::GetPathRoot($srcHU))).AvailableFreeSpace } catch { Out-Log 'Freier Platz am Ziel ist nicht prüfbar (Netzwerkpfad), es wird ohne Prüfung kopiert.' 'Hinweis' $srcHU }
-    if ($free -lt $size + 20MB) { Out-Log ('Zu wenig Platz für die Kopie des Paketbaus: nötig ' + ($mb + 20) + ' MB, frei ' + [math]::Floor($free / 1MB) + ' MB. Platz schaffen oder einen größeren Stick nehmen.') 'Fehler'; return }
-    $stage = Join-Path $srcHU 'ADK-ICD.neu'
-    $oldDir = Join-Path $srcHU 'ADK-ICD.alt'
-    Set-UiBusy $true
-    $okTake = $false
+    $instRaw = $(if ($hasInst) { Get-IcdVersion $icdInst } else { '' })
+    $pc = Get-IcdPcVersion
+    $src = Get-IcdState $icdCopyRoot
+    $dr = Get-Drive
+    $dst = $(if ($dr -and -not $script:IcdSelf) { Get-IcdState (Join-Path ($dr + '\') 'HUPilot\ADK-ICD') } else { $null })
+    $script:IcdCanUse = [bool]($pc -or $src.State -eq 'ok')
+    if (-not $script:IcdMB -or $Report) { $script:IcdMB = Get-IcdSizeMB }
+    $script:IcdUiSet = $true
     try {
-        Set-Step 'Pkg' 'run' 'Paketbau wird kopiert'
-        foreach ($d in @($stage, $oldDir)) { if ([System.IO.Directory]::Exists($d)) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop } }
-        $sx86 = Join-Path $stage 'x86'
-        [void][System.IO.Directory]::CreateDirectory($sx86)
-        $rootFull = [System.IO.Path]::GetFullPath($from).TrimEnd('\') + '\'
-        Out-Log ('Kopiere den Paketbau (' + $files.Count + ' Dateien, ' + $mb + ' MB) ' + $where + ' ...') '' $from
-        $i = 0; $done = 0.0
-        foreach ($fi in $files) {
-            $rel = $fi.FullName.Substring($rootFull.Length)
-            $to = Join-Path $sx86 $rel
-            $td = Split-Path $to -Parent
-            if (-not [System.IO.Directory]::Exists($td)) { [void][System.IO.Directory]::CreateDirectory($td) }
-            [System.IO.File]::Copy($fi.FullName, $to, $true)
-            $i++; $done += $fi.Length
-            if ($i % 10 -eq 0 -or $i -eq $files.Count) { $ui.tPkg.Text = ('Paketbau: ' + [math]::Floor(100 * $done / [math]::Max(1, $size)) + ' % kopiert'); Step-Ui }
+        if ($script:IcdSelf) { $ui.cIcdStick.IsChecked = ($src.State -eq 'ok') }
+        else { $ui.cIcdStick.IsChecked = ([string](Get-UiSetting 'IcdToStick' $false) -eq 'True') }
+    } finally { $script:IcdUiSet = $false }
+    $ui.cIcdStick.IsEnabled = ($script:IcdCanUse -and -not $script:Busy)
+    $ui.cIcdStick.Visibility = 'Visible'
+    Update-IcdLabelFit
+    $nl = "`n"
+    $tip = 'Nimmt den Paketbau (ICD.exe aus dem Windows ADK' + $(if ($script:IcdMB) { ', rund ' + $script:IcdMB + ' MB' } else { '' }) + ') mit auf den Stick, damit man mit dem Stick auch an einem PC ohne ADK WLAN-Pakete bauen kann.' + $nl +
+        $(if ($script:IcdSelf) { 'Das Setup läuft von diesem Stick: Häkchen setzen holt die Kopie auf diesen Stick, Häkchen entfernen fragt, ob sie gelöscht werden soll.' } else { 'Stick fertig machen, 5. Auf Stick kopieren und Sticks vorbereiten prüfen den Ziel-Stick und kopieren nur, was fehlt oder veraltet ist.' }) + $nl + $nl +
+        'Am PC: ' + $(if ($pc) { 'Windows ADK, Version ' + $pc } elseif ($instRaw) { 'Windows ADK ' + $instRaw + ' (dem Setup nicht bekannt, wird nicht verwendet)' } else { 'kein Windows ADK' }) + $nl +
+        $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) +
+        $(if ($dst) { $nl + 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText $dst) + ' (ungeprüft, geprüft wird beim Kopieren)' } else { '' }) + $nl + $nl +
+        $(if (-not $script:IcdCanUse) { 'Kein Windows ADK an diesem PC und keine Kopie vorhanden.' + $nl } else { '' }) +
+        'Rechtsklick: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Test: geprüft mit ICD 10.0.28000.1 unter Windows 11.'
+    $ui.cIcdStick.ToolTip = $tip
+    if ($Report) {
+        if ($instRaw -and -not $pc) { Out-Log ('Am PC ist ICD.exe ' + $instRaw + ' installiert. Diese Version kennt das Setup noch nicht, der Paketbau wird daraus nicht mitgenommen.') 'Hinweis' $icdInst }
+        if ($src.State -eq 'verweis') { Out-Log 'HUPilot\ADK-ICD ist ein Verweis auf einen anderen Ordner und wird nicht verwendet.' 'Fehler' $icdCopyRoot }
+        elseif ($src.State -eq 'kaputt') { Out-Log 'In der Quelle liegt eine unvollständige Kopie des Paketbaus (ohne Prüfliste). Sie wird nicht verwendet. Rechtsklick auf das Häkchen: Kopie entfernen oder aktualisieren.' 'Hinweis' $icdCopyRoot }
+        elseif ($src.State -eq 'ok') {
+            Out-Log ('Kopie des Paketbaus in der Quelle: Version ' + $src.Version + ' (Test)') '' $icdCopyRoot
+            if ($pc -and (Compare-IcdVersion $pc $src.Version) -gt 0) { Out-Log ('Am PC ist ICD.exe ' + $pc + ' installiert, die Kopie hat ' + $src.Version + '. Rechtsklick auf das Häkchen: Kopie aktualisieren.') 'Hinweis' $icdCopyRoot }
         }
-        if ($srcDrive) { try { Write-VolumeCache -DriveLetter $srcDrive.Substring(0, 1) -ErrorAction Stop } catch { } }
-        # Kontrolle: jede Datei per SHA256 gegen das Original, dann Pruefliste schreiben und die Kopie wie vor einem Start pruefen
-        $ui.tPkg.Text = 'Paketbau: wird kontrolliert ...'; Step-Ui
-        $diff = @()
-        $i = 0
-        foreach ($fi in $files) {
-            $rel = $fi.FullName.Substring($rootFull.Length)
-            if ((Get-FileSha $fi.FullName) -ne (Get-FileSha (Join-Path $sx86 $rel))) { $diff += $rel }
-            $i++; if ($i % 10 -eq 0 -or $i -eq $files.Count) { $ui.tPkg.Text = ('Paketbau: kontrolliert ' + [math]::Floor(100 * $i / [math]::Max(1, $files.Count)) + ' %'); Step-Ui }
-        }
-        if ($diff.Count) { throw ('Kontrolle nicht bestanden, abweichend: ' + (@($diff | Select-Object -First 8) -join ', ')) }
-        $man = New-IcdManifest $sx86 $ver $null { param($n, $all) $ui.tPkg.Text = ('Paketbau: Prüfliste ' + [math]::Floor(100 * $n / [math]::Max(1, $all)) + ' %'); Step-Ui }
-        $man | Add-Member -NotePropertyName From -NotePropertyValue $from
-        # Pruefliste als LETZTE Datei (die alte Kopie wird erst danach ersetzt)
-        [System.IO.File]::WriteAllText((Join-Path $stage 'HUPilot-ICD.json'), ($man | ConvertTo-Json -Depth 4), $enc)
-        $chk = @(Test-IcdCopy $sx86 (Join-Path $stage 'HUPilot-ICD.json') -Tick { param($n, $all) $ui.tPkg.Text = ('Paketbau: Signaturen ' + [math]::Floor(100 * $n / [math]::Max(1, $all)) + ' %'); Step-Ui })
-        if ($chk.Count) { throw ('Prüfung der Kopie nicht bestanden: ' + (@($chk | Select-Object -First 8) -join '; ')) }
-        # Erst jetzt die alte Kopie ersetzen
-        if ([System.IO.Directory]::Exists($icdCopyRoot)) { [System.IO.Directory]::Move($icdCopyRoot, $oldDir) }
-        [System.IO.Directory]::Move($stage, $icdCopyRoot)
-        if ([System.IO.Directory]::Exists($oldDir)) { Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue }
-        $uns = @($script:IcdKnown[$ver].Keys).Count
-        Out-Log ('Paketbau mitgenommen (Test): ICD.exe ' + $ver + ', ' + $files.Count + ' Dateien, kontrolliert per SHA256, Prüfliste HUPilot-ICD.json daneben') 'OK' ($icdCopyRoot + '; im Original ohne eigene Signatur (nur per Prüfsumme geschützt): ' + $uns + ' Programmdateien')
-        $okTake = $true
-    } catch {
-        Out-Log 'Paketbau mitnehmen fehlgeschlagen. Eine bisherige Kopie bleibt unverändert.' 'Fehler' $_.Exception.Message
-        if ([System.IO.Directory]::Exists($oldDir) -and -not [System.IO.Directory]::Exists($icdCopyRoot)) { try { [System.IO.Directory]::Move($oldDir, $icdCopyRoot) } catch { } }
-    } finally {
-        if ([System.IO.Directory]::Exists($stage)) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
-        Set-UiBusy $false
-        try { Update-IcdUi } catch { }
-        [void](Update-PkgState)
     }
-    if ($okTake -and -not $srcDrive) { Out-Log 'Die Kopie liegt im PC-Ordner. Auf die Sticks kommt sie mit dem Häkchen "Paketbau mit auf den Stick".' 'Hinweis' }
 }
-function Invoke-IcdRemove {
-    $nl = "`r`n"
-    $cpV = Get-IcdCopyVersion $icdCopyDir $icdCopyMan
-    if (-not $cpV) { return }
-    if ($cpV -eq 'Verweis') { Out-Log 'HUPilot\ADK-ICD ist ein Verweis auf einen anderen Ordner (Junction oder Symlink). Er wird nicht gelöscht, damit der Inhalt des Ziels erhalten bleibt. Den Verweis von Hand entfernen.' 'Fehler' $icdCopyRoot; return }
-    if ([System.Windows.MessageBox]::Show($win, ('Kopie des Paketbaus (Version ' + $cpV + ') aus der Quelle löschen?' + $nl + $icdCopyRoot + $nl + $nl + 'Ohne Windows ADK kann dieser PC danach keine WLAN-Pakete mehr bauen.'), 'HUPilot - Kopie entfernen', 'YesNo', 'Warning') -eq 'Yes') {
-        try { Remove-Item -LiteralPath $icdCopyRoot -Recurse -Force -ErrorAction Stop; Out-Log 'Kopie des Paketbaus aus der Quelle entfernt' 'OK' $icdCopyRoot }
-        catch { Out-Log 'Kopie des Paketbaus konnte nicht ganz entfernt werden. Ordner HUPilot\ADK-ICD von Hand löschen.' 'Fehler' $_.Exception.Message }
+# Kopie an einem Ort loeschen (mit Rueckfrage, nennt den Ort). Verweise werden nie geloescht.
+function Remove-IcdCopy([string]$Root, [string]$Where) {
+    if (-not [System.IO.Directory]::Exists($Root)) { return $false }
+    if (Test-IsLink $Root) { Out-Log ('HUPilot\ADK-ICD ' + $Where + ' ist ein Verweis auf einen anderen Ordner. Er wird nicht gelöscht, damit der Inhalt des Ziels erhalten bleibt.') 'Fehler' $Root; return $false }
+    $st = Get-IcdState $Root
+    if ([System.Windows.MessageBox]::Show($win, ('Paketbau ' + $Where + ' entfernen?' + "`r`n" + $Root + "`r`n" + '(' + (Get-IcdStateText $st) + ')' + "`r`n`r`n" + 'Ohne Windows ADK kann man mit diesem Stick danach keine WLAN-Pakete mehr bauen.'), 'HUPilot - Paketbau entfernen', 'YesNo', 'Warning') -ne 'Yes') { return $false }
+    try { Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction Stop; Out-Log ('Paketbau ' + $Where + ' entfernt') 'OK' $Root; return $true }
+    catch { Out-Log ('Paketbau ' + $Where + ' konnte nicht ganz entfernt werden. Ordner HUPilot\ADK-ICD von Hand löschen.') 'Fehler' $_.Exception.Message; return $false }
+}
+# Ein Vorgang mit Busy-Sperre (Fenster bleibt bedienbar ueber Step-Ui)
+function Invoke-IcdAction([scriptblock]$Body) {
+    if ($script:Busy) { return }
+    Set-UiBusy $true
+    try { & $Body } catch { Out-Log 'Paketbau: Vorgang abgebrochen.' 'Fehler' $_.Exception.Message }
+    finally { Set-UiBusy $false; $script:IcdMB = 0; try { Update-IcdUi } catch { }; [void](Update-PkgState); $script:HintDrive = '?'; try { Update-ReadyHint } catch { } }
+}
+$ui.cIcdStick.Add_Click({
+    if ($script:IcdUiSet) { return }
+    if (-not $script:IcdSelf) { Set-UiSetting 'IcdToStick' ([bool]$ui.cIcdStick.IsChecked); try { Update-IcdUi } catch { }; return }
+    if ($ui.cIcdStick.IsChecked) {
+        Invoke-IcdAction { [void](Sync-IcdToTarget $srcHU $true 'auf diesem Stick' $true) }
+    } else {
+        if (-not (Remove-IcdCopy $icdCopyRoot 'von diesem Stick')) { $script:IcdUiSet = $true; $ui.cIcdStick.IsChecked = $true; $script:IcdUiSet = $false }
+        try { Update-IcdUi } catch { }; [void](Update-PkgState)
     }
+})
+$cmI = New-Object System.Windows.Controls.ContextMenu
+$addI = { param($h, $sb) $mi = New-Object System.Windows.Controls.MenuItem; $mi.Header = $h; $mi.Add_Click($sb); [void]$cmI.Items.Add($mi); $mi }
+[void](& $addI 'Zustand anzeigen' {
+    Invoke-IcdAction {
+        $nl = "`r`n"
+        $instRaw = $(if ([System.IO.File]::Exists($icdInst)) { Get-IcdVersion $icdInst } else { '' })
+        $src = Get-IcdState $icdCopyRoot -Full
+        $dr = Get-ReadyDrive
+        $t = 'Am PC: ' + $(if ($instRaw) { 'Windows ADK, Version ' + $instRaw + $(if (-not (Get-IcdPcVersion)) { ' (dem Setup nicht bekannt)' } else { '' }) } else { 'kein Windows ADK' }) + $nl +
+            $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) + $nl
+        if ($dr -and -not $script:IcdSelf) { $t += 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText (Get-IcdState (Join-Path ($dr + '\') 'HUPilot\ADK-ICD') -Full)) + $nl }
+        $t += $nl + 'Geprüft: Prüfsummen, fremde Dateien und Signaturen.'
+        Show-Msg $t 'HUPilot - Paketbau'
+    }
+})
+[void](& $addI 'Kopie aktualisieren' {
+    if ($script:IcdSelf) { Invoke-IcdAction { [void](Sync-IcdToTarget $srcHU $true 'auf diesem Stick' $true) }; return }
     $dr = Get-ReadyDrive
-    $tRoot = $(if ($dr) { Join-Path ($dr + '\') 'HUPilot\ADK-ICD' } else { '' })
-    if ($tRoot -and [System.IO.Directory]::Exists($tRoot) -and $tRoot -ine $icdCopyRoot -and -not (Test-IsLink $tRoot)) {
-        if ([System.Windows.MessageBox]::Show($win, ('Auch am Ziel-Stick ' + $dr + ' liegt eine Kopie des Paketbaus.' + $nl + $nl + 'Dort auch löschen?'), 'HUPilot - Kopie entfernen', 'YesNo', 'Question') -eq 'Yes') {
-            try { Remove-Item -LiteralPath $tRoot -Recurse -Force -ErrorAction Stop; Out-Log ('Kopie des Paketbaus von Stick ' + $dr + ' entfernt') 'OK' $tRoot }
-            catch { Out-Log ('Kopie des Paketbaus auf Stick ' + $dr + ' konnte nicht ganz entfernt werden.') 'Fehler' $_.Exception.Message }
-        }
-    }
-    try { Update-IcdUi } catch { }
-    [void](Update-PkgState)
-}
-$ui.bIcdTake.Add_Click({ if (-not $script:Busy) { Invoke-IcdTake } })
-$ui.bIcdDel.Add_Click({ if (-not $script:Busy) { Invoke-IcdRemove } })
-# Haekchen "Paketbau mit auf den Stick": gemerkt in ui.json, Standard aus (rund 80 MB je Stick)
-$ui.cIcdStick.IsChecked = ([string](Get-UiSetting 'IcdToStick' $false) -eq 'True')
-$ui.cIcdStick.Add_Click({ Set-UiSetting 'IcdToStick' ([bool]$ui.cIcdStick.IsChecked) })
+    if (-not $dr) { Show-Msg 'Kein Ziel-Stick gewählt. Stick anstecken und auswählen, dann nochmal.' 'HUPilot - Paketbau'; return }
+    Invoke-IcdAction { [void](Sync-IcdToTarget (Join-Path ($dr + '\') 'HUPilot') $true ('am Stick ' + $dr) $false) }
+})
+[void](& $addI 'Kopie entfernen ...' {
+    if ($script:Busy) { return }
+    $any = $false
+    if ([System.IO.Directory]::Exists($icdCopyRoot)) { $any = $true; [void](Remove-IcdCopy $icdCopyRoot $(if ($script:IcdSelf) { 'von diesem Stick' } else { 'aus dem Ordner ' + $srcHU })) }
+    $dr = Get-Drive
+    if ($dr -and -not $script:IcdSelf) { $tr = Join-Path ($dr + '\') 'HUPilot\ADK-ICD'; if ([System.IO.Directory]::Exists($tr)) { $any = $true; [void](Remove-IcdCopy $tr ('vom Stick ' + $dr)) } }
+    if (-not $any) { Show-Msg 'Es gibt hier keine Kopie des Paketbaus zum Entfernen.' 'HUPilot - Paketbau' }
+    try { Update-IcdUi } catch { }; [void](Update-PkgState)
+})
+$ui.cIcdStick.ContextMenu = $cmI
+$win.Add_SizeChanged({ if (-not $script:Busy) { Update-IcdLabelFit } })
 
 
 # protokoll.csv von Quelle und Ziel-Stick: je Seriennummer die neueste Zeile ($map) und alle Zeilen ($script:ProtoAll, fuer Details)
@@ -3392,7 +3483,7 @@ if (Test-Path $srcCfg) { $ui.bLoad.RaiseEvent((New-Object System.Windows.RoutedE
 # Ohne config.json: leeres Formular gilt als gespeicherter Stand (kein Hinweis "ungespeichert")
 if ($null -eq $script:SavedSnap) { $script:SavedSnap = Get-CfgSnap; Update-Dirty }
 if (Test-IcdHere) { Out-Log ((Get-IcdText $script:Icd) + ', WLAN-Pakete können gebaut werden') 'OK' $script:Icd.Path }
-else { Out-Log 'ICD.exe fehlt: WLAN-Pakete können hier nicht gebaut werden. Für "4. WLAN-Paket bauen" Windows ADK mit "Imaging and Configuration Designer" installieren (die Store-App reicht nicht), oder an einem PC mit ADK "Paketbau mitnehmen" klicken (Test).' 'Hinweis' $icdInst }
+else { Out-Log 'ICD.exe fehlt: WLAN-Pakete können hier nicht gebaut werden. Für "4. WLAN-Paket bauen" Windows ADK mit "Imaging and Configuration Designer" installieren (die Store-App reicht nicht), oder den Stick an einem PC mit ADK mit dem Häkchen "Paketbau mit auf den Stick" bespielen (Test).' 'Hinweis' $icdInst }
 try { Update-IcdUi -Report } catch { }
 Start-Log 'Fenster wird angezeigt'
 # Beim Start automatisch Secret-Ablauf anzeigen (nur wenn echte Werte eingetragen sind)
@@ -3801,7 +3892,7 @@ function Invoke-StickReadyCore {
         if (Test-IcdHere) {
             Out-Log ('WLAN-Paket ' + $ps + ', wird jetzt gebaut'); Set-ReadyText 'Baue WLAN-Paket ...'; Step-Ui
             if (-not (Build-Package -NoSave)) { Stop-Ready 'Pkg' ('Das WLAN-Paket konnte nicht gebaut werden. Details stehen im Protokoll.' + $nl + $nl + 'Das bisherige Paket (falls vorhanden) ist unverändert, nichts wurde auf den Stick kopiert.'); return }
-        } elseif ($ps -eq 'fehlt') { Stop-Ready 'Pkg' ('Es gibt noch kein WLAN-Paket, und ICD.exe fehlt auf diesem PC.' + $nl + $nl + 'Windows ADK mit "Imaging and Configuration Designer" installieren, das Paket auf einem PC mit ADK bauen (4. WLAN-Paket bauen), oder an einem PC mit ADK "Paketbau mitnehmen" klicken (Test).'); return }
+        } elseif ($ps -eq 'fehlt') { Stop-Ready 'Pkg' ('Es gibt noch kein WLAN-Paket, und ICD.exe fehlt auf diesem PC.' + $nl + $nl + 'Windows ADK mit "Imaging and Configuration Designer" installieren, das Paket auf einem PC mit ADK bauen (4. WLAN-Paket bauen), oder den Stick an einem PC mit ADK mit dem Häkchen "Paketbau mit auf den Stick" bespielen (Test).'); return }
         elseif ($ps -eq 'veraltet') { Stop-Ready 'Pkg' ('WLAN oder lokale Admins wurden geändert, das WLAN-Paket ist veraltet.' + $nl + 'ICD.exe fehlt auf diesem PC, deshalb kann es hier nicht neu gebaut werden.' + $nl + $nl + 'Auf einem PC mit Windows ADK "4. WLAN-Paket bauen" klicken, oder die alten Werte wieder eintragen.'); return }
         else {
             $q = [System.Windows.MessageBox]::Show($win, ('Ob das vorhandene WLAN-Paket zu WLAN und lokalen Admins passt, ist unbekannt (gebaut mit einer älteren Version).' + $nl + 'ICD.exe fehlt auf diesem PC, neu bauen geht hier nicht.' + $nl + $nl + 'Vorhandenes Paket verwenden?'), 'HUPilot - WLAN-Paket', 'YesNo', 'Warning')

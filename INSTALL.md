@@ -32,13 +32,13 @@ Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der
 *WLAN-Paket bauen* braucht das **Windows ADK** mit *Imaging and Configuration Designer* (`ICD.exe`). Das Setup merkt sich, für welches WLAN und welche Admins das Paket gebaut ist, und zeigt "aktuell" oder "veraltet".
 Ohne ADK: `Tools\New-WcdProjekt.ps1`, in WCD öffnen, als `HUPilot-WLAN.ppkg` exportieren (das Setup zeigt dann "unbekannt").
 
-### Paketbau mitnehmen (Test)
-Damit auch ein PC ohne ADK Pakete bauen kann, kopiert das Setup an einem PC mit ADK den Paketbau in die Quelle:
-1. Setup am PC mit ADK starten, neben *4. WLAN-Paket bauen* auf *Paketbau mitnehmen ...* klicken. Läuft das Setup vom Stick, kommt die Kopie direkt auf diesen Stick (rund 80 MB).
-2. Läuft das Setup vom PC-Ordner, das Häkchen *Paketbau mit auf den Stick* setzen. Dann nehmen *Stick fertig machen*, *5. Auf Stick kopieren* und *Sticks vorbereiten* die Kopie mit.
+### Paketbau mit auf den Stick (Test)
+Damit auch ein PC ohne ADK Pakete bauen kann, nimmt das Setup an einem PC mit ADK den Paketbau mit auf den Stick (rund 78 MB):
+1. Setup am PC mit ADK starten und in der Zeile *Stick* das Häkchen *Paketbau mit auf den Stick* setzen (wird gemerkt).
+2. *Stick fertig machen*, *5. Auf Stick kopieren* oder *Sticks vorbereiten* klicken. Das Setup sieht nach, was am Stick schon liegt, und kopiert nur, was fehlt oder veraltet ist. Läuft das Setup direkt vom Stick, holt das Häkchen den Paketbau sofort auf diesen Stick.
 3. Am PC ohne ADK das Setup vom Stick starten und *4. WLAN-Paket bauen* klicken. Das Protokoll nennt, welche `ICD.exe` benutzt wird.
 
-Die Kopie liegt in `HUPilot\ADK-ICD`, daneben die Prüfliste `HUPilot-ICD.json`. Vor jedem Bau prüft das Setup Prüfsummen, fremde Dateien und die Signaturen, sonst baut es nicht: Jede Programmdatei braucht eine gültige Signatur von Microsoft, nur die schon im Original unsignierten Dateien sind über ihre im Setup hinterlegte Prüfsumme erlaubt. Das schützt vor beschädigten oder zufällig veränderten Dateien und vor fremden Programmdateien. Wer den Stick gezielt verändern kann, kann auch das Setup selbst ändern, deshalb den Stick nicht aus der Hand geben. Das Setup kennt derzeit ICD 10.0.28000.1, andere Versionen werden abgelehnt. Updates und das Repo lassen den Ordner unberührt. *Kopie entfernen ...* löscht ihn wieder.
+Die Kopie liegt in `HUPilot\ADK-ICD`, daneben die Prüfliste `HUPilot-ICD.json`. Vor jedem Bau prüft das Setup Prüfsummen, fremde Dateien und die Signaturen, sonst baut es nicht: Jede Programmdatei braucht eine gültige Signatur von Microsoft, nur die schon im Original unsignierten Dateien sind über ihre im Setup hinterlegte Prüfsumme erlaubt. Das schützt vor beschädigten oder zufällig veränderten Dateien und vor fremden Programmdateien. Wer den Stick gezielt verändern kann, kann auch das Setup selbst ändern, deshalb den Stick nicht aus der Hand geben. Das Setup kennt derzeit ICD 10.0.28000.1, andere Versionen werden abgelehnt. Updates und das Repo lassen den Ordner unberührt. Ohne Häkchen bleibt eine Kopie am Stick, entfernt wird sie nur über den Rechtsklick auf das Häkchen (*Kopie entfernen ...*).
 
 Das Windows ADK gehört Microsoft und wird **nicht** mit HUPilot ausgeliefert. Die Kopie ist immer die eigene des Anwenders und nur für den eigenen Gebrauch. Geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK. Mit einem echten Stick an einem fremden PC, mit lokalen Admins im Paket und mit älteren ADK-Versionen noch nicht.
 Das Paket enthält nur das WLAN und optional die lokalen Admins, kein CleanPC, kein BPRT, kein HideOobe.

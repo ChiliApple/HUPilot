@@ -48,13 +48,17 @@
 - **Behoben: altes Paket auf dem Stick:** Wurden WLAN oder lokale Admins geändert, kam bisher still das alte Paket auf den Stick. Jetzt fragt das Setup nach: neu bauen, trotzdem kopieren oder abbrechen.
 - **"4. WLAN-Paket bauen" speichert vorher:** braucht deshalb alle Pflichtfelder.
 - **Altes Paket auf dem Stick wird entfernt:** liegt auf dem Stick ein WLAN-Paket, das nicht aus der Quelle stammt (z. B. beim Kopieren ohne Paket), entfernt das Setup es und nennt es im Protokoll.
-- **Paketbau mitnehmen (Test):** Der neue Knopf neben "4. WLAN-Paket bauen" kopiert den Paketbau (ICD.exe aus dem Windows ADK, rund 80 MB) vom eigenen PC in die Quelle. Damit baut das Setup auch an einem PC ohne ADK WLAN-Pakete.
-  - Läuft das Setup vom Stick, landet die Kopie direkt auf diesem Stick. Läuft es vom PC-Ordner, nehmen "Stick fertig machen", "5. Auf Stick kopieren" und "Sticks vorbereiten" sie mit, wenn das Häkchen "Paketbau mit auf den Stick" gesetzt ist (gemerkt, Standard aus).
-  - Vor dem Kopieren wird der freie Platz geprüft, danach jede Datei per SHA256. Daneben liegt eine Prüfliste mit Version, Datum und Prüfsummen.
+- **Paketbau mit auf den Stick (Test):** Ein Häkchen in der Zeile "Stick" nimmt den Paketbau (ICD.exe aus dem Windows ADK, rund 78 MB) mit auf den Stick. Damit baut das Setup auch an einem PC ohne ADK WLAN-Pakete. Kein eigener Arbeitsschritt: "Stick fertig machen", "5. Auf Stick kopieren" und "Sticks vorbereiten" erledigen das im selben Durchgang. Das Häkchen wird gemerkt, Standard aus.
+  - Das Setup sieht nach, was am Stick schon liegt, und tut nur das Nötige: gleiche Version schon da, nichts kopieren; ältere Version, aktualisieren; beschädigte oder unvollständige Kopie, ersetzen; neuere Version, nicht überschreiben. Eine vorhandene Kopie zählt nur, wenn sie die Prüfung besteht.
+  - Die Dateien kommen aus dem Windows ADK am PC, ohne ADK aus einer gültigen Kopie in der Quelle. Gibt es beides nicht, ist das Häkchen grau.
+  - Ohne Häkchen bleibt eine Kopie am Stick, sie wird nie still gelöscht.
+  - Läuft das Setup vom Stick, zeigt das Häkchen, ob dieser Stick den Paketbau hat. Setzen holt ihn sofort, Entfernen fragt nach.
+  - Rechtsklick auf das Häkchen: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Der Tooltip nennt die Versionen am PC, in der Quelle und am gewählten Stick.
+  - Beim Kopieren wird der freie Platz geprüft, danach jede Datei per SHA256. Daneben liegt eine Prüfliste mit Version, Datum und Prüfsummen, sie wird als letzte Datei geschrieben.
   - Vor jedem Bau mit der Kopie prüft das Setup Prüfsummen, fremde Dateien und die Signaturen. Jede Programmdatei braucht eine gültige Signatur von Microsoft. Ausnahme sind nur die Dateien, die schon im Original unsigniert sind; für sie steht die Prüfsumme fest im Setup. Stimmt etwas nicht, wird nicht gebaut.
   - Das schützt vor beschädigten oder zufällig veränderten Dateien und vor fremden Programmdateien. Wer den Stick gezielt verändern kann, kann auch das Setup selbst ändern: Stick nicht aus der Hand geben.
   - Gesucht wird zuerst das installierte ADK, dann die Kopie. Welche benutzt wird und in welcher Version, steht im Protokoll und im Tooltip der Ampel.
-  - Ist am PC eine neuere Version installiert, heißt der Knopf "Kopie aktualisieren". "Kopie entfernen" löscht die Kopie wieder. Die Kopie lädt nie selbst etwas aus dem Internet.
+  - Die Kopie lädt nie selbst etwas aus dem Internet.
   - Das ADK gehört Microsoft und wird nicht mit HUPilot ausgeliefert, auch nicht per Update. Die Kopie ist nur für den eigenen Gebrauch.
 
 ### 🔐 Secret und MAK
@@ -97,11 +101,11 @@
 - "Autopilot-Sync anstoßen" wirkt laut Microsoft immer für den ganzen Tenant, nicht für einzelne Geräte.
 - Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
 - Erkennung der Sticks: mit echten USB-Sticks noch nicht geprüft.
-- Paketbau mitnehmen: geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK. Mit einem echten Stick an einem fremden PC, mit lokalen Admins im Paket und mit älteren ADK-Versionen noch nicht.
-- Paketbau mitnehmen: Das Setup kennt nur ICD 10.0.28000.1. Eine neuere ICD-Version wird abgelehnt, bis HUPilot sie kennt, weil ein Teil ihrer Programmdateien schon im Original nicht signiert ist.
+- Paketbau mit auf den Stick: geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK. Mit einem echten Stick an einem fremden PC, mit lokalen Admins im Paket und mit älteren ADK-Versionen noch nicht.
+- Paketbau mit auf den Stick: Das Setup kennt nur ICD 10.0.28000.1. Eine neuere ICD-Version wird abgelehnt, bis HUPilot sie kennt, weil ein Teil ihrer Programmdateien schon im Original nicht signiert ist.
 
 ### ✅ Qualität
-- 141 automatische Tests.
+- 148 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung
