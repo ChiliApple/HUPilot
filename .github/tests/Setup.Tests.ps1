@@ -13,7 +13,7 @@ BeforeAll {
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
         'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FitWidth', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick',
-        'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion', 'Test-IsLink', 'Get-IcdPlan', 'Get-IcdPcVersion', 'Get-IcdState', 'Sync-IcdToTarget', 'Copy-IcdTree',
+        'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion', 'Test-IsLink', 'Get-IcdPlan', 'Get-IcdPcVersion', 'Get-IcdState', 'Sync-IcdToTarget', 'Copy-IcdTree', 'Get-InfoLines',
         'Get-DriveSelection', 'Get-PrepKeep', 'Get-PrepKey', 'Get-ReadyTodo', 'New-StickId', 'Compare-StickId', 'Get-StickKey', 'Get-KeptLeft'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
@@ -42,7 +42,7 @@ BeforeAll {
 
 Describe 'Setup: Fenster (XAML)' {
     It 'alle Fenster-Bloecke werden gefunden' {
-        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'dx', 'sx', 'gx', 'hx')
+        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'ix', 'dx', 'sx', 'gx', 'hx')
     }
     It 'jedes Fenster laedt mit XamlReader (STA), ohne Theme, dunkel und hell, und schaltet zur Laufzeit um' {
         $get = { param($n) [regex]::Match($script:SetupText, "(?s)\`$script:$n = @'\r?\n(.*?)\r?\n'@").Groups[1].Value }
@@ -1054,5 +1054,29 @@ Describe 'Setup: Paketbau mit auf den Stick, Entscheidung' {
         $s | Should -Match 'kein Windows ADK an diesem PC und keine gültige Kopie in der Quelle'
         # nie ins Internet
         $s | Should -Not -Match 'Invoke-WebRequest|Invoke-RestMethod'
+    }
+}
+
+Describe 'Setup: Info-Fenster' {
+    It 'Kopier-Text enthaelt Version und Quelle, aber keine Kennungen aus config.json' {
+        $script:RepoUrl = 'https://github.com/ChiliApple/HUPilot'
+        $cfg = New-TestCfg
+        $i = @{ Version = '2.7.18'; Build = '2026-11-13'; Channel = 'Kanal Stabil'; Signed = $true; Installed = '2026-11-13 09:00'; Source = 'E:\'; PS = '5.1.26100.1'; Windows = 'Windows 11 Pro 25H2, Build 26200.1'; Adk = 'Windows ADK am PC, Version 10.0.28000.1'; IcdCopy = 'keine'; Log = 'E:\HUPilot\logs\setup_20261113_0914.log' }
+        $txt = (Get-InfoLines $i) -join "`n"
+        $txt | Should -Match 'HUPilot-Setup v2\.7\.18 \(Stand 2026-11-13\)'
+        $txt | Should -Match 'Quelle: E:\\'
+        $txt | Should -Match 'nur signierte Updates'
+        $txt | Should -Match 'Paketbau: Windows ADK am PC, Version 10\.0\.28000\.1; Kopie: keine'
+        $txt | Should -Match 'Protokolldatei: E:\\HUPilot\\logs\\setup_'
+        foreach ($k in @($cfg.TenantId, $cfg.ClientId, $cfg.ClientSecret, $cfg.Tenant, $cfg.WlanKey)) { $txt | Should -Not -Match ([regex]::Escape($k)) }
+        $i.Log = ''; (Get-InfoLines $i) -join "`n" | Should -Match 'Protokolldatei: noch keine'
+    }
+    It 'Info-Fenster nach dem Vorbild (Rechtsklick auf Update), ohne Tenant, IDs und Secret' {
+        $script:SetupText | Should -Match "& \`$addU 'Info \.\.\.' \{ Show-Info \}"
+        $b = [regex]::Match($script:SetupText, '(?s)function Get-InfoValues.*?\r?\n\}\r?\n.*?function Show-Info.*?\r?\n\}\r?\n').Value
+        $b | Should -Match 'Set-WinFit \$iw'
+        $b | Should -Match 'ResizeMode="CanResizeWithGrip"'
+        $b | Should -Not -Match 'TenantId|ClientId|ClientSecret|Get-Secret|\.Tenant\b'
+        $b | Should -Match 'Nutzungslizenz - siehe LICENSE'
     }
 }

@@ -499,7 +499,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Button VerticalAlignment="Center" x:Name="bLnk" FontFamily="Segoe MDL2 Assets" Content="&#xE718;" Width="32" Padding="0,5" Margin="0,0,8,0" ToolTip="Desktop-Verknüpfung zu diesem Ordner anlegen (öffentlicher Desktop, mit HUPilot-Symbol)." ToolTipService.ShowDuration="30000"/>
       <Button VerticalAlignment="Center" x:Name="bHelp" ToolTip="Anleitung öffnen (F1)" Content="?" FontWeight="Bold" Width="32" Padding="0,4" Margin="0,0,0,0"/>
       <Button VerticalAlignment="Center" x:Name="bTheme" FontFamily="Segoe MDL2 Assets" Content="&#xE793;" Width="32" Padding="0,5" Margin="8,0,0,0" ToolTip="Helle / dunkle Oberfläche umschalten (wirkt sofort in allen Fenstern und wird gemerkt)." ToolTipService.ShowDuration="30000"/>
-      <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prüft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfügbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unverändert." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
+      <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prüft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfügbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unverändert.&#x0a;Rechtsklick: andere Version, Kanal, Info, Anleitung, GitHub-Token." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
     <Image x:Name="iLogo" Width="44" Height="44"/>
     <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
@@ -1649,10 +1649,102 @@ function Start-ReleasePublish {
 }
 
 $ui.bUpd.Add_Click({ if ($script:UpdRemote) { Start-Pull } else { Invoke-UpdateCheck } })
+# ---------- Info-Fenster (Vorbild HU-MultiTenant Show-HUAbout: Rechtsklick auf Update > Info ...) ----------
+#   Logo, Name, ein Satz, Version mit Stand, Kanal, Quelle, PowerShell und Windows, Paketbau, Protokolldatei, Links.
+#   "Kopieren" legt die Angaben als Text in die Zwischenablage (fuer Rueckfragen). Tenant, Tenant-ID, App-ID und Secret
+#   kommen bewusst nicht vor; der Quellpfad schon (er steht auch im Protokoll).
+#   Handler ohne GetNewClosure: das Fenster ist modal, die Funktion laeuft, solange es offen ist.
+$script:RepoUrl = 'https://github.com/ChiliApple/HUPilot'
+# Text fuer Fenster und Zwischenablage aus einzelnen Angaben ($I: Version, Build, Channel, Signed, Installed, Source, PS, Windows, Adk, IcdCopy, Log)
+function Get-InfoLines([hashtable]$I) {
+    $l = @()
+    $l += ('HUPilot-Setup v' + $I.Version + $(if ($I.Build) { ' (Stand ' + $I.Build + ')' } else { '' }))
+    $l += ('Update: ' + $I.Channel + $(if ($I.Signed) { ', nur signierte Updates' } else { '' }) + $(if ($I.Installed) { ', installiert ' + $I.Installed } else { '' }))
+    $l += ('Quelle: ' + $I.Source)
+    $l += ('PowerShell ' + $I.PS + ', ' + $I.Windows)
+    $l += ('Paketbau: ' + $I.Adk + '; Kopie: ' + $I.IcdCopy)
+    $l += ('Protokolldatei: ' + $(if ($I.Log) { $I.Log } else { 'noch keine' }))
+    $l += ('Repo: ' + $script:RepoUrl)
+    return $l
+}
+function Get-InfoValues {
+    $vj = $null; try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+    $inst = $null; try { $inst = Get-Content -LiteralPath (Join-Path $CfgDirHU 'installed.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+    $c = $null; try { $c = Get-UpdCfg } catch { }
+    $win10 = ''
+    try {
+        $k = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop
+        $build = [int]$k.CurrentBuild
+        $name = [string]$k.ProductName
+        # ProductName heisst auch unter Windows 11 noch "Windows 10 ...": ab Build 22000 ist es Windows 11
+        if ($build -ge 22000) { $name = $name -replace '^Windows 10', 'Windows 11' }
+        $win10 = $name + $(if ($k.DisplayVersion) { ' ' + $k.DisplayVersion } else { '' }) + ', Build ' + $k.CurrentBuild + $(if ($null -ne $k.UBR) { '.' + $k.UBR } else { '' })
+    } catch { $win10 = 'Windows ' + [Environment]::OSVersion.Version }
+    $instRaw = $(if ([System.IO.File]::Exists($icdInst)) { Get-IcdVersion $icdInst } else { '' })
+    $cp = Get-IcdState $icdCopyRoot
+    return @{
+        Version = $SetupVer; Build = $(if ($vj) { [string]$vj.buildDate } else { '' })
+        Channel = $(if (-not $c) { 'unbekannt' } elseif ($c.UseBranch) { 'Branch ' + $c.Branch } else { 'Kanal ' + (Format-Channel $c.Channel) })
+        Signed = [bool]($c -and $c.RequireSignature); Installed = $(if ($inst -and $inst.PSObject.Properties['Date']) { [string]$inst.Date } else { '' })
+        Source = $srcStick; PS = [string]$PSVersionTable.PSVersion; Windows = $win10
+        Adk = $(if ($instRaw) { 'Windows ADK am PC, Version ' + $instRaw } else { 'kein Windows ADK am PC' })
+        IcdCopy = (Get-IcdStateText $cp); Log = [string]$script:LogFile
+    }
+}
+function Open-InfoLink([string]$Target) { try { Start-Process -FilePath $Target } catch { Out-Log 'Link konnte nicht geöffnet werden.' 'Hinweis' ($Target + ': ' + $_.Exception.Message) } }
+function Show-Info {
+    [xml]$ix = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot - Info" Width="540" MinWidth="460" SizeToContent="Height" WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False" FontSize="13">
+  <StackPanel Margin="20">
+    <Image x:Name="iImg" Width="96" Height="96" RenderOptions.BitmapScalingMode="HighQuality" ToolTip="HUPilot"/>
+    <TextBlock Text="HUPilot" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource HuTitle}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+    <TextBlock Text="Windows Autopilot per USB-Stick: Hardware-Hash hochladen und Geräte ohne Hersteller-Programme zurücksetzen" FontSize="13" Foreground="{DynamicResource HuMuted}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+    <TextBlock x:Name="tVer" FontSize="12" Foreground="{DynamicResource HuRun}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="0,10,0,0" ToolTip="Version und Stand aus HUPilot\Config\version.json, Update-Kanal aus den Update-Einstellungen."/>
+    <TextBlock x:Name="tDet" FontSize="12" Foreground="{DynamicResource HuText}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="0,8,0,0" ToolTip="Quelle, Systemangaben, Paketbau und Protokolldatei dieser Sitzung."/>
+    <WrapPanel HorizontalAlignment="Center" Margin="0,10,0,0">
+      <TextBlock x:Name="lRepo" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Repo auf GitHub öffnen"/>
+      <TextBlock x:Name="lHelp" Text="Anleitung" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Anleitung öffnen (Anleitung.html in HUPilot\Setup, auch mit F1)"/>
+      <TextBlock x:Name="lChg" Text="Änderungen" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Änderungen (CHANGELOG) auf GitHub öffnen"/>
+      <TextBlock x:Name="lLic" Text="Nutzungslizenz - siehe LICENSE" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Lizenz (LICENSE) auf GitHub öffnen"/>
+      <TextBlock x:Name="lLog" Text="Protokolldatei" FontSize="12" Foreground="{DynamicResource HuRun}" Cursor="Hand" TextDecorations="Underline" Margin="6,0" ToolTip="Protokolldatei dieser Sitzung öffnen"/>
+    </WrapPanel>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,14,0,0">
+      <Button x:Name="bCopy" Content="Kopieren" Padding="12,3" ToolTip="Diese Angaben als Text in die Zwischenablage legen, z. B. für eine Rückfrage beim Admin.&#x0a;Ohne Tenant, Tenant-ID, App-ID und Secret."/>
+      <Button x:Name="bClose" Content="Schließen" Padding="12,3" Margin="8,0,0,0" IsCancel="True" ToolTip="Fenster schließen (Esc)"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
+'@
+    Add-HuTheme $ix
+    $iw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $ix))
+    Register-HuWindow $iw
+    $iw.Owner = $win
+    if ($win.Icon) { $iw.Icon = $win.Icon }
+    $g = @{}; foreach ($n in 'iImg', 'tVer', 'tDet', 'lRepo', 'lHelp', 'lChg', 'lLic', 'lLog', 'bCopy', 'bClose') { $g[$n] = $iw.FindName($n) }
+    try { $g.iImg.Source = $ui.iLogo.Source } catch { }
+    $v = Get-InfoValues
+    $lines = @(Get-InfoLines $v)
+    $g.tVer.Text = $lines[0] + "`n" + $lines[1]
+    $g.tDet.Text = ($lines[2..5] -join "`n")
+    $g.lRepo.Text = $script:RepoUrl -replace '^https://', ''
+    $g.lRepo.Add_MouseLeftButtonUp({ Open-InfoLink $script:RepoUrl })
+    $g.lHelp.Add_MouseLeftButtonUp({ & $ShowHelp })
+    $g.lChg.Add_MouseLeftButtonUp({ Open-InfoLink ($script:RepoUrl + '/blob/main/CHANGELOG.md') })
+    $g.lLic.Add_MouseLeftButtonUp({ Open-InfoLink ($script:RepoUrl + '/blob/main/LICENSE') })
+    if ($v.Log -and [System.IO.File]::Exists($v.Log)) { $g.lLog.Add_MouseLeftButtonUp({ Open-InfoLink $v.Log }) } else { $g.lLog.Visibility = 'Collapsed' }
+    $copyText = ($lines -join "`r`n")
+    $g.bCopy.Add_Click({ try { [System.Windows.Clipboard]::SetText($copyText); $g.bCopy.Content = 'Kopiert'; Out-Log 'Info in die Zwischenablage kopiert' } catch { Out-Log 'Zwischenablage nicht erreichbar.' 'Hinweis' $_.Exception.Message } })
+    $g.bClose.Add_Click({ $iw.Close() })
+    $iw.Add_ContentRendered({ Set-WinFit $iw })
+    [void]$iw.ShowDialog()
+}
 $cmU = New-Object System.Windows.Controls.ContextMenu
 $addU = { param($h, $sb) $mi = New-Object System.Windows.Controls.MenuItem; $mi.Header = $h; $mi.Add_Click($sb); [void]$cmU.Items.Add($mi); $mi }
 [void](& $addU 'Andere Version / Vorversion installieren ...' { Show-VersionPicker })
 [void](& $addU 'Jetzt nach Updates suchen' { Invoke-UpdateCheck })
+[void](& $addU 'Info ...' { Show-Info })
+[void](& $addU 'Anleitung (F1)' { & $ShowHelp })
 [void]$cmU.Items.Add((New-Object System.Windows.Controls.Separator))
 $script:miStable = & $addU 'Kanal Stabil (nur freigegebene Versionen)' { Set-UpdSetting 'Channel' 'Stable'; Out-Log 'Update-Kanal: Stabil'; Invoke-UpdateCheck }
 $script:miTest   = & $addU 'Kanal Test (auch Vorab-Versionen)' { Set-UpdSetting 'Channel' 'Test'; Out-Log 'Update-Kanal: Test'; Invoke-UpdateCheck }
