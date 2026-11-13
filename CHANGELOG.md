@@ -38,7 +38,7 @@
 - **Behoben: altes Paket auf dem Stick:** Wurden WLAN oder lokale Admins geändert, kam bisher still das alte Paket auf den Stick. Jetzt fragt das Setup nach: neu bauen, trotzdem kopieren oder abbrechen.
 - **"4. WLAN-Paket bauen" speichert vorher:** braucht deshalb alle Pflichtfelder.
 - **Altes Paket auf dem Stick wird entfernt:** liegt auf dem Stick ein WLAN-Paket, das nicht aus der Quelle stammt (z. B. beim Kopieren ohne Paket), entfernt das Setup es und nennt es im Protokoll.
-- **Paketbau mitnehmen (Test):** Der neue Knopf neben "4. WLAN-Paket bauen" kopiert den Paketbau (ICD.exe aus dem Windows ADK, rund 80 MB) vom eigenen PC in die Quelle. Damit soll das Setup auch an einem PC ohne ADK WLAN-Pakete bauen.
+- **Paketbau mitnehmen (Test):** Der neue Knopf neben "4. WLAN-Paket bauen" kopiert den Paketbau (ICD.exe aus dem Windows ADK, rund 80 MB) vom eigenen PC in die Quelle. Damit baut das Setup auch an einem PC ohne ADK WLAN-Pakete.
   - Läuft das Setup vom Stick, landet die Kopie direkt auf diesem Stick. Läuft es vom PC-Ordner, nehmen "Stick fertig machen", "5. Auf Stick kopieren" und "Sticks vorbereiten" sie mit, wenn das Häkchen "Paketbau mit auf den Stick" gesetzt ist (gemerkt, Standard aus).
   - Vor dem Kopieren wird der freie Platz geprüft, danach jede Datei per SHA256. Daneben liegt eine Prüfliste mit Version, Datum und Prüfsummen.
   - Vor jedem Bau mit der Kopie prüft das Setup die Prüfsummen, sucht nach fremden Dateien und kontrolliert die Signatur von Microsoft. Stimmt etwas nicht, wird nicht gebaut.
@@ -85,7 +85,8 @@
 - Testversion: am echten Gerät und mit echtem Tenant noch nicht geprüft.
 - "Autopilot-Sync anstoßen" wirkt laut Microsoft immer für den ganzen Tenant, nicht für einzelne Geräte.
 - Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
-- Paketbau mitnehmen: noch nicht an einem PC ohne ADK bestätigt. Ein Teil der Programmdateien des ADK ist schon im Original nicht signiert, diese Dateien schützt nur die Prüfsumme.
+- Paketbau mitnehmen: geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK. Mit einem echten Stick an einem fremden PC, mit lokalen Admins im Paket und mit älteren ADK-Versionen noch nicht.
+- Ein Teil der Programmdateien des ADK ist schon im Original nicht signiert, diese Dateien schützt nur die Prüfsumme.
 
 ### ✅ Qualität
 - 126 automatische Tests.

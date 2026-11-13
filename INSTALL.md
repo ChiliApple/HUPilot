@@ -40,7 +40,7 @@ Damit auch ein PC ohne ADK Pakete bauen kann, kopiert das Setup an einem PC mit 
 
 Die Kopie liegt in `HUPilot\ADK-ICD`, daneben die Prüfliste `HUPilot-ICD.json`. Vor jedem Bau prüft das Setup Prüfsummen, fremde Dateien und die Signatur von Microsoft, sonst baut es nicht. Updates und das Repo lassen den Ordner unberührt. *Kopie entfernen ...* löscht ihn wieder.
 
-Das Windows ADK gehört Microsoft und wird **nicht** mit HUPilot ausgeliefert. Die Kopie ist immer die eigene des Anwenders und nur für den eigenen Gebrauch. Noch nicht an einem PC ohne ADK bestätigt.
+Das Windows ADK gehört Microsoft und wird **nicht** mit HUPilot ausgeliefert. Die Kopie ist immer die eigene des Anwenders und nur für den eigenen Gebrauch. Geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK. Mit einem echten Stick an einem fremden PC, mit lokalen Admins im Paket und mit älteren ADK-Versionen noch nicht.
 Das Paket enthält nur das WLAN und optional die lokalen Admins, kein CleanPC, kein BPRT, kein HideOobe.
 Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go.ps1 an bereits eingerichteten Geräten kein neues Paket installieren, das vorhandene bleibt.
 
