@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.15'
+$SetupVer = '2.7.16'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -82,28 +82,38 @@ $script:Extra = @{}
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HUPilot-Setup" Width="890" Height="880" WindowStartupLocation="CenterScreen" FontSize="13" ResizeMode="CanResizeWithGrip">
+        Title="HUPilot-Setup" Width="890" Height="880" MinWidth="640" MinHeight="420" WindowStartupLocation="CenterScreen" FontSize="13" ResizeMode="CanResizeWithGrip">
   <Window.Resources>
     <Style x:Key="HuThumb" TargetType="Thumb">
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
-        <Border CornerRadius="3" Background="#FF6A6A6A"/>
+        <Border CornerRadius="4" Background="#FF6A6A6A"/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="HuPage" TargetType="RepeatButton">
+      <Setter Property="Focusable" Value="False"/><Setter Property="IsTabStop" Value="False"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton">
+        <Border Background="Transparent"/>
       </ControlTemplate></Setter.Value></Setter>
     </Style>
     <Style TargetType="ScrollBar">
-      <Setter Property="Width" Value="8"/><Setter Property="MinWidth" Value="8"/>
+      <Setter Property="Width" Value="14"/><Setter Property="MinWidth" Value="14"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-        <Border Background="Transparent"><Track x:Name="PART_Track" IsDirectionReversed="True">
-          <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="1,0"/></Track.Thumb>
+        <Border Background="#18808080" CornerRadius="4"><Track x:Name="PART_Track" IsDirectionReversed="True">
+          <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource HuPage}"/></Track.DecreaseRepeatButton>
+          <Track.IncreaseRepeatButton><RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource HuPage}"/></Track.IncreaseRepeatButton>
+          <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="2,0"/></Track.Thumb>
         </Track></Border>
       </ControlTemplate></Setter.Value></Setter>
       <Style.Triggers>
         <Trigger Property="Orientation" Value="Horizontal">
           <Setter Property="Width" Value="Auto"/><Setter Property="MinWidth" Value="0"/>
-          <Setter Property="Height" Value="8"/><Setter Property="MinHeight" Value="8"/>
+          <Setter Property="Height" Value="14"/><Setter Property="MinHeight" Value="14"/>
           <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
-            <Border Background="Transparent"><Track x:Name="PART_Track">
-              <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,1"/></Track.Thumb>
+            <Border Background="#18808080" CornerRadius="4"><Track x:Name="PART_Track">
+              <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageLeftCommand" Style="{StaticResource HuPage}"/></Track.DecreaseRepeatButton>
+              <Track.IncreaseRepeatButton><RepeatButton Command="ScrollBar.PageRightCommand" Style="{StaticResource HuPage}"/></Track.IncreaseRepeatButton>
+              <Track.Thumb><Thumb Style="{StaticResource HuThumb}" Margin="0,2"/></Track.Thumb>
             </Track></Border>
           </ControlTemplate></Setter.Value></Setter>
         </Trigger>
@@ -123,8 +133,8 @@ $script:Extra = @{}
       <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="Gray"/>
     </StackPanel>
   </DockPanel>
-  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-  <Grid Margin="0,0,6,0">
+  <ScrollViewer x:Name="svMain" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <Grid Margin="0,0,8,0">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
@@ -161,8 +171,10 @@ $script:Extra = @{}
     <GroupBox Grid.Row="3" Header="Windows Home auf Pro umstellen - Intune braucht Pro oder Pro Education (optional - leer lassen = aus)" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="MAK (Pro)" VerticalAlignment="Center"/>
-        <DockPanel Grid.Row="0" Grid.Column="1"><CheckBox x:Name="cShowEd" ToolTip="MAK im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pEdKey" ToolTip="Volumenlizenz-Schlüssel (MAK) für Windows Pro, Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX.&#x0a;Windows Home lässt keine Intune-Verwaltung zu, dafür braucht es Pro oder Pro Education (auch Education, Enterprise).&#x0a;Nur für Geräte mit Windows Home: go.ps1 fragt am Gerät nach, stellt auf Pro um (Neustart) und aktiviert danach mit diesem Schlüssel.&#x0a;Jede Aktivierung zählt beim MAK mit. Geräte mit Pro, Pro Education, Education oder Enterprise werden nicht angefasst.&#x0a;Steht im Klartext in config.json - Stick nicht aus der Hand geben. Leer = Funktion aus." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tEdKey" ToolTip="MAK für Windows Pro im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
+        <DockPanel Grid.Row="0" Grid.Column="1"><CheckBox x:Name="cShowEd" ToolTip="MAK im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pEdKey" ToolTip="Volumenlizenz-Schlüssel (MAK) für Windows Pro, Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX.&#x0a;Windows Home lässt keine Intune-Verwaltung zu, dafür braucht es Pro oder Pro Education (auch Education, Enterprise).&#x0a;Nur für Geräte mit Windows Home: go.ps1 fragt am Gerät nach, stellt auf Pro um (Neustart) und aktiviert danach mit diesem Schlüssel.&#x0a;Jede Aktivierung zählt beim MAK mit. Geräte mit Pro, Pro Education, Education oder Enterprise werden nicht angefasst.&#x0a;ACHTUNG: Der MAK steht im Klartext in config.json auf jedem Stick. Nur für Einzelfälle eintragen, nicht für Massen-Rollouts,&#x0a;Stick nicht aus der Hand geben und das Feld danach wieder leeren (3. Speichern, 5. Auf Stick kopieren). Leer = Funktion aus." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tEdKey" ToolTip="MAK für Windows Pro im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
+        <TextBlock Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Foreground="#FFC0392B" TextWrapping="Wrap" Text="Nur für Einzelfälle: Der MAK liegt im Klartext auf dem Stick. Nicht für Massen-Rollouts, danach wieder leeren." ToolTip="Der Schlüssel steht unverschlüsselt in HUPilot\config.json auf jedem bespielten Stick. Wer den Stick hat, kann ihn lesen." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
     <GroupBox Grid.Row="4" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
@@ -203,7 +215,28 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog','svMain') { $ui[$n] = $win.FindName($n) }
+
+# Fenster an den Bildschirm anpassen: nie groesser als der Arbeitsbereich (ohne Taskleiste) und ganz sichtbar.
+# Auf kleinen Notebooks (z. B. 1366x768 oder hohe Skalierung) ragte das Fenster sonst unter die Taskleiste.
+function Set-WinFit($w) {
+    try {
+        $wa = [System.Windows.SystemParameters]::WorkArea
+        if ($w.Height -gt $wa.Height) { $w.Height = [math]::Max($w.MinHeight, $wa.Height) }
+        if ($w.Width -gt $wa.Width) { $w.Width = [math]::Max($w.MinWidth, $wa.Width) }
+        $w.WindowStartupLocation = 'Manual'
+        $w.Left = $wa.Left + [math]::Max(0, ($wa.Width - $w.Width) / 2)
+        $w.Top = $wa.Top + [math]::Max(0, ($wa.Height - $w.Height) / 2)
+    } catch { }
+}
+Set-WinFit $win
+# Mausrad scrollt immer das ganze Formular (ausser im Protokoll und in einer offenen Auswahlliste)
+$ui.svMain.Add_PreviewMouseWheel({
+    param($s, $e)
+    if ($ui.tLog.IsMouseOver -or $ui.cDrive.IsDropDownOpen) { return }
+    $ui.svMain.ScrollToVerticalOffset($ui.svMain.VerticalOffset - ($e.Delta / 120.0 * 48))
+    $e.Handled = $true
+})
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer
 # Icon (Titelleiste + Taskleiste) und Logo

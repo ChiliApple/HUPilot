@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.7.16 - 2026-11-13
+### 🎨 Oberfläche
+- **Setup passt auf kleine Bildschirme:** Das Fenster ist nie größer als der Bildschirm ohne Taskleiste und liegt ganz im sichtbaren Bereich. Auf Notebooks mit kleiner Auflösung ragte es bisher unter die Taskleiste.
+- **Scrollbalken bedienbar:** Der Balken ist breiter, lässt sich ziehen und ein Klick neben den Balken blättert seitenweise.
+- **Mausrad scrollt das ganze Formular:** auch wenn der Mauszeiger über einem Eingabefeld steht. Im Protokoll scrollt es weiter das Protokoll.
+
+### 🪟 Windows-Edition
+- **Hinweis zum MAK:** Unter dem Feld "MAK (Pro)" steht jetzt, dass der Schlüssel im Klartext auf dem Stick liegt, nur für Einzelfälle gedacht ist und danach wieder geleert werden soll.
+
+### 🚧 Grenzen
+- Die anderen Fenster (Status, Hashes importieren, Sticks vorbereiten) sind noch nicht an kleine Bildschirme angepasst.
+
+### ✅ Qualität
+- 14 automatische Tests.
+
 ## v2.7.15 - 2026-11-13
 ### 🪟 Windows-Edition
 - **Allgemeiner Schlüssel wird als MAK abgelehnt:** Steht im Feld "MAK (Pro)" einer der allgemeinen Schlüssel von Microsoft, speichert das Setup nicht und sagt warum. Diese Schlüssel stellen nur um, sie aktivieren nicht.
