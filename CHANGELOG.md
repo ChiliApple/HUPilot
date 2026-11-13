@@ -32,6 +32,7 @@
 - **Stand sichtbar:** neben "4. WLAN-Paket bauen" steht "Paket: aktuell", "veraltet", "fehlt" oder "unbekannt".
 - **Behoben: altes Paket auf dem Stick:** Wurden WLAN oder lokale Admins geändert, kam bisher still das alte Paket auf den Stick. Jetzt fragt das Setup nach: neu bauen, trotzdem kopieren oder abbrechen.
 - **"4. WLAN-Paket bauen" speichert vorher:** braucht deshalb alle Pflichtfelder.
+- **Altes Paket auf dem Stick wird entfernt:** liegt auf dem Stick ein WLAN-Paket, das nicht aus der Quelle stammt (z. B. beim Kopieren ohne Paket), entfernt das Setup es und nennt es im Protokoll.
 
 ### 🔐 Secret und MAK
 - **Ablauf des Secrets:** Das Setup merkt sich das Ablaufdatum, wenn es lesbar ist (optional Application.Read.All).
@@ -44,7 +45,7 @@
 - **Stand und Was tun:** zwei neue Spalten in Klartext, die Zeile ist grün, gelb oder rot hinterlegt.
 - **Deutsche Spalten:** Reihenfolge und Breite werden gemerkt. CSV, Excel und Ausdruck haben dieselben Spalten, eingefärbt nach Stand.
 - **Neue Filter:** "nur Probleme" und "heute", auch im Zeitfilter.
-- **Aktualisiert sich selbst:** alle 60 Sekunden (abschaltbar), Auswahl, Sortierung und Filter bleiben.
+- **Aktualisiert sich selbst:** alle 60 Sekunden (abschaltbar), Auswahl, Sortierung und Filter bleiben. Das Protokoll wiederholt dabei keine gleichen Zeilen, ohne Verbindung pausiert das Aktualisieren nach zwei Versuchen.
 - **Öffnet sofort:** Fortschritt beim Laden mit grünem Punkt.
 - **Details als Fenster:** alle Angaben zum Gerät, der ganze Verlauf vom Stick und ein Knopf "Kopieren".
 - **Neue Aktionen mit Rückfrage:** "Tag ändern" für markierte Geräte und "Autopilot-Sync anstoßen". Läuft der Sync schon, kommt ein Hinweis statt eines Fehlers.
@@ -74,7 +75,7 @@
 - Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
 
 ### ✅ Qualität
-- 98 automatische Tests.
+- 107 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung

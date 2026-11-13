@@ -536,8 +536,8 @@ $script:LogFile = $null; $script:LogFileFailed = $false
 $script:LogColor = @{ OK = '#FF4CAF50'; Hinweis = '#FFFF9800'; Fehler = '#FFE57373' }
 # Stufe aus einem alten Zeilenanfang ableiten (FEHLER, FEHLT, ACHTUNG, WARNUNG, HINWEIS, ABBRUCH), Rest ohne Praefix
 function Split-LogLevel([string]$m) {
-    if ($m -match '^\s*(FEHLER|FEHLT|ABBRUCH)\b\s*:?\s*(.*)$') { return @('Fehler', $Matches[2]) }
-    if ($m -match '^\s*(ACHTUNG|WARNUNG|HINWEIS|Hinweis)\b\s*:?\s*(.*)$') { return @('Hinweis', $Matches[2]) }
+    if ($m -cmatch '^\s*(FEHLER|FEHLT|ABBRUCH)\b\s*:?\s*(.*)$') { return @('Fehler', $Matches[2]) }
+    if ($m -cmatch '^\s*(ACHTUNG|WARNUNG|HINWEIS)\b\s*:?\s*(.*)$') { return @('Hinweis', $Matches[2]) }
     return @('', $m)
 }
 # Geheimes ausblenden: bekannte Werte (Secret, Kennwoerter) durch ***, Produktschluessel bis auf die letzten 5 Zeichen
@@ -583,13 +583,18 @@ function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '',
     if ($Top) { $List.Items.Insert(0, $it) } else { [void]$List.Items.Add($it) }
     try { $List.ScrollIntoView($it) } catch { }
 }
-function Out-Log([string]$m, [string]$Level = '', [string]$Detail = '') {
+# -FileText: abweichender Text fuer die Protokolldatei (z. B. ohne Secret-Kennung). $script:QuietDedupe: beim stillen
+# Aktualisieren im Status jede gleiche Zeile nur einmal (Hashtabelle der schon geschriebenen Zeilen), sonst $null.
+$script:QuietDedupe = $null
+function Out-Log([string]$m, [string]$Level = '', [string]$Detail = '', [string]$FileText = '') {
     if (-not $Level) { $sl = Split-LogLevel $m; $Level = $sl[0]; $m = $sl[1] }
+    if ($null -ne $script:QuietDedupe) { $qk = $Level + '|' + $m; if ($script:QuietDedupe.ContainsKey($qk)) { return }; $script:QuietDedupe[$qk] = $Level }
     $sec = Get-LogSecretValues
     $m = Hide-LogSecrets $m $sec; $Detail = Hide-LogSecrets $Detail $sec
     $time = Get-Date -Format 'HH:mm:ss'
     $text = $(if ($Level) { $Level + ': ' + $m } else { $m })
-    Write-LogFile ((Get-Date -Format 'yyyy-MM-dd ') + $time + '  ' + $text + $(if ($Detail) { "`r`n                     Details: " + ($Detail -replace "`r?`n", ' | ') } else { '' }))
+    $ftext = $(if ($FileText) { $(if ($Level) { $Level + ': ' } else { '' }) + (Hide-LogSecrets $FileText $sec) } else { $text })
+    Write-LogFile ((Get-Date -Format 'yyyy-MM-dd ') + $time + '  ' + $ftext + $(if ($Detail) { "`r`n                     Details: " + ($Detail -replace "`r?`n", ' | ') } else { '' }))
     Add-LogItem $ui.lLog $Level ($time + '  ' + $text) $Detail $script:LogTop
 }
 # Protokoll eines Unterfensters: gleiche Stufen und Farben, auch in die Datei (mit Fensternamen)
@@ -632,13 +637,22 @@ $ui.lLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.In
 # ---------- Ampeln je Schritt (offen, laeuft, ok, Warnung, Fehler) ----------
 $script:LampColor = @{ open = '#FF6A6A6A'; run = '#FF42A5F5'; ok = '#FF4CAF50'; warn = '#FFFF9800'; err = '#FFE57373' }
 $script:LampText  = @{ open = 'offen'; run = 'läuft ...'; ok = 'OK'; warn = 'Warnung'; err = 'Fehler' }
+$script:LampNote = @{}
 function Set-Step([string]$Step, [string]$State, [string]$Note = '') {
     $e = $ui['e' + $Step]
     if (-not $e -or -not $script:LampColor.ContainsKey($State)) { return }
+    $script:LampNote[$Step] = $Note
     try {
         $e.Fill = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($script:LampColor[$State]))
         $e.ToolTip = 'Stand: ' + $script:LampText[$State] + $(if ($Note) { ' - ' + $Note } else { '' }) + '  (' + (Get-Date -Format 'HH:mm') + ')'
     } catch { }
+}
+# Waehrend Stick fertig machen, Kopieren und Paketbau: alle Knoepfe sperren, die verschachtelt mitlaufen koennten (zaehlt Ebenen)
+$script:Busy = $false; $script:BusyDepth = 0
+function Set-UiBusy([bool]$On) {
+    if ($On) { $script:BusyDepth++ } else { $script:BusyDepth = [math]::Max(0, $script:BusyDepth - 1) }
+    $script:Busy = ($script:BusyDepth -gt 0)
+    foreach ($n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd', 'bStatus', 'bHash', 'bReload', 'cDrive', 'bLnk') { try { $ui[$n].IsEnabled = -not $script:Busy } catch { } }
 }
 function Get-Drive { if ($ui.cDrive.SelectedItem) { return ([string]$ui.cDrive.SelectedItem).Substring(0, 2) } return $null }
 # Gewaehlter Stick nur, wenn er noch da ist. Prueft ueber .NET (nicht ueber PowerShell-Laufwerke): ein abgezogener oder
@@ -1208,25 +1222,43 @@ $ui.bLoad.Add_Click({
         $q = [System.Windows.MessageBox]::Show($win, ('Es gibt ungespeicherte Änderungen.' + "`r`n`r`n" + 'Verwerfen und config.json neu laden?'), 'HUPilot - Neu laden', 'YesNo', 'Warning')
         if ($q -ne 'Yes') { Out-Log 'Neu laden abgebrochen, die Änderungen bleiben im Fenster.'; return }
     }
+    $rc = Read-CfgFile $p
+    if (-not $rc.Cfg) { Out-Log $rc.Error 'Fehler' $rc.Detail; return }
     $script:Loading = $true
     try {
-        $c = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+        $c = $rc.Cfg
         $ui.tTenant.Text = [string]$c.Tenant; $ui.tTenantId.Text = [string]$c.TenantId; $ui.tClientId.Text = [string]$c.ClientId
         Set-Secret ([string]$c.ClientSecret); $ui.tTag.Text = [string]$c.GroupTag; $ui.tTagChoices.Text = (@($c.TagChoices) -join ', ')
         $ui.tSsid.Text = [string]$c.WlanSsid; Set-Masked 'Key' ([string]$c.WlanKey)
         $ui.tAdmName.Text = [string]$c.AdminName; Set-Masked 'AdmPw' ([string]$c.AdminPassword); $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
         $ui.tAdm2Name.Text = [string]$c.Admin2Name; Set-Masked 'Adm2Pw' ([string]$c.Admin2Password); $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -eq $true)
         Set-EdKey ([string]$c.EditionKey)
-        # Ablaufdatum des Secrets gilt nur fuer genau dieses Secret (bei geaendertem Secret: unbekannt)
-        $script:SecretExpLoaded = [string]$c.SecretExpires; $script:SecretExpLoadedFor = Get-StrHash ([string]$c.ClientSecret).Trim()
+        # Ablaufdatum des Secrets gilt nur fuer genau dieses Secret (bei geaendertem Secret: unbekannt).
+        # Immer ins Vertragsformat bringen: PS 7 liefert aus ConvertFrom-Json ein DateTime, [string] davon waere ein anderes Format.
+        $script:SecretExpLoaded = Format-UtcText (ConvertTo-UtcDate $c.SecretExpires); $script:SecretExpLoadedFor = Get-StrHash ([string]$c.ClientSecret).Trim()
         $script:Extra = @{}
         foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages','EditionKey','SecretExpires') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log 'Einstellungen geladen (config.json)' 'OK' $p
-    } catch { Out-Log 'config.json konnte nicht gelesen werden. Felder prüfen, neu ausfüllen und speichern.' 'Fehler' ($p + ': ' + $_.Exception.Message) }
+    } catch { Out-Log 'Einstellungen konnten nicht übernommen werden. Felder prüfen, neu ausfüllen und speichern.' 'Fehler' ($p + ': ' + $_.Exception.GetType().Name) }
     finally { $script:Loading = $false }
     $script:SavedSnap = Get-CfgSnap
     Update-Dirty
 })
+
+# config.json lesen. Rueckgabe @{ Cfg; Error; Detail }. Bei kaputtem JSON nie die Meldung des Parsers weitergeben:
+# Windows PowerShell 5.1 haengt dort den ganzen Dateiinhalt an (mit Secret und Kennwoertern).
+function Read-CfgFile([string]$Path) {
+    $raw = $null
+    try { $raw = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8) }
+    catch { return @{ Cfg = $null; Error = 'config.json konnte nicht geöffnet werden. Ist der Stick noch da oder die Datei in einem anderen Programm offen?'; Detail = ($Path + ': ' + $_.Exception.GetType().Name) } }
+    try {
+        $c = $raw | ConvertFrom-Json
+        if ($null -eq $c -or $c -isnot [System.Management.Automation.PSCustomObject]) { throw 'kein Objekt' }
+        return @{ Cfg = $c; Error = ''; Detail = '' }
+    } catch {
+        return @{ Cfg = $null; Error = 'config.json ist beschädigt (kein gültiges Format). Felder neu ausfüllen und "3. Speichern" klicken, das schreibt die Datei neu.'; Detail = $Path }
+    }
+}
 
 # ---------- Ungespeicherte Aenderungen: Vergleich mit dem zuletzt geladenen/gespeicherten Stand ----------
 $script:Dirty = $false; $script:Loading = $false; $script:SavedSnap = $null
@@ -1249,6 +1281,17 @@ function Get-BytesSha([byte[]]$Bytes) {
     try { return (($sha.ComputeHash($Bytes) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $sha.Dispose() }
 }
 function Get-StrHash([string]$s) { return (Get-BytesSha ([System.Text.Encoding]::UTF8.GetBytes([string]$s))) }
+# SHA256 mit Zwischenspeicher (gleicher Pfad, gleiche Groesse, gleiche Aenderungszeit = gleicher Wert)
+$script:ShaCache = @{}
+function Get-FileShaCached([string]$Path) {
+    $fi = New-Object System.IO.FileInfo($Path)
+    $k = $Path + '|' + $fi.Length + '|' + $fi.LastWriteTimeUtc.Ticks
+    if ($null -eq $script:ShaCache) { $script:ShaCache = @{} }
+    if ($script:ShaCache.ContainsKey($k)) { return $script:ShaCache[$k] }
+    $h = Get-FileSha $Path
+    $script:ShaCache = @{}; $script:ShaCache[$k] = $h
+    return $h
+}
 function Get-FileSha([string]$Path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
     $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'Read')
@@ -1301,7 +1344,11 @@ function Get-ApiToken {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $body = @{ grant_type = 'client_credentials'; client_id = $c.ClientId; client_secret = $c.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
-        return (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 30).access_token
+        $tr = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 30
+        # fuer Get-ApiTokenCached merken (5 Minuten Reserve vor dem Ablauf)
+        $sec = 3600; try { $sec = [int]$tr.expires_in } catch { }
+        $script:TokCache = @{ Token = [string]$tr.access_token; Until = (Get-Date).AddSeconds([math]::Max(0, $sec - 300)); For = (Get-StrHash ($c.TenantId + '|' + $c.ClientId + '|' + $c.ClientSecret)) }
+        return $tr.access_token
     } catch {
         $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }
         $hasResp = $false; try { $hasResp = ($null -ne $_.Exception.Response) } catch { }
@@ -1318,6 +1365,14 @@ function Get-ApiToken {
     }
 }
 
+# Token wiederverwenden, solange es gilt und Tenant, App und Secret gleich sind (Status-Aktualisierung alle 60 s)
+$script:TokCache = $null
+function Get-ApiTokenCached {
+    $c = Get-Cfg
+    $tc = $script:TokCache
+    if ($tc -and $tc.Token -and (Get-Date) -lt $tc.Until -and $tc.For -eq (Get-StrHash ($c.TenantId + '|' + $c.ClientId + '|' + $c.ClientSecret))) { $script:TokenErr = ''; return $tc.Token }
+    return (Get-ApiToken)
+}
 function Format-Rest([TimeSpan]$Span) {
     if ($Span.TotalSeconds -le 0) { return 'abgelaufen' }
     $d = [int][Math]::Floor($Span.TotalDays)
@@ -1340,10 +1395,12 @@ function Show-SecretExpiry([string]$Token) {
             $span = $end - (Get-Date)
             $days = $span.TotalDays
             if ($null -eq $minDays -or $days -lt $minDays) { $minDays = $days; $minEnd = $end; $minUtc = $utc }
+            # Die ersten Zeichen des Secrets (hint) nur im Fenster, nicht in der Protokolldatei
             $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + ', ' + (Format-Rest $span)
-            if ($days -lt 0) { Out-Log ($txt + '. Abgelaufen: in Entra ein neues Geheimnis anlegen und eintragen.') 'Fehler' }
-            elseif ($days -lt 3) { Out-Log ($txt + '. Läuft bald ab: rechtzeitig ein neues Geheimnis anlegen.') 'Hinweis' }
-            else { Out-Log $txt 'OK' }
+            $ftx = 'Secret "' + $pc.displayName + '" gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + ', ' + (Format-Rest $span)
+            if ($days -lt 0) { $sfx = '. Abgelaufen: in Entra ein neues Geheimnis anlegen und eintragen.'; Out-Log ($txt + $sfx) 'Fehler' '' ($ftx + $sfx) }
+            elseif ($days -lt 3) { $sfx = '. Läuft bald ab: rechtzeitig ein neues Geheimnis anlegen.'; Out-Log ($txt + $sfx) 'Hinweis' '' ($ftx + $sfx) }
+            else { Out-Log $txt 'OK' '' $ftx }
         }
         if (-not $mine.Count) { Out-Log 'Das verwendete Secret ist nicht eindeutig erkannt, deshalb stehen alle Secrets der App oben.' }
         if ($mine.Count -and $null -ne $minDays) {
@@ -1381,9 +1438,10 @@ function Save-Cfg {
     if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey') -Admin)) { Set-Step 'Write' 'err' $script:FieldErr; return $false }
     try {
         $o = Get-Cfg
-        $o['SecretExpires'] = Get-SecretExpiresValue ([string]$o.ClientSecret)
+        $expUtc = ConvertTo-UtcDate (Get-SecretExpiresValue ([string]$o.ClientSecret))
+        $o['SecretExpires'] = Format-UtcText $expUtc
         [System.IO.File]::WriteAllText($srcCfg, ($o | ConvertTo-Json -Depth 3), $enc)
-        Out-Log ('Gespeichert' + $(if ($o.SecretExpires) { ' (Secret gültig bis ' + (ConvertTo-UtcDate $o.SecretExpires).ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ')' } else { '' })) 'OK' $srcCfg
+        Out-Log ('Gespeichert' + $(if ($expUtc) { ' (Secret gültig bis ' + $expUtc.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ')' } else { '' })) 'OK' $srcCfg
         $script:SecretExpLoaded = [string]$o.SecretExpires; $script:SecretExpLoadedFor = Get-StrHash ([string]$o.ClientSecret)
         $script:SavedSnap = Get-CfgSnap
         Update-Dirty
@@ -1417,7 +1475,7 @@ function Get-PkgState($c, [string]$PkgPath, [string]$FpPath) {
     try {
         $fp = Get-Content -LiteralPath $FpPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ([string]$fp.Input -ne (Get-PkgInputHash $c ([string]$fp.Salt))) { return 'veraltet' }
-        if ([string]$fp.Package -ne (Get-FileSha $PkgPath)) { return 'veraltet' }
+        if ([string]$fp.Package -ne (Get-FileShaCached $PkgPath)) { return 'veraltet' }
         return 'aktuell'
     } catch { return 'unbekannt' }
 }
@@ -1432,9 +1490,11 @@ function Update-PkgState {
     $t = $script:PkgStateText[$s]
     $ui.tPkg.Text = $t[0]
     try { $ui.tPkg.Foreground = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($t[1])) } catch { }
-    Set-Step 'Pkg' $t[2]
+    # Ist der letzte Bau gescheitert, bleibt die Ampel rot mit dem Grund, bis wieder gebaut wird
+    if ($script:PkgBuildErr) { Set-Step 'Pkg' 'err' $script:PkgBuildErr } else { Set-Step 'Pkg' $t[2] }
     return $s
 }
+$script:PkgBuildErr = ''
 
 # Kopierte Dateien kontrollieren: SHA256 von go.cmd, go.ps1, config.json, WLAN-Paket. Rueckgabe: Liste der Abweichungen
 function Test-StickCopy([string]$dr, [byte[]]$CfgBytes, [string]$PkgName) {
@@ -1448,12 +1508,20 @@ function Test-StickCopy([string]$dr, [byte[]]$CfgBytes, [string]$PkgName) {
             if ((Get-FileSha $dst) -ne (Get-FileSha $x[1])) { $bad += ($x[0] + ' weicht ab') }
         } catch { $bad += ($x[0] + ': ' + $_.Exception.Message) }
     }
+    # WLAN-Paket, Katalog oder Pruefmerkmal am Stick, die es in der Quelle nicht gibt (z. B. von einem frueheren Kopieren)
+    foreach ($x in @(Get-StaleStickPkg $dr)) { $bad += ('HUPilot\' + $x + ' liegt am Stick, gehört aber nicht zur Quelle') }
     $dc = Join-Path ($dr + '\') 'HUPilot\config.json'
     try {
         if (-not [System.IO.File]::Exists($dc)) { $bad += 'HUPilot\config.json fehlt' }
         elseif ((Get-FileSha $dc) -ne (Get-BytesSha $CfgBytes)) { $bad += 'HUPilot\config.json weicht ab' }
     } catch { $bad += ('HUPilot\config.json: ' + $_.Exception.Message) }
     return $bad
+}
+# Dateien HUPilot\HUPilot-WLAN.* am Stick, die in der Quelle fehlen (altes Paket, Katalog, Pruefmerkmal). Rueckgabe: Dateinamen
+function Get-StaleStickPkg([string]$dr) {
+    $d = Join-Path ($dr + '\') 'HUPilot'
+    if (-not [System.IO.Directory]::Exists($d)) { return @() }
+    return @(Get-ChildItem -LiteralPath $d -Filter 'HUPilot-WLAN.*' -File -Force -ErrorAction SilentlyContinue | Where-Object { -not [System.IO.File]::Exists((Join-Path $srcHU $_.Name)) } | ForEach-Object { $_.Name })
 }
 # config.json ohne MAK fuer einen einzelnen Stick (Quelle bleibt unveraendert)
 function Get-CfgBytesNoMak([string]$Path) {
@@ -1469,17 +1537,20 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         foreach ($f in 'go.cmd', 'diag.cmd', 'HUPilot-Setup.cmd') { $sf = Join-Path $srcStick $f; if (Test-Path $sf) { Copy-Item -Path $sf -Destination (Join-Path $dr $f) -Force -ErrorAction Stop } }
         $dst = Join-Path $dr 'HUPilot'
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
-        foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { $_.Name -ne 'logs' -and -not $_.Name.StartsWith('_') })) {
+        # config.json zuerst und direkt in der Zielfassung: bei "ohne MAK" steht der MAK nie auf diesem Stick,
+        # auch nicht kurz und auch nicht, wenn das Kopieren danach abbricht (eine alte config.json wird sofort ersetzt)
+        $cfgBytes = $(if ($WithMak) { [System.IO.File]::ReadAllBytes($srcCfg) } else { Get-CfgBytesNoMak $srcCfg })
+        [System.IO.File]::WriteAllBytes((Join-Path $dst 'config.json'), $cfgBytes)
+        if (-not $WithMak) { Out-Log ('Stick ' + $dr + ': ohne MAK') }
+        foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { $_.Name -ne 'logs' -and $_.Name -ne 'config.json' -and -not $_.Name.StartsWith('_') })) {
             Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force -ErrorAction Stop
         }
         # persoenliche/zwischenzeitliche Dateien nicht auf den Stick (GitHub-Token, Update-Journal, Update-Reste)
         foreach ($x in @(Get-ChildItem -Path $dst -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'GitHubToken_*.xml' -or $_.Name -eq 'pull-journal.json' -or $_.Name -match '\.(pullold|pulltmp)$' })) { Remove-Item -LiteralPath $x.FullName -Force -ErrorAction SilentlyContinue }
-        # Ohne MAK: nur die config.json dieses Sticks bekommt EditionKey leer
-        $cfgBytes = [System.IO.File]::ReadAllBytes($srcCfg)
-        if (-not $WithMak) {
-            $cfgBytes = Get-CfgBytesNoMak $srcCfg
-            [System.IO.File]::WriteAllBytes((Join-Path $dst 'config.json'), $cfgBytes)
-            Out-Log ('Stick ' + $dr + ': ohne MAK')
+        # Altes WLAN-Paket, Katalog oder Pruefmerkmal, die nicht aus der Quelle stammen, entfernen (sonst nimmt go ein falsches Paket)
+        foreach ($x in @(Get-StaleStickPkg $dr)) {
+            try { Remove-Item -LiteralPath (Join-Path $dst $x) -Force -ErrorAction Stop; Out-Log ('Stick ' + $dr + ': altes ' + $x + ' entfernt, es gehörte nicht zur Quelle') 'Hinweis' }
+            catch { Out-Log ('Stick ' + $dr + ': altes ' + $x + ' konnte nicht entfernt werden. Bitte von Hand löschen.') 'Fehler' $_.Exception.Message }
         }
         Out-Log ('Auf Stick ' + $dr + ' kopiert') '' ($srcStick + ' nach ' + $dr + '\, ohne logs und Ordner mit _')
         $rootPkg = @(Get-ChildItem -Path ($dr + '\') -Filter *.ppkg -File -ErrorAction SilentlyContinue)
@@ -1501,11 +1572,11 @@ function Confirm-PkgForCopy($Owner) {
     if ($st -eq 'fehlt') {
         Out-Log 'In der Quelle gibt es noch kein WLAN-Paket. Erst "4. WLAN-Paket bauen".' 'Hinweis'
         if ($hasIcd) {
-            $q = [System.Windows.MessageBox]::Show($Owner, ('In der Quelle gibt es noch kein WLAN-Paket.' + "`r`n`r`n" + 'Ja = jetzt bauen und dann kopieren' + "`r`n" + 'Nein = ohne WLAN-Paket kopieren' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - WLAN-Paket fehlt', 'YesNoCancel', 'Warning')
+            $q = [System.Windows.MessageBox]::Show($Owner, ('In der Quelle gibt es noch kein WLAN-Paket.' + "`r`n`r`n" + 'Ja = jetzt bauen und dann kopieren' + "`r`n" + 'Nein = ohne WLAN-Paket kopieren (ein altes WLAN-Paket auf dem Stick wird dabei entfernt)' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - WLAN-Paket fehlt', 'YesNoCancel', 'Warning')
             if ($q -eq 'Yes') { return (Build-Package -NoSave) }
             return ($q -eq 'No')
         }
-        $q = [System.Windows.MessageBox]::Show($Owner, ('In der Quelle gibt es noch kein WLAN-Paket, und ICD.exe (Windows ADK) fehlt auf diesem PC.' + "`r`n`r`n" + 'Trotzdem ohne WLAN-Paket kopieren?'), 'HUPilot - WLAN-Paket fehlt', 'YesNo', 'Warning')
+        $q = [System.Windows.MessageBox]::Show($Owner, ('In der Quelle gibt es noch kein WLAN-Paket, und ICD.exe (Windows ADK) fehlt auf diesem PC.' + "`r`n`r`n" + 'Trotzdem ohne WLAN-Paket kopieren? Ein altes WLAN-Paket auf dem Stick wird dabei entfernt.'), 'HUPilot - WLAN-Paket fehlt', 'YesNo', 'Warning')
         return ($q -eq 'Yes')
     }
     $why = $(if ($st -eq 'veraltet') { 'WLAN oder lokale Admins wurden seit dem Bau des WLAN-Pakets geändert - das Paket ist veraltet.' } else { 'Ob das WLAN-Paket zu WLAN und lokalen Admins passt, ist unbekannt (gebaut mit einer älteren Version).' })
@@ -1547,23 +1618,46 @@ function Confirm-CopyPrereqs([string]$Target, $Owner) {
 }
 
 $ui.bCopy.Add_Click({
-    $dr = Get-ReadyDrive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewählt. Stick anstecken, "Aktualisieren" klicken und bei "Stick" auswählen.' 'Fehler'; Set-Step 'Copy' 'err' 'kein Ziel-Stick'; return }
-    if (-not (Save-Cfg)) { Set-Step 'Copy' 'err' 'nicht gespeichert'; return }
-    if (-not (Confirm-PkgForCopy $win)) { Out-Log 'Kopieren abgebrochen.'; Set-Step 'Copy' 'open'; return }
-    $pre = Confirm-CopyPrereqs ('Stick ' + $dr) $win
-    if (-not $pre) { Set-Step 'Copy' 'open'; return }
-    Set-Step 'Copy' 'run'; Step-Ui
-    if (Copy-ToStick $dr $pre.WithMak) { Set-Step 'Copy' 'ok' ('Stick ' + $dr) } else { Set-Step 'Copy' 'err' $script:CopyErr }
+    if ($script:Busy) { return }
+    Set-UiBusy $true
+    try {
+        $dr = Get-ReadyDrive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewählt. Stick anstecken, "Aktualisieren" klicken und bei "Stick" auswählen.' 'Fehler'; Set-Step 'Copy' 'err' 'kein Ziel-Stick'; return }
+        if (-not (Save-Cfg)) { Set-Step 'Copy' 'err' 'nicht gespeichert'; return }
+        if (-not (Confirm-PkgForCopy $win)) { Out-Log 'Kopieren abgebrochen.'; Set-Step 'Copy' 'open'; return }
+        $pre = Confirm-CopyPrereqs ('Stick ' + $dr) $win
+        if (-not $pre) { Set-Step 'Copy' 'open'; return }
+        Set-Step 'Copy' 'run'; Step-Ui
+        if (Copy-ToStick $dr $pre.WithMak) { Set-Step 'Copy' 'ok' ('Stick ' + $dr) } else { Set-Step 'Copy' 'err' $script:CopyErr }
+    } finally { Set-UiBusy $false }
 })
 
+# ICD-Ausgabe fuer Protokoll und Datei: Kennwoerter (roh und XML-escapt) und den Base64-Block der -EncodedCommand-Zeile ausblenden
+function Hide-IcdText([string]$Line, $c, [string]$B64 = '') {
+    $vals = @()
+    foreach ($s in @($c.WlanKey, $c.AdminPassword, $c.Admin2Password)) { if ($s) { $vals += [string]$s; $vals += [System.Security.SecurityElement]::Escape([string]$s) } }
+    if ($B64) { $vals += $B64 }
+    foreach ($v in @($vals | Where-Object { $_ } | Sort-Object Length -Descending)) { $Line = $Line.Replace($v, '***') }
+    $Line = [regex]::Replace($Line, '(?i)(-EncodedCommand\s+)[A-Za-z0-9+/=]{16,}', '$1***')
+    return $Line.Trim()
+}
 # ---------- 4. WLAN-Paket bauen (speichert vorher, schreibt den Fingerabdruck) ----------
 function Build-Package([switch]$NoSave) {
+    $script:PkgBuildErr = ''
+    Set-UiBusy $true
+    try {
+        $ok = [bool](Build-PackageCore -NoSave:$NoSave)
+        if (-not $ok) { $n = [string]$script:LampNote['Pkg']; $script:PkgBuildErr = $(if ($n) { $n } else { 'nicht gebaut' }); Set-Step 'Pkg' 'err' $script:PkgBuildErr }
+        return $ok
+    } finally { Set-UiBusy $false }
+}
+function Build-PackageCore([switch]$NoSave) {
     if (-not $NoSave) { if (-not (Save-Cfg)) { Set-Step 'Pkg' 'err' 'nicht gespeichert'; return $false } }
     if (-not (Test-Fields @('WlanSsid', 'WlanKey') -Admin)) { Set-Step 'Pkg' 'err' $script:FieldErr; return $false }
     if (-not (Test-Path $icd)) { Out-Log 'WLAN-Paket kann hier nicht gebaut werden: ICD.exe fehlt. Windows ADK mit "Imaging and Configuration Designer" installieren (die Store-App reicht nicht) oder ohne ADK Tools\New-WcdProjekt.ps1 laut INSTALL.md nehmen.' 'Fehler' $icd; Set-Step 'Pkg' 'err' 'ICD.exe fehlt'; return $false }
     Set-Step 'Pkg' 'run'; Step-Ui
     $c = Get-Cfg
     $okBuild = $false
+    $b64 = ''
     $work = Join-Path $env:TEMP ('HUPilot-WCD-' + [guid]::NewGuid().ToString('N'))
     try {
         New-Item -ItemType Directory -Path $work -Force | Out-Null
@@ -1620,7 +1714,7 @@ function Build-Package([switch]$NoSave) {
             if ($p.ExitCode -eq 0 -and (Test-Path $ppkg)) { Out-Log 'WLAN-Paket gebaut' 'OK' ($ppkg + ' (' + (Get-Item $ppkg).Length + ' Bytes)'); $okBuild = $true; break }
             $lines = @()
             foreach ($f in @($outF, $errF)) { if (Test-Path $f) { $lines += @(Get-Content -Path $f -ErrorAction SilentlyContinue | Where-Object { $_.Trim() }) } }
-            $det = @($lines | Select-Object -Last 30 | ForEach-Object { $ln = [string]$_; foreach ($sec in @($c.WlanKey, $c.AdminPassword, $c.Admin2Password)) { if ($sec) { $ln = $ln.Replace($sec, '***') } }; $ln.Trim() }) -join ' | '
+            $det = @($lines | Select-Object -Last 30 | ForEach-Object { Hide-IcdText ([string]$_) $c $b64 }) -join ' | '
             if (-not $det) { $det = 'ICD.exe hat keine Ausgabe geliefert' }
             Out-Log ('ICD.exe konnte das Paket so nicht bauen (Exitcode ' + $p.ExitCode + ').' + $(if ($stores.Count -gt 1 -and $store -ne $stores[-1]) { ' Zweiter Versuch folgt.' } else { '' })) 'Hinweis' $det
         }
@@ -1633,7 +1727,7 @@ function Build-Package([switch]$NoSave) {
     if (-not $okBuild) { Set-Step 'Pkg' 'err' 'nicht gebaut' }
     return $okBuild
 }
-$ui.bPkg.Add_Click({ [void](Build-Package) })
+$ui.bPkg.Add_Click({ if (-not $script:Busy) { [void](Build-Package) } })
 
 # protokoll.csv von Quelle und Ziel-Stick: je Seriennummer die neueste Zeile ($map) und alle Zeilen ($script:ProtoAll, fuer Details)
 function Read-Protokoll {
@@ -2097,26 +2191,43 @@ function Show-Status {
     }
     $pulse = New-Object System.Windows.Media.Animation.DoubleAnimation(1.0, 0.2, (New-Object System.Windows.Duration([TimeSpan]::FromMilliseconds(600))))
     $pulse.AutoReverse = $true; $pulse.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
+    # -Auto: Aufruf vom Timer. Dann gleiche Protokollzeilen nur einmal (bis sich etwas aendert) und nach zwei
+    # Fehlschlaegen ohne Verbindung pausieren. Ein Klick auf Aktualisieren laeuft immer laut und startet den Timer wieder.
+    $sst.Seen = @{}; $sst.Fails = 0; $sst.Paused = $false
     $load = {
+        param([bool]$Auto = $false)
         if ($sst.Loading) { return }
         $sst.Loading = $true; $g.bReload.IsEnabled = $false
         $g.ePulse.Visibility = 'Visible'; $g.ePulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $pulse)
         Set-Step 'Status' 'run'
+        if ($Auto) { $script:QuietDedupe = $sst.Seen } else { $script:QuietDedupe = $null; $sst.Seen.Clear() }
         try {
             $d = Get-StatusData -Progress { param($t) $g.tLoad.Text = $t; $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
             if ($d) {
+                $sst.Fails = 0
+                # Fehler und Hinweise duerfen nach einem erfolgreichen Durchgang wieder einmal erscheinen
+                foreach ($k in @($sst.Seen.Keys)) { if ($sst.Seen[$k] -in 'Fehler', 'Hinweis') { $sst.Seen.Remove($k) } }
+                if ($sst.Paused -and $g.cAuto.IsChecked) { $sst.Paused = $false; $tm.Start() }
                 $script:SRows = @($d.Rows); & $fillTags
                 if ($sst.First) { $g.cProto.IsChecked = ($d.Proto.Count -gt 0); $g.cProto.IsEnabled = ($d.Proto.Count -gt 0); $sst.First = $false }
                 $g.tStamp.Text = 'Stand: ' + (Get-Date -Format 'HH:mm')
                 $g.tLoad.Text = ''
                 Set-Step 'Status' 'ok' ('' + @($d.Rows).Count + ' Geräte')
-            } else { $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Set-Step 'Status' 'err' 'nicht geladen' }
+            } else {
+                $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Set-Step 'Status' 'err' 'nicht geladen'
+                if ($Auto) {
+                    $sst.Fails++
+                    if ($sst.Fails -ge 2 -and $script:TokenErr -eq 'net') { $tm.Stop(); $sst.Paused = $true; $g.tLoad.Text = 'Automatisches Aktualisieren pausiert: keine Verbindung. "Aktualisieren" klicken, um es wieder zu starten.' }
+                }
+            }
         } catch { $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Out-Log 'Status konnte nicht geladen werden.' 'Fehler' $_.Exception.Message; Set-Step 'Status' 'err' $_.Exception.Message }
         finally {
+            $script:QuietDedupe = $null
             $sst.Loading = $false; $g.bReload.IsEnabled = $true
             $g.ePulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null); $g.ePulse.Visibility = 'Collapsed'
         }
-        & $refresh
+        # Auffrischen der Liste abgesichert: ein Fehler darf das Fenster (und den Timer-Aufruf) nicht abstuerzen lassen
+        try { & $refresh } catch { Out-Log 'Die Liste im Status-Fenster konnte nicht aufgefrischt werden.' 'Fehler' $_.Exception.Message }
     }
     foreach ($k in @($tiles.Keys)) { $tiles[$k].Add_Click({ $t = [string]$this.Tag; if (-not $t -or $sst.Tile -eq $t) { $sst.Tile = '' } else { $sst.Tile = $t }; & $refresh }) }
     $g.cTag.Add_SelectionChanged({ if (-not $sst.Loading) { & $refresh } })
@@ -2125,13 +2236,13 @@ function Show-Status {
     $g.cZeitBasis.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
     $g.tFind.Add_TextChanged({ & $refresh })
     $g.dGrid.Add_SelectionChanged({ $g.tCount.Text = ('' + @($script:StatusView).Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' })) })
-    $g.bReload.Add_Click({ & $load })
+    $g.bReload.Add_Click({ & $load $false; if ($g.cAuto.IsChecked -and -not $sst.Paused) { $tm.Start() } })
     $g.bClose.Add_Click({ $sw.Close() })
     $g.cAuto.Add_Click({ Set-UiSetting 'StatusAuto' ([bool]$g.cAuto.IsChecked) })
     # Automatisch aktualisieren: nicht waehrend Laden oder offenem Dialog
     $tm = New-Object System.Windows.Threading.DispatcherTimer
     $tm.Interval = [TimeSpan]::FromSeconds(60)
-    $tm.Add_Tick({ if ($g.cAuto.IsChecked -and -not $sst.Loading -and -not $sst.Dialog) { & $load } })
+    $tm.Add_Tick({ if ($g.cAuto.IsChecked -and -not $sst.Loading -and -not $sst.Dialog) { & $load $true } })
     $sw.Add_Closing({
         $tm.Stop()
         try { Set-UiSetting 'StatusCols' @($g.dGrid.Columns | ForEach-Object { $_.SortMemberPath + '|' + $_.DisplayIndex + '|' + [int]$_.ActualWidth }) } catch { }
@@ -2245,7 +2356,7 @@ function Show-Status {
         } catch { Out-Log 'Drucken fehlgeschlagen. Drucker prüfen und nochmal versuchen.' 'Fehler' $_.Exception.Message }
         finally { $sst.Dialog = $false }
     })
-    $sw.Add_ContentRendered({ & $load; $tm.Start() })
+    $sw.Add_ContentRendered({ & $load $false; $tm.Start() })
     [void]$sw.ShowDialog()
     $tm.Stop()
 }
@@ -2254,7 +2365,7 @@ function Show-Status {
 function Get-StatusData([scriptblock]$Progress = $null) {
     $say = { param($t) if ($Progress) { & $Progress $t } }
     & $say 'Anmeldung bei Microsoft ...'
-    $tok = Get-ApiToken; if (-not $tok) { return $null }
+    $tok = Get-ApiTokenCached; if (-not $tok) { return $null }
     $h = @{ Authorization = 'Bearer ' + $tok }
     $all = @()
     try {
@@ -2609,7 +2720,7 @@ function Show-HashImport {
         $e.Cancel = $true
         if ($hst.Abort) { return }
         $q = [System.Windows.MessageBox]::Show($hw, ('Der Import läuft noch.' + "`r`n`r`n" + 'Abbrechen? Bereits importierte Geräte bleiben in Autopilot, erledigte Zeilen werden noch nach hashes-erledigt.csv verschoben. Das Fenster schließt danach von selbst.'), 'HUPilot - Import abbrechen', 'YesNo', 'Question')
-        if ($q -eq 'Yes') { $hst.Abort = $true; $hst.CloseAfter = $true; & $hlog 'Abbruch angefordert - warte auf den laufenden Schritt ...' }
+        if ($q -eq 'Yes') { $hst.Abort = $true; $hst.CloseAfter = $true; & $hlog 'Abbruch angefordert, warte auf den laufenden Schritt ...' 'Hinweis' }
     })
     $g.bClose.Add_Click({ $hw.Close() })
     $g.bAdd.Add_Click({
@@ -2711,7 +2822,6 @@ function Show-HashImport {
 $ui.bHash.Add_Click({ Show-HashImport })
 
 # ---------- Hauptknopf: Stick fertig machen (alle Schritte, Abbruch beim ersten echten Fehler mit Meldung in Klartext) ----------
-$script:Busy = $false
 function Stop-Ready([string]$Step, [string]$Msg, [switch]$Quiet) {
     if ($Step) { Set-Step $Step $(if ($Quiet) { 'open' } else { 'err' }) $Msg }
     Set-Step 'Ready' $(if ($Quiet) { 'open' } else { 'err' }) $Msg
@@ -2723,6 +2833,8 @@ function Stop-Ready([string]$Step, [string]$Msg, [switch]$Quiet) {
 function Invoke-StickReadyCore {
     $nl = "`r`n"
     $warn = @()
+    foreach ($s in 'Test', 'Tags', 'Write', 'Copy') { Set-Step $s 'open' }
+    if (-not $script:PkgBuildErr) { Set-Step 'Pkg' 'open' }
     Set-Step 'Ready' 'run'; $ui.tReady.Text = 'läuft ...'; Out-Log '=== Stick fertig machen ==='; Step-Ui
     # 1. Ziel-Stick
     $dr = Get-ReadyDrive
@@ -2748,7 +2860,8 @@ function Invoke-StickReadyCore {
         Set-Step 'Test' 'ok'
         # 4. Tags: nur warnen
         Set-Step 'Tags' 'run'; Step-Ui
-        $tr = Get-TagReport @{ Authorization = 'Bearer ' + $tok }
+        try { $tr = Get-TagReport @{ Authorization = 'Bearer ' + $tok } }
+        catch { $tr = @{ Rows = @(); Bad = @(); GErr = $false; Info = ''; Error = ('Tags nicht prüfbar: ' + $_.Exception.Message) } }
         if ($tr.Error) { Set-Step 'Tags' 'warn' $tr.Error; $warn += ('Tags nicht geprüft: ' + $tr.Error) }
         elseif ($tr.Bad.Count) { $t = 'Tag(s) ohne Autopilot-Profil: ' + (($tr.Bad | ForEach-Object { $_.Tag }) -join ', '); Set-Step 'Tags' 'warn' $t; $warn += ($t + ' - Geräte mit diesem Tag bekommen kein Profil') }
         elseif ($tr.GErr) { Set-Step 'Tags' 'warn' 'Gruppen nicht lesbar'; $warn += 'Tags nur teilweise geprüft (Group.Read.All fehlt)' }
@@ -2783,10 +2896,10 @@ function Invoke-StickReadyCore {
 }
 function Invoke-StickReady {
     if ($script:Busy) { return }
-    $script:Busy = $true; $ui.bReady.IsEnabled = $false
+    Set-UiBusy $true
     try { Invoke-StickReadyCore }
     catch { Stop-Ready '' ('Unerwarteter Fehler: ' + $_.Exception.Message) }
-    finally { $script:Busy = $false; $ui.bReady.IsEnabled = $true }
+    finally { Set-UiBusy $false }
 }
 $ui.bReady.Add_Click({ Invoke-StickReady })
 
@@ -2794,8 +2907,10 @@ $ui.bReady.Add_Click({ Invoke-StickReady })
 $script:NoClosePrompt = $false
 $win.Add_Closing({
     param($s, $e)
-    if ($SmokeTest -or $script:NoClosePrompt) { return }
-    if ($script:Busy) { $e.Cancel = $true; Show-Msg 'Stick fertig machen läuft noch - bitte warten, bis es fertig ist.' 'HUPilot-Setup'; return }
+    if ($SmokeTest) { return }
+    # Laufender Vorgang geht vor allem anderen (auch vor dem Update-Neustart)
+    if ($script:Busy) { $e.Cancel = $true; Show-Msg 'Ein Vorgang läuft noch (Stick fertig machen, Kopieren oder Paketbau). Bitte warten, bis er fertig ist.' 'HUPilot-Setup'; return }
+    if ($script:NoClosePrompt) { return }
     Update-Dirty
     if (-not $script:Dirty) { return }
     $q = [System.Windows.MessageBox]::Show($win, ('Es gibt ungespeicherte Änderungen.' + "`r`n`r`n" + 'Ja = speichern und schließen' + "`r`n" + 'Nein = verwerfen und schließen' + "`r`n" + 'Abbrechen = weiterarbeiten'), 'HUPilot-Setup schließen', 'YesNoCancel', 'Question')

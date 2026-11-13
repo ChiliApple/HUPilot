@@ -12,7 +12,7 @@ BeforeAll {
     $script:SetupAst = $ast
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
-        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx'
+        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
     . ([scriptblock]::Create($script:FnText))
@@ -216,7 +216,7 @@ Describe 'Setup: Anmeldung und Secret-Ablauf' {
     }
     It 'SecretExpires bleibt aus den Zusatzfeldern heraus und wird gespeichert' {
         $script:SetupText | Should -Match "'EditionKey','SecretExpires'\) \{ \`$script:Extra"
-        $script:SetupText | Should -Match "\`$o\['SecretExpires'\] = Get-SecretExpiresValue"
+        $script:SetupText | Should -Match "\`$expUtc = ConvertTo-UtcDate \(Get-SecretExpiresValue"
     }
 }
 
@@ -316,7 +316,7 @@ Describe 'Setup: Kopieren auf den Stick' {
         $script:SetupText | Should -Match "contains\(serialNumber,'`" \+ \(\[string\]\`$r\.Seriennr\)\.Replace\(`"'`", `"''`"\)"
     }
     It 'Starttest bekommt nie eine Rueckfrage beim Schliessen' {
-        $script:SetupText | Should -Match "\`$win\.Add_Closing\(\{\s+param\(\`$s, \`$e\)\s+if \(\`$SmokeTest -or \`$script:NoClosePrompt\) \{ return \}"
+        $script:SetupText | Should -Match "\`$win\.Add_Closing\(\{\s+param\(\`$s, \`$e\)\s+if \(\`$SmokeTest\) \{ return \}"
     }
 }
 
@@ -407,5 +407,96 @@ Describe 'Setup: Status in Klartext' {
     It 'Automatisch aktualisieren: Timer stoppt beim Schliessen, nicht bei offenem Dialog' {
         $script:SetupText | Should -Match '\$tm\.Add_Tick\(\{ if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\)'
         $script:SetupText | Should -Match '\$sw\.Add_Closing\(\{\s+\$tm\.Stop\(\)'
+    }
+}
+
+Describe 'Setup: Befunde der Pruefung' {
+    It 'Kopieren ohne MAK: config.json wird nie mit MAK auf den Stick geschrieben' {
+        $srcStick = Join-Path $TestDrive 'MQ'; $srcHU = Join-Path $srcStick 'HUPilot'; $srcCfg = Join-Path $srcHU 'config.json'; $srcPkg = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
+        $dst = Join-Path $TestDrive 'MZ'
+        New-Item -ItemType Directory -Path $srcHU, (Join-Path $dst 'HUPilot') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $srcStick 'go.cmd') -Value '@echo go' -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $srcHU 'go.ps1') -Value '# go' -Encoding UTF8
+        $cfg = New-TestCfg; $cfg.EditionKey = 'AAAAA-BBBBB-CCCCC-DDDDD-EEEEE'; $cfg.WlanPackage = ''
+        [System.IO.File]::WriteAllText($srcCfg, ($cfg | ConvertTo-Json -Depth 3), $script:enc)
+        # alte config.json mit MAK auf dem Stick: muss sofort ersetzt werden
+        [System.IO.File]::WriteAllText((Join-Path $dst 'HUPilot\config.json'), ($cfg | ConvertTo-Json -Depth 3), $script:enc)
+        $script:TestCfg = $cfg
+        Copy-ToStick $dst $false | Should -BeTrue
+        (Get-Content (Join-Path $dst 'HUPilot\config.json') -Raw -Encoding UTF8) | Should -Not -Match 'AAAAA-BBBBB'
+        $script:SetupText | Should -Match "Where-Object \{ \`$_\.Name -ne 'logs' -and \`$_\.Name -ne 'config\.json' -and"
+        # config.json wird vor der Kopierschleife geschrieben
+        $i1 = $script:SetupText.IndexOf("[System.IO.File]::WriteAllBytes((Join-Path `$dst 'config.json'), `$cfgBytes)")
+        $i2 = $script:SetupText.IndexOf("`$_.Name -ne 'config.json' -and")
+        $i1 | Should -BeGreaterThan 0
+        $i1 | Should -BeLessThan $i2
+    }
+    It 'altes WLAN-Paket am Stick, das nicht aus der Quelle stammt, wird entfernt und sonst gemeldet' {
+        $srcStick = Join-Path $TestDrive 'PQ'; $srcHU = Join-Path $srcStick 'HUPilot'; $srcCfg = Join-Path $srcHU 'config.json'; $srcPkg = Join-Path $srcHU 'HUPilot-WLAN.ppkg'
+        $dst = Join-Path $TestDrive 'PZ'
+        New-Item -ItemType Directory -Path $srcHU, (Join-Path $dst 'HUPilot') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $srcStick 'go.cmd') -Value '@echo go' -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $srcHU 'go.ps1') -Value '# go' -Encoding UTF8
+        $cfg = New-TestCfg; [System.IO.File]::WriteAllText($srcCfg, ($cfg | ConvertTo-Json -Depth 3), $script:enc)
+        foreach ($n in 'HUPilot-WLAN.ppkg', 'HUPilot-WLAN.cat', 'HUPilot-WLAN.fingerprint.json') { [System.IO.File]::WriteAllBytes((Join-Path $dst ('HUPilot\' + $n)), [byte[]](1..5)) }
+        @(Get-StaleStickPkg $dst).Count | Should -Be 3
+        $cb = [System.IO.File]::ReadAllBytes($srcCfg)
+        (@(Test-StickCopy $dst $cb 'HUPilot-WLAN.ppkg') -join ';') | Should -Match 'HUPilot-WLAN\.ppkg liegt am Stick'
+        $script:TestCfg = $cfg
+        Copy-ToStick $dst $true | Should -BeTrue
+        @(Get-StaleStickPkg $dst).Count | Should -Be 0
+    }
+    It 'kaputte config.json: Meldung ohne Dateiinhalt (unter 5.1 steht er in der Parser-Meldung)' {
+        $p = Join-Path $TestDrive 'kaputt.json'
+        [System.IO.File]::WriteAllText($p, '{"ClientSecret":"geheim-xyz" "WlanKey":"wlan-xyz"}', $script:enc)
+        $r = Read-CfgFile $p
+        $r.Cfg | Should -BeNullOrEmpty
+        ($r.Error + $r.Detail) | Should -Not -Match 'geheim-xyz'
+        ($r.Error + $r.Detail) | Should -Not -Match 'wlan-xyz'
+        $r.Error | Should -Match '3\. Speichern'
+        $ok = Join-Path $TestDrive 'gut.json'; [System.IO.File]::WriteAllText($ok, '{"Tenant":"T"}', $script:enc)
+        (Read-CfgFile $ok).Cfg.Tenant | Should -Be 'T'
+    }
+    It 'SecretExpires aus config.json bleibt im Vertragsformat (PS 7 liefert DateTime), unlesbar = leer' {
+        $o = '{"SecretExpires":"2026-11-20T08:30:00Z","Leer":"","Kaputt":"morgen"}' | ConvertFrom-Json
+        Format-UtcText (ConvertTo-UtcDate $o.SecretExpires) | Should -Be '2026-11-20T08:30:00Z'
+        Format-UtcText (ConvertTo-UtcDate $o.Leer) | Should -Be ''
+        Format-UtcText (ConvertTo-UtcDate $o.Kaputt) | Should -Be ''
+        $script:SetupText | Should -Match '\$script:SecretExpLoaded = Format-UtcText \(ConvertTo-UtcDate \$c\.SecretExpires\)'
+        $script:SetupText | Should -Match "\`$o\['SecretExpires'\] = Format-UtcText \`$expUtc"
+        $script:SetupText | Should -Not -Match '\(ConvertTo-UtcDate \$o\.SecretExpires\)\.ToLocalTime\(\)'
+    }
+    It 'ICD-Ausgabe: Kennwoerter roh und XML-escapt sowie der Base64-Block werden ausgeblendet' {
+        $c = New-TestCfg; $c.WlanKey = 'a<b&c"d1'; $c.AdminPassword = 'Admin&Pw1'
+        $b64 = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo='
+        $o = Hide-IcdText ('Key a&lt;b&amp;c&quot;d1 und a<b&c"d1, Admin&amp;Pw1, -EncodedCommand ' + $b64 + ' und -EncodedCommand QUJDREVGR0hJSktMTU5PUA==') $c $b64
+        $o | Should -Not -Match 'a&lt;b'
+        $o | Should -Not -Match 'a<b&c'
+        $o | Should -Not -Match 'Admin&amp;Pw1'
+        $o | Should -Not -Match 'QUJDREVGR0hJSktM'
+    }
+    It 'Stufen werden nicht mehr aus kleingeschriebenen Woertern geraten' {
+        (Split-LogLevel 'Abbruch angefordert, warte')[0] | Should -Be ''
+        (Split-LogLevel 'Fehlerhafte Zeile')[0] | Should -Be ''
+        (Split-LogLevel 'FEHLER: x')[0] | Should -Be 'Fehler'
+    }
+    It 'Secret-Kennung (hint) nicht in der Protokolldatei, Knoepfe gesperrt, Busy vor Update-Neustart' {
+        $script:SetupText | Should -Match "Out-Log \`$txt 'OK' '' \`$ftx"
+        $script:SetupText | Should -Match "\`$ftx = 'Secret `"' \+ \`$pc\.displayName \+ '`" gültig bis"
+        $script:SetupText | Should -Match "foreach \(\`$n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd'"
+        $i1 = $script:SetupText.IndexOf('if ($script:Busy) { $e.Cancel = $true')
+        $i2 = $script:SetupText.IndexOf('if ($script:NoClosePrompt) { return }')
+        $i1 | Should -BeGreaterThan 0
+        $i1 | Should -BeLessThan $i2
+    }
+    It 'Status: stilles Aktualisieren, Token wiederverwenden, Pause nach zwei Netzfehlern, Auffrischen abgesichert' {
+        $script:SetupText | Should -Match '\$tm\.Add_Tick\(\{ if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\) \{ & \$load \$true \} \}\)'
+        $script:SetupText | Should -Match '\$tok = Get-ApiTokenCached; if \(-not \$tok\) \{ return \$null \}'
+        $script:SetupText | Should -Match "if \(\`$sst\.Fails -ge 2 -and \`$script:TokenErr -eq 'net'\) \{ \`$tm\.Stop\(\)"
+        $script:SetupText | Should -Match 'try \{ & \$refresh \} catch \{ Out-Log'
+    }
+    It 'ui.json schreibt eine Spaltenliste auch mit einem Eintrag als Liste' {
+        $o = [ordered]@{}; $o['StatusCols'] = @('Stand|0|120')
+        ([pscustomobject]$o | ConvertTo-Json -Compress) | Should -Be '{"StatusCols":["Stand|0|120"]}'
     }
 }
