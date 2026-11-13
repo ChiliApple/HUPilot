@@ -82,6 +82,7 @@ $WipePs1    = 'C:\Windows\Temp\HUPilot-Wipe.ps1'
 $WipeLog    = 'C:\Windows\Temp\HUPilot-Wipe.log'
 $WipeResult = 'C:\Windows\Temp\HUPilot-Wipe.result'
 $ProfileWaitMin = 20
+$ProfileRounds = 4      # Weg Zuruecksetzen: hoechstens so viele Warterunden zu $ProfileWaitMin, ohne Profil wird nie von selbst zurueckgesetzt
 $GB = 'https://graph.microsoft.com/beta'
 
 # ---------- Live-Anzeige beim Warten: EINE Zeile, die sich jede Sekunde selbst aktualisiert ----------
@@ -159,9 +160,14 @@ function Read-KeyTimeout {
     $until = (Get-Mono) + $Seconds
     $res = ''
     $halt = $false
+    $haltAt = 0.0
     if (-not $Hint) { $Hint = 'Enter' + $(if (@($Valid).Count) { ' oder ' + ((@($Valid) | Where-Object { $_ -ne 'Y' }) -join ' / ') } else { '' }) }
     try {
-        if ([Console]::IsInputRedirected) { throw 'Eingabe umgeleitet - Standard' }
+        if ([Console]::IsInputRedirected) {
+            if (-not $script:KeyRedirLogged) { Log 'Tastatur: Eingabe umgeleitet - es gilt jeweils der Standard'; $script:KeyRedirLogged = $true }
+            Complete-Live
+            return ''
+        }
         while ($halt -or (Get-Mono) -lt $until) {
             if ([Console]::KeyAvailable) {
                 $key = [Console]::ReadKey($true)
@@ -169,7 +175,10 @@ function Read-KeyTimeout {
                 $a = Test-KeyAnswer $raw $Valid
                 if ($a) { $res = $a; break }
                 if (-not $halt) { $halt = $true; Log 'Countdown angehalten (Taste ohne Bedeutung)' }
+                $haltAt = Get-Mono
             }
+            # Angehalten und 60 s keine weitere Taste: Countdown laeuft von vorn (unbeaufsichtigtes Geraet bleibt nicht ewig stehen)
+            if ($halt -and ((Get-Mono) - $haltAt) -ge 60) { $halt = $false; $until = (Get-Mono) + $Seconds; Log 'Countdown läuft wieder (60 s ohne Taste)' }
             if ($halt) { Show-Live -NoPre ('Countdown angehalten - bitte ' + $Hint + ' drücken') }
             elseif ($Label) { Show-Live -NoPre ($Label + ' in ' + [int][math]::Ceiling($until - (Get-Mono)) + ' s') }
             Start-Sleep -Milliseconds 200
@@ -260,6 +269,7 @@ function Get-EndText {
     # Drei Saetze je Endzustand; -Was / -Tun ersetzen den Standard (Fehlertext, Grund)
     param([string]$State, [string]$Was = '', [string]$Tun = '')
     $min = 20; if ($ProfileWaitMin) { $min = [int]$ProfileWaitMin }
+    $rounds = 4; if ($ProfileRounds) { $rounds = [int]$ProfileRounds }
     $nr = 'Nichts, das Gerät wurde nicht zurückgesetzt.'
     $t = switch ($State) {
         'Fehler'                    { 'Ein Fehler ist aufgetreten.', $nr, 'Nochmal D:\go, klappt es wieder nicht: Foto von diesem Bild an den Admin.' }
@@ -268,7 +278,7 @@ function Get-EndText {
         'Offline'                   { 'Der Hash ist nur am Stick gespeichert, nicht hochgeladen.', $nr, 'Stick abziehen und am PC im Setup "Hashes importieren".' }
         'Abbruch'                   { 'Der Vorgang wurde abgebrochen.', $nr, 'Zum Fortsetzen nochmal D:\go starten.' }
         'NeustartAbgebrochen'       { 'Der Neustart wurde mit A abgebrochen.', 'Nichts, das Gerät startet nicht von selbst neu.', 'Stick abziehen und das Gerät von Hand neu starten.' }
-        'ResetWarten'               { 'Das Gerät ist in Autopilot hochgeladen.', ('Es wartet bis zu ' + $min + ' Minuten auf das Profil und setzt sich dann selbst zurück.'), 'Stick abziehen und zum nächsten Gerät, dieses Gerät nicht ausschalten.' }
+        'ResetWarten'               { 'Das Gerät ist in Autopilot hochgeladen.', ('Es wartet bis zu ' + ($min * $rounds) + ' Minuten auf das Profil und setzt sich erst dann selbst zurück, ohne Profil nicht.'), 'Stick abziehen und zum nächsten Gerät, dieses Gerät nicht ausschalten.' }
         'ResetStart'                { 'Upload und Autopilot-Profil sind fertig.', 'Das Gerät setzt sich in wenigen Minuten selbst zurück und startet neu.', 'Nichts, Gerät nicht ausschalten und zum nächsten Gerät.' }
         'ResetStartOhneProfil'      { 'Der Upload ist fertig, zurückgesetzt wird ohne Profil (Taste J).', 'Das Gerät setzt sich in wenigen Minuten selbst zurück, danach kommt das normale Windows-Setup.', 'Nichts, Gerät nicht ausschalten.' }
         'KeinProfilEnde'            { 'Es ist noch kein Autopilot-Profil da.', 'Nichts, das Gerät wurde nicht zurückgesetzt und bleibt im Einrichtungsbildschirm.', 'Später Stick rein, Shift+F10, D:\go, kommt das Profil nie: den Admin fragen.' }
@@ -485,11 +495,21 @@ function Get-EdMarkBase {
     return $h
 }
 $UpnPattern = '^[^@\s,]+@[^@\s,]+\.[^@\s,]+$'
+function Test-EdMarkOwner {
+    # Gehoert die Merkdatei Edition zu diesem Geraet? (Seriennummer gleich, sonst wie nicht vorhanden behandeln)
+    param($M, [string]$Serial)
+    return [bool]($M -and $Serial -and ([string]$M.Seriennr).Trim() -ceq $Serial.Trim())
+}
 function Get-EdMarkAnswers {
     # Gemerkte Antworten (Tag, Benutzer, Zuruecksetzen) aus der Merkdatei Edition, sonst $null.
-    # Nur vollstaendig und gueltig; nach erfolgter Aktivierung nicht mehr anbieten. Schluessel stehen nie in der Merkdatei.
-    param($M, [string]$Pattern)
+    # Nur fuer dieses Geraet (Seriennummer), hoechstens 24 Stunden alt (Feld Zeit, unlesbar = nicht anbieten),
+    # vollstaendig und gueltig; nach erfolgter Aktivierung nicht mehr. Schluessel stehen nie in der Merkdatei.
+    param($M, [string]$Pattern, [string]$Serial, [datetime]$Now = (Get-Date))
     if (-not $M -or $M.Aktiviert -eq $true) { return $null }
+    if (-not (Test-EdMarkOwner $M $Serial)) { return $null }
+    $z = [datetime]::MinValue
+    if (-not [datetime]::TryParseExact(([string]$M.Zeit).Trim(), 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$z)) { return $null }
+    if ([math]::Abs(($Now - $z).TotalHours) -gt 24) { return $null }
     $a = $M.Antworten
     if (-not $a) { return $null }
     $tag = ([string]$a.Tag).Trim()
@@ -517,7 +537,7 @@ try { [void][regex]::new($TagPattern) } catch { Fail ('TagPattern in config.json
 if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Der Standard-Tag "' + $cfg.GroupTag + '" passt nicht zum erlaubten Muster ' + $TagPattern + '. Am PC im Setup den Group Tag korrigieren.') }
 # Mindest-Akku VOR der ersten Verwendung lesen (Wait-Power bei Home auf Pro und vor dem Zuruecksetzen)
 if ($null -ne $cfg.MinBattery) {
-    try { $MinBattery = [int][math]::Max(0, [math]::Min(100, [int]$cfg.MinBattery)) } catch { Log ('MinBattery in config.json ungültig (' + [string]$cfg.MinBattery + ') - bleibt ' + $MinBattery) }
+    try { $MinBattery = [int][math]::Max(0, [int]$cfg.MinBattery) } catch { Log ('MinBattery in config.json ungültig (' + [string]$cfg.MinBattery + ') - bleibt ' + $MinBattery) }
 }
 Log ('Mindest-Akku ohne Netzteil: ' + $MinBattery + ' %')
 # Tag-Auswahl gleich pruefen: ungueltige Eintraege ausblenden statt erst nach der Wahl rot abzubrechen
@@ -556,7 +576,10 @@ function Wait-Power {
         'Wartet, bis das Netzteil steckt.   J = trotzdem weiter')
     while (-not $p.Ok) {
         # ohne -Valid: jede Taste kehrt zurueck, damit der Strom weiter alle 5 s geprueft wird
+        $t0 = Get-Mono
         $k = Read-KeyTimeout 5 ('Strom: ' + $p.Text + '  |  nächste Prüfung')
+        # kam sofort zurueck (umgeleitete Eingabe): selbst 5 s warten, damit die Schleife nicht ohne Pause dreht
+        if (-not $k) { $rest = 5 - ((Get-Mono) - $t0); if ($rest -gt 0.5) { Start-Sleep -Milliseconds ([int]($rest * 1000)) } }
         if ($k -eq 'J' -or $k -eq 'Y') { Log ('Strom-Warnung übergangen: ' + $p.Text); break }
         $p = Get-PowerInfo
     }
@@ -583,7 +606,12 @@ $EdMarkLocal = 'C:\Windows\Temp\HUPilot-Edition.json'
 $EdMarkStick = Join-Path $CfgDir ('logs\edition_' + $Serial + '.json')
 $EdMark = $null
 foreach ($f in $EdMarkLocal, $EdMarkStick) {
-    if (-not $EdMark -and (Test-Path -LiteralPath $f)) { try { $EdMark = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Log ('Merkdatei Edition nicht lesbar: ' + $f) } }
+    if ($EdMark -or -not (Test-Path -LiteralPath $f)) { continue }
+    $m = $null
+    try { $m = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Log ('Merkdatei Edition nicht lesbar: ' + $f) }
+    # Nur die Merkdatei dieses Geraets zaehlt (Rueckfrage W, Aktivierung, gemerkte Antworten)
+    if ($m -and -not (Test-EdMarkOwner $m $Serial)) { Log ('Merkdatei Edition gehört zu einem anderen Gerät (Seriennr ' + [string]$m.Seriennr + ') - wie nicht vorhanden behandelt: ' + $f); continue }
+    $EdMark = $m
 }
 $EdId = ''
 try { $EdId = [string](Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction Stop).EditionID } catch { }
@@ -675,7 +703,7 @@ if ($IsHome) {
 $DoReset = $true
 if ($null -ne $cfg.Reset) { $DoReset = [bool]$cfg.Reset }
 $useSaved = $false
-$Saved = Get-EdMarkAnswers $EdMark $TagPattern
+$Saved = Get-EdMarkAnswers $EdMark $TagPattern $Serial
 if ($Saved) {
     Write-Host ('  Antworten vom letzten Start (' + [string]$EdMark.Zeit + '):') -ForegroundColor Cyan
     Write-Host ('    Group Tag    : ' + $Saved.Tag)
@@ -793,7 +821,7 @@ if ($IsHome) {
     Fail ('Windows hat nach 2 Versuchen nicht auf Pro umgestellt - Edition weiter ' + $EdId + '. Nochmal: D:\go und W drücken. Sonst über Windows: Einrichtung mit lokalem Konto abschließen, Einstellungen > Aktivierung > Product Key ändern, dann HUPilot erneut')
 }
 # Nach erfolgreicher Umstellung: Merkdatei da, Edition jetzt Pro -> nach dem Netz aktivieren (siehe unten)
-$EdActivate = ($EdMark -and $EdKey -and -not $EdKeyIsGeneric -and -not $EdMark.Aktiviert -and $EdId -match '^Professional')
+$EdActivate = ($EdMark -and (Test-EdMarkOwner $EdMark $Serial) -and $EdKey -and -not $EdKeyIsGeneric -and -not $EdMark.Aktiviert -and $EdId -match '^Professional')
 
 # ---------- Schutz: nur im Einrichtungsbildschirm (OOBE) ohne Benutzerdaten ----------
 if ($DoReset) {
@@ -1532,7 +1560,6 @@ $GreenAt = Get-Mono
 # zurueckgesetzt wird ohne Profil NUR auf ausdruecklichen Tastendruck J, N bricht ab.
 # Hoechstens $ProfileRounds Runden (4 x 20 Min = 80 Min), danach gelb und NICHT zurueckgesetzt.
 Show-Step 5 'Profil'
-$ProfileRounds = 4
 $round = 1
 $wr = Wait-ApProfile -Round ('1/' + $ProfileRounds)
 while (-not $wr.Assigned) {

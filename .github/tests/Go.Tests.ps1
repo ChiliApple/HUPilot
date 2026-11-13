@@ -92,7 +92,7 @@ Describe 'go: Ablauf des Secrets (SecretExpires)' {
 
 Describe 'go: Merkdatei Edition mit gemerkten Antworten' {
     BeforeAll {
-        . ([scriptblock]::Create((Get-GoFunctionText 'Save-EdMark', 'Get-EdMarkBase', 'Get-EdMarkAnswers')))
+        . ([scriptblock]::Create((Get-GoFunctionText 'Save-EdMark', 'Get-EdMarkBase', 'Test-EdMarkOwner', 'Get-EdMarkAnswers')))
         function Log([string]$Msg) { }
     }
     It 'schreibt Antworten lokal und am Stick und liest sie wieder' {
@@ -102,15 +102,15 @@ Describe 'go: Merkdatei Edition mit gemerkten Antworten' {
         foreach ($f in $EdMarkLocal, $EdMarkStick) {
             Test-Path $f | Should -BeTrue
             $m = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json
-            $a = Get-EdMarkAnswers $m $script:Pat
+            $a = Get-EdMarkAnswers $m $script:Pat 'SER1' ([datetime]'2026-11-13 12:00:00')
             $a.Tag | Should -Be 'SN-2025'
             $a.Benutzer | Should -Be 'max@test.example'
             $a.Reset | Should -BeTrue
         }
     }
     It 'keine Antworten nach erfolgter Aktivierung, ohne Antworten oder mit ungueltigen Werten' {
-        $ok = '{"Aktiviert":false,"Antworten":{"Tag":"SN-2025","Benutzer":"","Zuruecksetzen":false}}' | ConvertFrom-Json
-        $a = Get-EdMarkAnswers $ok $script:Pat
+        $ok = '{"Seriennr":"SER1","Zeit":"2026-11-13 10:00:00","Aktiviert":false,"Antworten":{"Tag":"SN-2025","Benutzer":"","Zuruecksetzen":false}}' | ConvertFrom-Json
+        $a = Get-EdMarkAnswers $ok $script:Pat 'SER1' ([datetime]'2026-11-13 12:00:00')
         $a.Reset | Should -BeFalse
         $a.Benutzer | Should -Be ''
         Get-EdMarkAnswers ('{"Aktiviert":true,"Antworten":{"Tag":"SN-2025","Benutzer":"","Zuruecksetzen":true}}' | ConvertFrom-Json) $script:Pat | Should -BeNullOrEmpty
@@ -119,6 +119,26 @@ Describe 'go: Merkdatei Edition mit gemerkten Antworten' {
         Get-EdMarkAnswers ('{"Aktiviert":false,"Antworten":{"Tag":"SN-2025","Benutzer":"keine-mail","Zuruecksetzen":true}}' | ConvertFrom-Json) $script:Pat | Should -BeNullOrEmpty
         Get-EdMarkAnswers ('{"Aktiviert":false,"Antworten":{"Tag":"SN-2025","Benutzer":"","Zuruecksetzen":"ja"}}' | ConvertFrom-Json) $script:Pat | Should -BeNullOrEmpty
         Get-EdMarkAnswers $null $script:Pat | Should -BeNullOrEmpty
+    }
+    It 'nur fuer dieses Geraet und hoechstens 24 Stunden alt' {
+        $j = '{"Seriennr":"SER1","Zeit":"2026-11-13 10:00:00","Aktiviert":false,"Antworten":{"Tag":"SN-2025","Benutzer":"","Zuruecksetzen":true}}'
+        $m = $j | ConvertFrom-Json
+        (Get-EdMarkAnswers $m $script:Pat 'SER1' ([datetime]'2026-11-13 12:00:00')).Tag | Should -Be 'SN-2025'
+        Get-EdMarkAnswers $m $script:Pat 'SER2' ([datetime]'2026-11-13 12:00:00') | Should -BeNullOrEmpty
+        Get-EdMarkAnswers $m $script:Pat '' ([datetime]'2026-11-13 12:00:00') | Should -BeNullOrEmpty
+        Get-EdMarkAnswers $m $script:Pat 'SER1' ([datetime]'2026-11-14 10:00:01') | Should -BeNullOrEmpty
+        (Get-EdMarkAnswers $m $script:Pat 'SER1' ([datetime]'2026-11-14 09:59:00')).Tag | Should -Be 'SN-2025'
+        Get-EdMarkAnswers ($j.Replace('2026-11-13 10:00:00', '13.11.2026 10:00') | ConvertFrom-Json) $script:Pat 'SER1' ([datetime]'2026-11-13 12:00:00') | Should -BeNullOrEmpty
+        Get-EdMarkAnswers ($j.Replace('"Zeit":"2026-11-13 10:00:00",', '') | ConvertFrom-Json) $script:Pat 'SER1' ([datetime]'2026-11-13 12:00:00') | Should -BeNullOrEmpty
+        Get-EdMarkAnswers ($j.Replace('"Seriennr":"SER1",', '') | ConvertFrom-Json) $script:Pat 'SER1' ([datetime]'2026-11-13 12:00:00') | Should -BeNullOrEmpty
+        Test-EdMarkOwner $m 'SER1' | Should -BeTrue
+        Test-EdMarkOwner $m 'ser1' | Should -BeFalse
+        Test-EdMarkOwner $null 'SER1' | Should -BeFalse
+    }
+    It 'Merkdatei eines anderen Geraets zaehlt weder fuer W noch fuer die Aktivierung' {
+        $script:GoText | Should -Match 'if \(\$m -and -not \(Test-EdMarkOwner \$m \$Serial\)\) \{ Log \(''Merkdatei Edition gehört zu einem anderen Gerät[^\r\n]*; continue \}'
+        $script:GoText | Should -Match '\$EdActivate = \(\$EdMark -and \(Test-EdMarkOwner \$EdMark \$Serial\)'
+        $script:GoText | Should -Match '\$Saved = Get-EdMarkAnswers \$EdMark \$TagPattern \$Serial'
     }
     It 'Neuschreiben ohne Antworten behaelt die Merkdatei (kein stiller zweiter Versuch)' {
         $m = '{"Seriennr":"SER1","Zeit":"2026-11-13 10:00:00","Von":"Core","Ziel":"Professional","Aktiviert":false,"Antworten":{"Tag":"SN-2025","Benutzer":"","Zuruecksetzen":true}}' | ConvertFrom-Json
@@ -131,7 +151,7 @@ Describe 'go: Merkdatei Edition mit gemerkten Antworten' {
         $EdMarkStick = Join-Path $TestDrive 'stick2.json'
         Save-EdMark $b
         Test-Path $EdMarkLocal | Should -BeTrue
-        Get-EdMarkAnswers (Get-Content -LiteralPath $EdMarkLocal -Raw -Encoding UTF8 | ConvertFrom-Json) $script:Pat | Should -BeNullOrEmpty
+        Get-EdMarkAnswers (Get-Content -LiteralPath $EdMarkLocal -Raw -Encoding UTF8 | ConvertFrom-Json) $script:Pat 'SER1' ([datetime]'2026-11-13 12:00:00') | Should -BeNullOrEmpty
     }
     It 'in die Merkdatei kommen keine Schluessel' {
         $lines = @($script:GoText -split "`r?`n" | Where-Object { $_ -match 'Save-EdMark ' -and $_ -notmatch '^\s*function ' })
@@ -222,7 +242,7 @@ Describe 'go: Ablauf und Sicherheit (Quelltext)' {
         while ($p -and $p -isnot [System.Management.Automation.Language.IfStatementAst]) { $p = $p.Parent }
         $p.Clauses[0].Item1.Extent.Text | Should -Be "`$k -eq 'J' -or `$k -eq 'Y'"
         $loop[0].Body.Extent.Text | Should -Match "Read-KeyTimeout 60 'ohne Eingabe: weiter warten' -Valid 'J', 'Y', 'N'"
-        $script:GoText | Should -Match '(?m)^\$ProfileRounds = 4\r?$'
+        $script:GoText | Should -Match '(?m)^\$ProfileRounds = 4\b'
         $script:GoText | Should -Not -Match "Read-Host '  J / N'"
     }
     It 'Schutz vor eingerichteten Geraeten (LOESCHEN) und Akku-Pruefung bleiben' {
@@ -296,5 +316,30 @@ Describe 'go: einheitliches Abschlussbild (drei Saetze)' {
             $b.Extent.Text | Should -Match 'Get-EndLines' -Because $title
         }
         $script:GoText | Should -Not -Match "ABBRUCH[^\r\n]*; exit 1 \}"
+    }
+}
+
+Describe 'go: Nachbesserungen (Countdown, Strom, Akku, Wartetext)' {
+    It 'angehaltener Countdown laeuft nach 60 s ohne Taste von vorn' {
+        $f = @($script:GoTop | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Read-KeyTimeout' })[0].Extent.Text
+        $f | Should -Match 'if \(\$halt -and \(\(Get-Mono\) - \$haltAt\) -ge 60\) \{ \$halt = \$false; \$until = \(Get-Mono\) \+ \$Seconds; Log '
+        $f | Should -Match '\$haltAt = Get-Mono'
+    }
+    It 'umgeleitete Eingabe wird nur einmal geloggt, Wait-Power wartet dann selbst 5 s' {
+        $f = @($script:GoTop | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Read-KeyTimeout' })[0].Extent.Text
+        $f | Should -Match 'if \(-not \$script:KeyRedirLogged\)'
+        $w = @($script:GoTop | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Wait-Power' })[0].Extent.Text
+        $w | Should -Match 'if \(-not \$k\) \{ \$rest = 5 - \(\(Get-Mono\) - \$t0\); if \(\$rest -gt 0\.5\) \{ Start-Sleep'
+    }
+    It 'MinBattery nur nach unten begrenzt (ueber 100 = immer Netzteil)' {
+        $script:GoText | Should -Match '\$MinBattery = \[int\]\[math\]::Max\(0, \[int\]\$cfg\.MinBattery\)'
+        $script:GoText | Should -Not -Match 'Min\(100, \[int\]\$cfg\.MinBattery'
+    }
+    It 'Wartetext Zuruecksetzen nennt die echte Gesamtdauer' {
+        . ([scriptblock]::Create((Get-GoFunctionText 'Get-EndText')))
+        $ProfileWaitMin = 20; $ProfileRounds = 4
+        (Get-EndText 'ResetWarten').Jetzt | Should -Match 'bis zu 80 Minuten.*ohne Profil nicht'
+        $ProfileWaitMin = 15; $ProfileRounds = 2
+        (Get-EndText 'ResetWarten').Jetzt | Should -Match 'bis zu 30 Minuten'
     }
 }
