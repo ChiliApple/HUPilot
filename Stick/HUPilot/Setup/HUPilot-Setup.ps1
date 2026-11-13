@@ -297,7 +297,7 @@ $script:HuThemeXaml = @'
     <Setter Property="MinRowHeight" Value="26"/>
     <Setter Property="CellStyle"><Setter.Value>
       <Style TargetType="DataGridCell">
-        <Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="8,3,12,3"/>
+        <Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="8,3,8,3"/>
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridCell">
           <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
             <ContentPresenter VerticalAlignment="Center" SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
@@ -321,7 +321,7 @@ $script:HuThemeXaml = @'
     </Setter.Value></Setter>
     <Setter Property="ColumnHeaderStyle"><Setter.Value>
       <Style TargetType="DataGridColumnHeader">
-        <Setter Property="Background" Value="{DynamicResource HuHeaderBg}"/><Setter Property="Foreground" Value="{DynamicResource HuHeaderText}"/><Setter Property="Padding" Value="8,5,12,5"/>
+        <Setter Property="Background" Value="{DynamicResource HuHeaderBg}"/><Setter Property="Foreground" Value="{DynamicResource HuHeaderText}"/><Setter Property="Padding" Value="8,5,8,5"/>
         <Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/><Setter Property="BorderThickness" Value="0,0,1,1"/>
       </Style>
     </Setter.Value></Setter>
@@ -636,6 +636,55 @@ function Set-WinFit($w) {
         $w.Top = [math]::Max($wa.Top, [math]::Min($top, $wa.Bottom - $wh))
     } catch { }
 }
+# ---------- Spaltenbreite = breitester Inhalt (Kopf eingeschlossen) plus ein festes Stueck Luft, nie mehr ----------
+#   Gemessen wird der Text selbst ueber ALLE Zeilen (die Auto-Breite der Tabelle misst nur sichtbare Zeilen und wird nie kleiner).
+#   Keine Stern-Breite, keine gemerkten Breiten. Obergrenze je Spalte, darueber Auslassung mit Tooltip auf den vollen Text.
+# $Content/$Header: gemessene Breite in Pixeln. $Air: Zellabstand links und rechts plus Rahmen. Kopf mit Platz fuer den Sortierpfeil.
+function Get-FitWidth([double]$Content, [double]$Header, [double]$Air = 18, [double]$Max = 320) {
+    $w = [math]::Max($Content, $Header + 12) + $Air
+    return [math]::Ceiling([math]::Min($w, $Max))
+}
+function Measure-TextWidth([string]$Text, $Typeface, [double]$Size) {
+    if (-not $Text) { return 0.0 }
+    $ft = New-Object System.Windows.Media.FormattedText($Text, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $Typeface, $Size, [System.Windows.Media.Brushes]::Black)
+    return $ft.WidthIncludingTrailingWhitespace
+}
+# Zellen kuerzen mit "..." und den vollen Text als Tooltip zeigen (nur sichtbar, wenn gekuerzt wurde, sonst ist er gleich)
+$script:TrimStyles = @{}
+function Get-TrimStyle([string]$Path) {
+    if (-not $script:TrimStyles.ContainsKey($Path)) {
+        $script:TrimStyles[$Path] = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding Path=' + $Path + '}"/></Style>')
+    }
+    return $script:TrimStyles[$Path]
+}
+# Alle Spalten einer Tabelle setzen. $Max: Obergrenze je Bindungspfad (Standard 320), $Extra: Zusatz je Pfad (z. B. Schild),
+# $Bold: Pfade, deren Inhalt halbfett steht.
+function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Extra = @{}, [string[]]$Bold = @()) {
+    try {
+        $ff = $grid.FontFamily; $fs = $grid.FontSize
+        $tfN = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
+        $tfB = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::SemiBold, [System.Windows.FontStretches]::Normal)
+        $rows = @($rows)
+        foreach ($c in @($grid.Columns)) {
+            $path = ''; try { $path = [string]$c.Binding.Path.Path } catch { }
+            if (-not $path) { continue }
+            $tf = $(if ($Bold -contains $path) { $tfB } else { $tfN })
+            $m = 0.0; $seen = @{}
+            foreach ($r in $rows) {
+                $v = [string]$r.$path
+                if (-not $v -or $seen.ContainsKey($v)) { continue }
+                $seen[$v] = $true
+                $x = Measure-TextWidth $v $tf $fs
+                if ($x -gt $m) { $m = $x }
+            }
+            $h = Measure-TextWidth ([string]$c.Header) $tfN $fs
+            $mx = $(if ($Max.ContainsKey($path)) { [double]$Max[$path] } else { 320 })
+            $ex = $(if ($Extra.ContainsKey($path)) { [double]$Extra[$path] } else { 0 })
+            $c.Width = New-Object System.Windows.Controls.DataGridLength((Get-FitWidth ($m + $ex) $h 18 $mx))
+            if ($c -is [System.Windows.Controls.DataGridTextColumn] -and $null -eq $c.ElementStyle) { $c.ElementStyle = Get-TrimStyle $path }
+        }
+    } catch { }
+}
 # Fenster so breit wie die Spalten der Tabelle (Inhalt plus Luft aus dem Zellabstand), mindestens $Min, hoechstens der
 # Arbeitsbereich; danach wieder ganz in den Bildschirm. Nur wenn der Bildschirm zu schmal ist, bleibt der Querbalken.
 function Set-GridWindowWidth($w, $grid, [double]$Min = 0) {
@@ -781,15 +830,23 @@ function Copy-LogItems($List) {
 $script:LogWanted = 120
 try { $h = [double](Get-UiSetting 'LogHeight' 120); if ($h -ge 60 -and $h -le 800) { $script:LogWanted = $h } } catch { }
 $ui.lLog.Height = $script:LogWanted
+# Automatisch: das Formular bekommt so viel, wie es braucht; das Protokoll nimmt den Rest, mindestens etwa 4 Zeilen.
 function Get-LogMax {
     $avail = $ui.svMain.ActualHeight + $ui.lLog.ActualHeight
     if ($avail -le 0) { return 800 }
-    return [math]::Max(60, [math]::Min(800, $avail - 200))
+    $form = $ui.svMain.ExtentHeight; if ($form -le 0) { $form = 200 }
+    return [math]::Max(80, [math]::Min(800, $avail - $form))
 }
-function Update-LogFit { try { $ui.lLog.Height = [math]::Max(60, [math]::Min($script:LogWanted, (Get-LogMax))) } catch { } }
+# Von Hand (Ziehgriff): bis dem Formular noch etwa 200 px bleiben
+function Get-LogDragMax {
+    $avail = $ui.svMain.ActualHeight + $ui.lLog.ActualHeight
+    if ($avail -le 0) { return 800 }
+    return [math]::Max(80, [math]::Min(800, $avail - 200))
+}
+function Update-LogFit { try { $ui.lLog.Height = [math]::Max(80, [math]::Min($script:LogWanted, (Get-LogMax))) } catch { } }
 $ui.thLog.Add_DragDelta({
     param($s, $e)
-    $ui.lLog.Height = [math]::Max(60, [math]::Min((Get-LogMax), $ui.lLog.Height - $e.VerticalChange))
+    $ui.lLog.Height = [math]::Max(80, [math]::Min((Get-LogDragMax), $ui.lLog.Height - $e.VerticalChange))
     $script:LogWanted = $ui.lLog.Height
 })
 $ui.thLog.Add_DragCompleted({ Set-UiSetting 'LogHeight' ([int]$script:LogWanted) })
@@ -1261,7 +1318,7 @@ function Show-Pick([string]$Title, [string]$Hint, [object[]]$Rows, [string]$OkTe
     $g.bOk.Add_Click({ if ($g.gV.SelectedItem) { $st.Sel = $g.gV.SelectedItem; $vw.Close() } })
     $g.gV.Add_MouseDoubleClick({ if ($g.gV.SelectedItem) { $st.Sel = $g.gV.SelectedItem; $vw.Close() } })
     $g.bNo.Add_Click({ $vw.Close() })
-    $vw.Add_ContentRendered({ Set-GridWindowWidth $vw $g.gV 600 })
+    $vw.Add_ContentRendered({ Set-GridColumnsFit $g.gV @($Rows); Set-GridWindowWidth $vw $g.gV 600 })
     [void]$vw.ShowDialog()
     return $st.Sel
 }
@@ -1952,9 +2009,9 @@ $script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da
 # Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Fenster, CSV, Excel und Druck
 $script:StatusCols = @(
     @{ Key = 'Stand'; Header = 'Stand' }, @{ Key = 'WasTun'; Header = 'Was tun' }, @{ Key = 'Seriennr'; Header = 'Seriennummer' }, @{ Key = 'Tag'; Header = 'Tag' },
-    @{ Key = 'Name'; Header = 'Gerätename' }, @{ Key = 'Benutzer'; Header = 'Benutzer' }, @{ Key = 'RegDatum'; Header = 'Registriert' },
-    @{ Key = 'LetzterKontakt'; Header = 'Letzter Kontakt' }, @{ Key = 'LetzterSync'; Header = 'Letzter Sync' }, @{ Key = 'Modell'; Header = 'Modell' },
-    @{ Key = 'Profil'; Header = 'Profil' }, @{ Key = 'Intune'; Header = 'Intune' }, @{ Key = 'HUPilot'; Header = 'Stick-Protokoll' }
+    @{ Key = 'Name'; Header = 'Gerätename' }, @{ Key = 'Benutzer'; Header = 'Benutzer' }, @{ Key = 'RegDatum'; Header = 'Registriert'; Sort = 'RegSort' },
+    @{ Key = 'LetzterKontakt'; Header = 'Letzter Kontakt'; Sort = 'KontaktSort' }, @{ Key = 'LetzterSync'; Header = 'Letzter Sync'; Sort = 'SyncSort' }, @{ Key = 'Modell'; Header = 'Modell' },
+    @{ Key = 'Profil'; Header = 'Profil' }, @{ Key = 'Intune'; Header = 'Intune' }, @{ Key = 'HUPilot'; Header = 'Stick-Protokoll'; Sort = 'HUPilotSort' }
 )
 
 # Excel-Datei (.xlsx) direkt schreiben, ohne installiertes Excel: Kopfzeile fett, fixiert, mit Filter,
@@ -2263,28 +2320,33 @@ function Show-Status {
       <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte Registriert).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
       <TextBox x:Name="tFind" Width="160" Margin="14,0,0,4" VerticalAlignment="Center" ToolTip="Suche in Seriennummer, Gerätename und Benutzer"/>
     </WrapPanel>
-    <DockPanel DockPanel.Dock="Top" Margin="0,0,4,10">
-      <Button x:Name="bReload" DockPanel.Dock="Right" Content="Aktualisieren" Padding="10,2" ToolTip="Alle Daten jetzt neu aus Autopilot und Intune laden"/>
-      <CheckBox x:Name="cAuto" DockPanel.Dock="Right" Content="alle 60 s aktualisieren" VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Liste jede Minute neu laden (nicht, während ein Dialog offen ist). Auswahl, Sortierung und Filter bleiben."/>
-      <TextBlock x:Name="tStamp" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,16,0" Foreground="{DynamicResource HuMuted}" ToolTip="Zeitpunkt der letzten erfolgreichen Abfrage"/>
-      <Ellipse x:Name="ePulse" Width="10" Height="10" Fill="{DynamicResource HuOk}" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Daten werden geladen"/>
-      <TextBlock x:Name="tLoad" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" ToolTip="Fortschritt beim Laden"/>
-    </DockPanel>
+    <Grid DockPanel.Dock="Top" Margin="0,0,4,10">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <DockPanel Grid.Column="0" VerticalAlignment="Center">
+        <Ellipse x:Name="ePulse" DockPanel.Dock="Left" Width="10" Height="10" Fill="{DynamicResource HuOk}" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Daten werden geladen"/>
+        <TextBlock x:Name="tLoad" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource HuMuted}" ToolTip="Fortschritt beim Laden"/>
+      </DockPanel>
+      <StackPanel x:Name="spTopR" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+        <TextBlock x:Name="tStamp" VerticalAlignment="Center" Margin="12,0,16,0" Foreground="{DynamicResource HuMuted}" ToolTip="Zeitpunkt der letzten erfolgreichen Abfrage"/>
+        <CheckBox x:Name="cAuto" Content="alle 60 s aktualisieren" VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Liste jede Minute neu laden (nicht, während ein Dialog offen ist). Auswahl, Sortierung und Filter bleiben."/>
+        <Button x:Name="bReload" Content="Aktualisieren" Padding="10,2" ToolTip="Alle Daten jetzt neu aus Autopilot und Intune laden"/>
+      </StackPanel>
+    </Grid>
     <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
-      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+      <StackPanel x:Name="spBotR" DockPanel.Dock="Right" Orientation="Horizontal">
         <Button x:Name="bCsv" Content="CSV speichern" Padding="10,4" ToolTip="Angezeigte Zeilen als CSV (Strichpunkt getrennt) speichern, mit denselben Spalten wie im Fenster"/>
         <Button x:Name="bXlsx" Content="Excel speichern" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen als Excel-Datei (.xlsx) speichern:&#x0a;Kopfzeile fixiert mit Filter, Datum als echtes Datum, Stand eingefärbt.&#x0a;Excel muss dafür nicht installiert sein."/>
         <Button x:Name="bPrint" Content="Drucken" Padding="10,4" Margin="8,0,0,0" ToolTip="Angezeigte Zeilen drucken (Querformat, auch als PDF über Microsoft Print to PDF)"/>
         <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen"/>
       </StackPanel>
-      <StackPanel Orientation="Horizontal">
+      <StackPanel x:Name="spBotL" Orientation="Horizontal">
         <Button x:Name="bDetail" Content="Details ..." Padding="10,4" ToolTip="Angaben zur markierten Zeile mit Verlauf aus dem Stick-Protokoll (auch Doppelklick auf die Zeile)"/>
         <Button x:Name="bTagSet" Content="Tag ändern ..." Padding="10,4" Margin="8,0,0,0" ToolTip="Den markierten Geräten einen anderen Group Tag geben (Standard- oder Auswahl-Tag aus den Einstellungen). Mit Rückfrage."/>
         <Button x:Name="bSync" Content="Autopilot-Sync anstoßen" Padding="10,4" Margin="8,0,0,0" ToolTip="Microsoft gleicht Autopilot neu ab (immer für den ganzen Tenant). Hilft, wenn ein Profil nicht kommt. Höchstens alle 10 Minuten."/>
         <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" ToolTip="Anzahl der angezeigten und markierten Geräte"/>
       </StackPanel>
     </DockPanel>
-    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details. Mehrere Zeilen markieren: Strg+Klick oder Umschalt+Klick. Spalten lassen sich verschieben und in der Breite ändern (wird gemerkt)." AutoGenerateColumns="False" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="True" CanUserResizeColumns="True" SelectionMode="Extended" SelectionUnit="FullRow" HeadersVisibility="Column"/>
+    <DataGrid x:Name="dGrid" ToolTip="Doppelklick = Details. Mehrere Zeilen markieren: Strg+Klick oder Umschalt+Klick.&#x0a;Spalten lassen sich verschieben (die Reihenfolge wird gemerkt) und breiter ziehen (gilt bis zum Schließen).&#x0a;Gekürzte Texte zeigen den vollen Inhalt, wenn die Maus darüber steht." AutoGenerateColumns="False" IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="True" CanUserResizeColumns="True" SelectionMode="Extended" SelectionUnit="FullRow" HeadersVisibility="Column"/>
   </DockPanel>
 </Window>
 '@
@@ -2294,37 +2356,34 @@ function Show-Status {
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
     Set-WinFit $sw
-    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid') { $g[$n] = $sw.FindName($n) }
-    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; SavedW = $null }
+    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
+    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false }
     $script:SRows = @(); $script:StatusView = @()
-    # Spalten fest (deutsche Ueberschriften), Reihenfolge und Breite aus ui.json
-    $standStyle = $null; $wrapStyle = $null
+    # Spalten fest (deutsche Ueberschriften), Breite nach Inhalt (Set-GridColumnsFit), Reihenfolge aus ui.json
+    $standStyle = $null
     try {
         $standXaml = '<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">' +
             '<Setter Property="Padding" Value="8,2"/><Setter Property="HorizontalAlignment" Value="Left"/><Setter Property="FontWeight" Value="SemiBold"/><Style.Triggers>'
         foreach ($k in @(@('ok', 'HuStandOkBg'), @('warn', 'HuStandWarnBg'), @('err', 'HuStandErrBg'))) { $standXaml += '<DataTrigger Binding="{Binding Klasse}" Value="' + $k[0] + '"><Setter Property="Background" Value="{DynamicResource ' + $k[1] + '}"/><Setter Property="Foreground" Value="{DynamicResource HuStandText}"/></DataTrigger>' }
         $standStyle = [Windows.Markup.XamlReader]::Parse($standXaml + '</Style.Triggers></Style>')
-
-        $wrapStyle = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="TextWrapping" Value="Wrap"/></Style>')
     } catch { }
     foreach ($col in $script:StatusCols) {
         $dc = New-Object System.Windows.Controls.DataGridTextColumn
-        $dc.Header = $col.Header; $dc.Binding = New-Object System.Windows.Data.Binding($col.Key); $dc.SortMemberPath = $col.Key
-        $dc.Width = New-Object System.Windows.Controls.DataGridLength(1, [System.Windows.Controls.DataGridLengthUnitType]::Auto)
+        $dc.Header = $col.Header; $dc.Binding = New-Object System.Windows.Data.Binding($col.Key)
+        # Datumsspalten zeigen dd.MM.yyyy HH:mm, sortiert wird nach einer versteckten Fassung yyyy-MM-dd HH:mm
+        $dc.SortMemberPath = $(if ($col.Sort) { $col.Sort } else { $col.Key })
         # Stand: nur diese Zelle deutlich eingefaerbt (Schild), die Zeile bleibt neutral bzw. leicht getoent
         if ($col.Key -eq 'Stand') { try { $dc.ElementStyle = $standStyle } catch { } }
-        # Was tun: bricht um, wenn der Bildschirm fuer alle Spalten zu schmal ist (dann fuellt sie den Rest)
-        if ($col.Key -eq 'WasTun') { try { $dc.ElementStyle = $wrapStyle } catch { } }
         $g.dGrid.Columns.Add($dc)
     }
     try {
         $saved = @(Get-UiSetting 'StatusCols' @())
-        $byKey = @{}; foreach ($dc in $g.dGrid.Columns) { $byKey[$dc.SortMemberPath] = $dc }
-        # Gemerkte Breiten erst nach dem ersten Laden und nur, wenn sie mindestens so breit wie der Inhalt sind (siehe $fitStatus)
-        $sst.SavedW = @{}
-        foreach ($s in $saved) { $p = ([string]$s) -split '\|'; if ($p.Count -eq 3 -and $byKey.ContainsKey($p[0])) { $w = [double]$p[2]; if ($w -ge 30 -and $w -le 1200) { $sst.SavedW[$p[0]] = $w } } }
-        $order = @($saved | ForEach-Object { $p = ([string]$_) -split '\|'; if ($p.Count -eq 3 -and $byKey.ContainsKey($p[0])) { [pscustomobject]@{ Key = $p[0]; Ix = [int]$p[1] } } } | Sort-Object Ix)
+        $byKey = @{}; foreach ($dc in $g.dGrid.Columns) { $byKey[[string]$dc.Binding.Path.Path] = $dc }
+        # Nur die Reihenfolge wird uebernommen ("Spalte|Position"). Alte Eintraege mit Breite ("Spalte|Position|Breite")
+        # zaehlen nur mit ihrer Position, die Breite wird ignoriert und sofort aus ui.json entfernt.
+        $order = @($saved | ForEach-Object { $p = ([string]$_) -split '\|'; if ($p.Count -ge 2 -and $byKey.ContainsKey($p[0])) { [pscustomobject]@{ Key = $p[0]; Ix = [int]$p[1] } } } | Sort-Object Ix)
         if ($order.Count -eq $g.dGrid.Columns.Count) { for ($i = 0; $i -lt $order.Count; $i++) { $byKey[$order[$i].Key].DisplayIndex = $i } }
+        if (@($saved | Where-Object { ([string]$_ -split '\|').Count -gt 2 }).Count) { Set-UiSetting 'StatusCols' @($order | ForEach-Object { $_.Key + '|' + $_.Ix }) }
     } catch { }
     # Zeile nach Stand einfaerben (gruen / gelb / rot), Auswahl bleibt erkennbar (Zellen markiert in der Auswahlfarbe)
     try {
@@ -2420,22 +2479,22 @@ function Show-Status {
         }
         # Auffrischen der Liste abgesichert: ein Fehler darf das Fenster (und den Timer-Aufruf) nicht abstuerzen lassen
         try { & $refresh } catch { Out-Log 'Die Liste im Status-Fenster konnte nicht aufgefrischt werden.' 'Fehler' $_.Exception.Message }
-        # Nach dem ersten Laden mit Daten: Fenster so breit wie die Spalten (spaeteres Aktualisieren aendert die Groesse nicht)
-        if (-not $sst.Fitted -and @($script:StatusView).Count) { $sst.Fitted = $true; try { & $fitStatus } catch { } }
+        # Nach jedem Laden: Spaltenbreiten neu ueber alle Zeilen, Fenster so breit wie die Spalten
+        try { & $fitStatus } catch { }
     }
     $fitStatus = {
+        if (-not @($script:SRows).Count) { return }
+        Set-GridColumnsFit $g.dGrid $script:SRows @{ WasTun = 420 } @{ Stand = 16 } @('Stand')
         $sw.UpdateLayout()
-        if ($sst.SavedW) { foreach ($dc in $g.dGrid.Columns) { $sv = $sst.SavedW[$dc.SortMemberPath]; if ($sv -and $sv -ge $dc.ActualWidth) { $dc.Width = New-Object System.Windows.Controls.DataGridLength($sv) } } }
-        $sw.UpdateLayout()
-        $cols = 0.0; foreach ($dc in $g.dGrid.Columns) { $cols += $dc.ActualWidth }
-        $need = $cols + ($sw.ActualWidth - $g.dGrid.ActualWidth) + 20
+        # Fensterbreite = Spalten plus Raender und Scrollbalken, mindestens so breit, dass Kopfzeile und Knopfleiste ganz sichtbar sind
+        $cols = 0.0; foreach ($dc in $g.dGrid.Columns) { $cols += $dc.Width.Value }
+        $chrome = $sw.ActualWidth - $g.dGrid.ActualWidth
+        $g.spBotL.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity)); $g.spBotR.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity)); $g.spTopR.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
+        $minW = [math]::Max($g.spBotL.DesiredSize.Width + $g.spBotR.DesiredSize.Width + 24, $g.spTopR.DesiredSize.Width + 260) + $chrome
         $wa = [System.Windows.SystemParameters]::WorkArea
-        if ($need -gt $wa.Width) {
-            # Zu schmaler Bildschirm: Was tun fuellt den Rest und bricht um, damit die anderen Spalten sichtbar bleiben
-            foreach ($dc in $g.dGrid.Columns) { if ($dc.SortMemberPath -eq 'WasTun') { $dc.Width = New-Object System.Windows.Controls.DataGridLength(1, [System.Windows.Controls.DataGridLengthUnitType]::Star); $dc.MinWidth = 220 } }
-            $sw.Width = $wa.Width
-            Set-WinFit $sw
-        } else { Set-GridWindowWidth $sw $g.dGrid 1060 }
+        $target = [math]::Ceiling([math]::Min($wa.Width, [math]::Max($cols + $chrome + 20, $minW)))
+        # beim ersten Laden immer, danach nur groesser (das 60-s-Aktualisieren laesst das Fenster sonst springen)
+        if (-not $sst.Fitted -or $target -gt $sw.ActualWidth + 1) { $sst.Fitted = $true; $sw.Width = $target; Set-WinFit $sw }
     }
     foreach ($k in @($tiles.Keys)) { $tiles[$k].Add_Click({ $t = [string]$this.Tag; if (-not $t -or $sst.Tile -eq $t) { $sst.Tile = '' } else { $sst.Tile = $t }; & $refresh }) }
     $g.cTag.Add_SelectionChanged({ if (-not $sst.Loading) { & $refresh } })
@@ -2453,7 +2512,8 @@ function Show-Status {
     $tm.Add_Tick({ if ($g.cAuto.IsChecked -and -not $sst.Loading -and -not $sst.Dialog) { & $load $true } })
     $sw.Add_Closing({
         $tm.Stop()
-        try { Set-UiSetting 'StatusCols' @($g.dGrid.Columns | ForEach-Object { $_.SortMemberPath + '|' + $_.DisplayIndex + '|' + [int]$_.ActualWidth }) } catch { }
+        # nur die Reihenfolge merken, keine Breiten
+        try { Set-UiSetting 'StatusCols' @($g.dGrid.Columns | ForEach-Object { [string]$_.Binding.Path.Path + '|' + $_.DisplayIndex }) } catch { }
     })
     $detail = {
         $it = $g.dGrid.SelectedItem; if (-not $it) { $g.tCount.Text = 'Bitte zuerst eine Zeile markieren.'; return }
@@ -2612,16 +2672,16 @@ function Get-StatusData([scriptblock]$Progress = $null) {
         $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($hasDate) { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
         $es = [string]$d.enrollmentState
         $stand = Get-DeviceStand $ps $es $hasDate
-        $lc = ''
-        try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { }
+        $lc = ''; $lcS = ''
+        try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $lcS = $dt.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { }
         $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
         $im = $null
         if ($d.managedDeviceId -and $md.ContainsKey([string]$d.managedDeviceId)) { $im = $md[[string]$d.managedDeviceId] }
         elseif ($md.ContainsKey('SN:' + [string]$d.serialNumber)) { $im = $md['SN:' + [string]$d.serialNumber] }
-        $sync = ''; $reg = ''
-        if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } } catch { } }
+        $sync = ''; $syncS = ''; $reg = ''; $regS = ''
+        if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $syncS = $sd.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { } }
         $tReg = $null; $tImp = $null
-        if ($im) { try { $rd = [datetime]$im.enrolledDateTime; if ($rd.Year -gt 2000) { $tReg = $rd.ToLocalTime(); $reg = $tReg.ToString('yyyy-MM-dd HH:mm') } } catch { } }
+        if ($im) { try { $rd = [datetime]$im.enrolledDateTime; if ($rd.Year -gt 2000) { $tReg = $rd.ToLocalTime(); $reg = $tReg.ToString('dd.MM.yyyy HH:mm'); $regS = $tReg.ToString('yyyy-MM-dd HH:mm') } } catch { } }
         $pt = [datetime]::MinValue
         if ($pr -and [datetime]::TryParseExact([string]$pr.Zeit, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$pt)) { $tImp = $pt }
         if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
@@ -2636,15 +2696,19 @@ function Get-StatusData([scriptblock]$Progress = $null) {
             RegDatum       = $reg
             LetzterKontakt = $lc
             LetzterSync    = $sync
+            RegSort        = $regS
+            KontaktSort    = $lcS
+            SyncSort       = $syncS
+            HUPilotSort    = $(if ($pr) { [string]$pr.Zeit } else { '' })
             Modell         = [string]$d.model
             Profil         = $prof
             Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
-            HUPilot        = $(if ($pr) { [string]$pr.Zeit + ' ' + [string]$pr.Ergebnis } else { '' })
+            HUPilot        = $(if ($pr) { $(if ($pt -ne [datetime]::MinValue) { $pt.ToString('dd.MM.yyyy HH:mm') } else { [string]$pr.Zeit }) + ' ' + [string]$pr.Ergebnis } else { '' })
             Klasse         = $script:StandClass[$stand]
         }
     }
     # noch nicht registrierte Geraete (gerade in Arbeit) OBEN, danach die registrierten, neueste zuerst
-    $rows = @(@($rows | Where-Object { -not $_.RegDatum }) + @($rows | Where-Object { $_.RegDatum } | Sort-Object RegDatum -Descending))
+    $rows = @(@($rows | Where-Object { -not $_.RegSort }) + @($rows | Where-Object { $_.RegSort } | Sort-Object RegSort -Descending))
     Out-Log ('Status geladen: ' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus dem Stick-Protokoll') 'OK'
     return @{ Rows = $rows; Proto = $proto }
 }
@@ -2772,7 +2836,7 @@ function Show-Grid {
     $gw.FindName('tInfo').Text = $Info
     $gw.FindName('dGrid').ItemsSource = @($Rows)
     $gw.FindName('bClose').Add_Click({ $gw.Close() })
-    $gw.Add_ContentRendered({ Set-GridWindowWidth $gw $gw.FindName('dGrid') 640 })
+    $gw.Add_ContentRendered({ $dg = $gw.FindName('dGrid'); Set-GridColumnsFit $dg @($dg.ItemsSource); Set-GridWindowWidth $gw $dg 640 })
     [void]$gw.ShowDialog()
 }
 
@@ -2912,7 +2976,7 @@ function Show-HashImport {
     $g.tHLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $g.tHLog); $e.Handled = $true } })
     # Zeile eines Geraets: Stufe aus dem Stand, rohe Graph-Meldung als Detail
     $hrow = { param($r) & $hlog ($r.Seriennr + ': ' + $r.Status) $(if ($r.Status -like 'Fehler*') { 'Fehler' } elseif ($r.Done) { 'OK' } elseif ($r.Status -like 'Import nach*' -or $r.Status -like 'abgebrochen*') { 'Hinweis' } else { '' }) ([string]$r.Detail) }
-    $refresh = { $g.dGrid.ItemsSource = $null; $g.dGrid.ItemsSource = @($script:HRows); $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+    $refresh = { $g.dGrid.ItemsSource = $null; $g.dGrid.ItemsSource = @($script:HRows); Set-GridColumnsFit $g.dGrid $script:HRows; $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
     $addFile = {
         param($f)
         if (-not [System.IO.File]::Exists($f)) { return }

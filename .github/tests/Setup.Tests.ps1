@@ -12,7 +12,7 @@ BeforeAll {
     $script:SetupAst = $ast
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
-        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick'
+        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FitWidth', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
     . ([scriptblock]::Create($script:FnText))
@@ -122,7 +122,7 @@ Describe 'Setup: Fenster (XAML)' {
         $x.SelectSingleNode("//w:Border[@x:Name='bdReady']//w:ComboBox[@x:Name='cDrive']", $ns) | Should -Not -BeNullOrEmpty
         $x.SelectSingleNode("//w:Border[@x:Name='bdReady']//w:Button[@x:Name='bReload']", $ns) | Should -Not -BeNullOrEmpty
         # Protokoll laesst dem Formular mindestens 200 px, der gemerkte Wert bleibt
-        $script:SetupText | Should -Match 'return \[math\]::Max\(60, \[math\]::Min\(800, \$avail - 200\)\)'
+        $script:SetupText | Should -Match 'return \[math\]::Max\(80, \[math\]::Min\(800, \$avail - \$form\)\)'
         $script:SetupText | Should -Match 'Set-UiSetting ''LogHeight'' \(\[int\]\$script:LogWanted\)'
         foreach ($n in 'bReady', 'thLog', 'bLogRev', 'bLogClear', 'eTest', 'eTags', 'eWrite', 'ePkg', 'eCopy', 'eStatus', 'eHash', 'tDirty', 'tPkg', 'pKey', 'pAdmPw', 'pAdm2Pw') {
             $x.SelectSingleNode("//*[@x:Name='$n']", $ns) | Should -Not -BeNullOrEmpty -Because $n
@@ -549,18 +549,21 @@ Describe 'Setup: Tabellen ganz anzeigen, nichts klebt zusammen' {
     }
     It 'Fenster so breit wie die Spalten: Status, Versionsauswahl, Tags, Hashes' {
         $script:SetupText | Should -Match 'function Set-GridWindowWidth\('
-        $script:SetupText | Should -Match '\$vw\.Add_ContentRendered\(\{ Set-GridWindowWidth \$vw'
-        $script:SetupText | Should -Match '\$gw\.Add_ContentRendered\(\{ Set-GridWindowWidth \$gw'
-        $script:SetupText | Should -Match '\$hw\.Add_ContentRendered\(\{ Set-GridWindowWidth \$hw'
-        $script:SetupText | Should -Match 'else \{ Set-GridWindowWidth \$sw \$g\.dGrid 1060 \}'
+        $script:SetupText | Should -Match '\$vw\.Add_ContentRendered\(\{[^\r\n]*Set-GridWindowWidth \$vw'
+        $script:SetupText | Should -Match '\$gw\.Add_ContentRendered\(\{[^\r\n]*Set-GridWindowWidth \$gw'
+        $script:SetupText | Should -Match '\$hw\.Add_ContentRendered\(\{[^\r\n]*Set-GridWindowWidth \$hw'
+        $script:SetupText | Should -Match 'Set-GridColumnsFit \$g\.dGrid \$script:SRows'
         $script:SetupText | Should -Not -Match 'MaxWidth = 460'
         $script:SetupText | Should -Not -Match 'Header="Datei" Binding="\{Binding Datei\}" Width="\*"'
     }
     It 'Gemerkte Spaltenbreiten nur, wenn sie mindestens so breit wie der Inhalt sind' {
-        $script:SetupText | Should -Match 'if \(\$sv -and \$sv -ge \$dc\.ActualWidth\)'
+        $script:SetupText | Should -Not -Match 'SavedW'
+        Get-FitWidth 50 30 18 320 | Should -Be 68
+        Get-FitWidth 20 60 18 320 | Should -Be 90
+        Get-FitWidth 900 30 18 320 | Should -Be 320
     }
     It 'Luft in den Zellen, Stand nur als farbiges Schild' {
-        $script:SetupText | Should -Match '<Setter Property="Padding" Value="8,3,12,3"/>'
+        $script:SetupText | Should -Match '<Setter Property="Padding" Value="8,3,8,3"/>'
         $script:SetupText | Should -Match '<Setter Property="MinRowHeight" Value="26"/>'
         $script:SetupText | Should -Match "if \(\`$col\.Key -eq 'Stand'\) \{ try \{ \`$dc\.ElementStyle = \`$standStyle \}"
         $script:SetupText | Should -Match 'HuStandOkBg'
