@@ -939,6 +939,15 @@ function Get-ReadyDrive {
     Out-Log ('Stick ' + $d + ' ist nicht mehr da. Stick wieder anstecken, er wird von selbst erkannt.') 'Fehler'
     return $null
 }
+# Volume-Seriennummer guenstig ueber GetVolumeInformationW (kein WMI). Nur fuer bereite Laufwerke aufrufen. '' = unbekannt
+try { Add-Type -Name Vol -Namespace HUPilot -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool GetVolumeInformationW(string root, System.Text.StringBuilder name, int nameSize, out uint serial, out uint maxComp, out uint flags, System.Text.StringBuilder fs, int fsSize);' -ErrorAction Stop } catch { }
+function Get-VolSerial([string]$Letter) {
+    try {
+        $sn = [uint32]0; $mc = [uint32]0; $fl = [uint32]0
+        if ([HUPilot.Vol]::GetVolumeInformationW(($Letter.Substring(0, 2) + '\'), $null, 0, [ref]$sn, [ref]$mc, [ref]$fl, $null, 0)) { return ('{0:X8}' -f $sn) }
+    } catch { }
+    return ''
+}
 # ---------- Ziel-Sticks: von selbst erkennen ----------
 #   Ein Timer (alle 2 s) liest nur [System.IO.DriveInfo]::GetDrives() und baut die Liste nur bei einer Aenderung neu auf.
 #   Pause, solange ein Vorgang laeuft, die Auswahlliste offen ist oder ein Unterfenster (Status, Tags, Hashes, Sticks
@@ -951,29 +960,29 @@ function Get-UsbDriveList {
             if ([string]$d.DriveType -ne 'Removable') { continue }
             $l = $d.Name.Substring(0, 2).ToUpper()
             if ($l -eq $srcDrive -or -not $d.IsReady) { continue }
-            $res += [pscustomobject]@{ Letter = $l; Label = [string]$d.VolumeLabel; Text = ('{0} {1} ({2:N1} GB)' -f $l, $d.VolumeLabel, ($d.TotalSize / 1GB)) }
+            $res += [pscustomobject]@{ Letter = $l; Label = [string]$d.VolumeLabel; Size = [int64]$d.TotalSize; Serial = (Get-VolSerial $l); Text = ('{0} {1} ({2:N1} GB)' -f $l, $d.VolumeLabel, ($d.TotalSize / 1GB)) }
         } catch { }
     }
     return $res
 }
 # Reine Auswahl-Logik: alte Liste, neue Liste (Laufwerksbuchstaben), bisherige Auswahl -> neue Auswahl und Ereignisse.
-#   Gewaehlter Stick noch da: bleibt. Keiner gewaehlt: der erste neu dazugekommene (sonst der erste vorhandene).
-#   Gewaehlter abgezogen: der naechste vorhandene (Buchstabe danach, sonst der erste), sonst leer.
+#   Gewaehlter Stick noch da: bleibt. Automatisch gewaehlt wird nur, wenn die Liste von leer auf genau einen Stick wechselt.
+#   Gewaehlter abgezogen: Auswahl leer (nie still ein anderer Stick, config.json mit Secret soll nur auf den gewaehlten).
+#   Lost = der gewaehlte Stick ist verschwunden.
 function Get-DriveSelection([string[]]$Old, [string[]]$New, [string]$Sel) {
     $Old = @($Old | Where-Object { $_ }); $New = @($New | Where-Object { $_ })
     $added = @($New | Where-Object { $Old -notcontains $_ })
     $removed = @($Old | Where-Object { $New -notcontains $_ })
-    $s = ''
+    $s = ''; $lost = ''
     if ($Sel -and $New -contains $Sel) { $s = $Sel }
-    elseif ($Sel) { $next = @($New | Where-Object { [string]::Compare($_, $Sel, $true) -gt 0 } | Sort-Object); $s = $(if ($next.Count) { $next[0] } elseif ($New.Count) { $New[0] } else { '' }) }
-    elseif ($added.Count) { $s = $added[0] }
-    elseif ($New.Count) { $s = $New[0] }
-    return [pscustomobject]@{ Sel = $s; Added = $added; Removed = $removed }
+    elseif ($Sel) { $lost = $Sel }
+    elseif (-not $Old.Count -and $New.Count -eq 1) { $s = $New[0] }
+    return [pscustomobject]@{ Sel = $s; Added = $added; Removed = $removed; Lost = $lost }
 }
-$script:DriveList = @(); $script:DriveSig = $null; $script:DriveRebuild = $false; $script:HintDrive = '?'
+$script:DriveList = @(); $script:DriveSig = $null; $script:DriveRebuild = $false; $script:HintDrive = '?'; $script:LostDrive = ''
 function Update-Drives([switch]$Auto) {
     $list = @(Get-UsbDriveList)
-    $sig = (@($list | ForEach-Object { $_.Letter + '|' + $_.Label }) -join ';')
+    $sig = (@($list | ForEach-Object { $_.Letter + '|' + $_.Label + '|' + $_.Size + '|' + $_.Serial }) -join ';')
     if ($Auto -and $sig -eq $script:DriveSig) { return }
     $first = ($null -eq $script:DriveSig)
     $letters = @($list | ForEach-Object { $_.Letter })
@@ -985,6 +994,7 @@ function Update-Drives([switch]$Auto) {
         $i = [array]::IndexOf($letters, $r.Sel); if ($i -ge 0) { $ui.cDrive.SelectedIndex = $i }
     } finally { $script:DriveRebuild = $false }
     $script:DriveList = $list; $script:DriveSig = $sig
+    if ($r.Lost) { $script:LostDrive = $r.Lost }
     if (-not $first) {
         foreach ($a in $r.Added) { $x = @($list | Where-Object { $_.Letter -eq $a })[0]; Out-Log ('Stick ' + $a + $(if ($x.Label) { ' ' + $x.Label } else { '' }) + ' erkannt') }
         foreach ($a in $r.Removed) { Out-Log ('Stick ' + $a + ' entfernt') }
@@ -1004,11 +1014,25 @@ function Set-ReadyText([string]$Text, [string]$Color = 'HuText', [string]$Tip = 
     $ui.tReady.ToolTip = $(if ($Tip) { $Tip } else { $Text })
 }
 # Ausgangszustand je Stick: kein Stick oder "Bereit fuer ...". Nur bei einem anderen Stick, damit ein Ergebnis stehen bleibt.
+# Ein Ergebnis gilt nur fuer genau den Stick, der bespielt wurde: Schluessel aus Buchstabe, Groesse und Volume-Seriennummer.
+function Get-ReadyHintKey([string]$Drive) {
+    if (-not $Drive) { return '' }
+    $x = @($script:DriveList | Where-Object { $_.Letter -eq $Drive })[0]
+    if (-not $x) { return $Drive }
+    return ($x.Letter + '|' + $x.Size + '|' + $x.Serial)
+}
 function Update-ReadyHint {
     $d = Get-Drive
-    if ([string]$d -eq [string]$script:HintDrive) { return }
-    $script:HintDrive = [string]$d
-    if (-not $d) { Set-ReadyText 'Kein Stick erkannt. Stick anstecken.' 'HuWarn'; return }
+    $key = Get-ReadyHintKey $d
+    if ($key -eq [string]$script:HintDrive) { return }
+    $script:HintDrive = $key
+    if (-not $d) {
+        if (@($script:DriveList).Count -and $script:LostDrive) { Set-ReadyText ('Stick ' + $script:LostDrive + ' entfernt. Bitte Stick wählen.') 'HuWarn' }
+        elseif (@($script:DriveList).Count) { Set-ReadyText 'Bitte Stick wählen.' 'HuWarn' }
+        else { Set-ReadyText 'Kein Stick erkannt. Stick anstecken.' 'HuWarn' }
+        return
+    }
+    $script:LostDrive = ''
     $x = @($script:DriveList | Where-Object { $_.Letter -eq $d })[0]
     Set-ReadyText ('Bereit für ' + $d + $(if ($x -and $x.Label) { ' ' + $x.Label } else { '' }))
 }
@@ -1130,15 +1154,6 @@ try {
 if ($srcDrive -and ([System.IO.DriveInfo]::new($srcDrive)).DriveType -eq 'Removable') { $script:SrcOnUsb = $true }
 if ($script:SrcOnUsb) { $ui.bPrep.Visibility = 'Collapsed' }
 
-# Volume-Seriennummer guenstig ueber GetVolumeInformationW (kein WMI). Nur fuer bereite Laufwerke aufrufen. '' = unbekannt
-try { Add-Type -Name Vol -Namespace HUPilot -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool GetVolumeInformationW(string root, System.Text.StringBuilder name, int nameSize, out uint serial, out uint maxComp, out uint flags, System.Text.StringBuilder fs, int fsSize);' -ErrorAction Stop } catch { }
-function Get-VolSerial([string]$Letter) {
-    try {
-        $sn = [uint32]0; $mc = [uint32]0; $fl = [uint32]0
-        if ([HUPilot.Vol]::GetVolumeInformationW(($Letter.Substring(0, 2) + '\'), $null, 0, [ref]$sn, [ref]$mc, [ref]$fl, $null, 0)) { return ('{0:X8}' -f $sn) }
-    } catch { }
-    return ''
-}
 # Signatur der Laufwerke fuer die Erkennung: Buchstabe, Typ, bei bereiten Wechsel- und festen Laufwerken Groesse und
 # Volume-Seriennummer. Netzlaufwerke und CD-Laufwerke bleiben aussen vor (koennen langsam sein).
 function Get-DriveSig {
@@ -3630,6 +3645,7 @@ function Stop-Ready([string]$Step, [string]$Msg, [switch]$Quiet) {
     Set-ReadyText ($(if ($Quiet) { 'Abgebrochen. ' } else { 'Nicht fertig. ' }) + (Get-ReadyTodo $Msg)) $(if ($Quiet) { 'HuMuted' } else { 'HuErr' }) $Msg
     Out-Log ('Stick nicht fertig: ' + ($Msg -replace "`r?`n", ' ')) $(if ($Quiet) { '' } else { 'Fehler' })
     if (-not $Quiet) { Show-Msg $Msg 'HUPilot - Stick nicht fertig' 'Warning' }
+    try { Update-Drives -Auto } catch { }
 }
 function Invoke-StickReadyCore {
     $nl = "`r`n"
@@ -3695,6 +3711,8 @@ function Invoke-StickReadyCore {
     Set-ReadyText ('Stick ' + $dr + ' ist fertig und kontrolliert (' + (Get-Date -Format 'HH:mm') + ')' + $(if ($warn.Count) { ', mit Hinweisen im Protokoll' } else { '' })) $(if ($warn.Count) { 'HuWarn' } else { 'HuText' }) $(if ($warn.Count) { 'Hinweise:' + "`n" + ($warn -join "`n") } else { '' })
     Out-Log ('Stick ' + $dr + ' ist fertig und kontrolliert' + $(if ($warn.Count) { ', mit Hinweisen' } else { '' })) $(if ($warn.Count) { 'Hinweis' } else { 'OK' })
     Show-Msg ('Stick ' + $dr + ' ist fertig und kontrolliert.' + $(if ($warn.Count) { $nl + $nl + 'Hinweise:' + $nl + (($warn | ForEach-Object { '- ' + $_ }) -join $nl) } else { '' }) + $nl + $nl + 'Der Stick kann jetzt abgezogen werden.') 'HUPilot - Stick fertig' $(if ($warn.Count) { 'Warning' } else { 'Information' })
+    # waehrend der Meldung kann der Stick schon getauscht sein: sofort neu lesen, der Fertig-Text bleibt nur beim selben Stick
+    try { Update-Drives -Auto } catch { }
 }
 function Invoke-StickReady {
     if ($script:Busy) { return }

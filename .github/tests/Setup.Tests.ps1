@@ -805,15 +805,28 @@ Describe 'Setup: Sticks von selbst erkennen, kurzer Hinweis beim Hauptknopf' {
         $r = Get-DriveSelection @() @('G:') ''
         $r.Sel | Should -Be 'G:'
         @($r.Added) | Should -Be @('G:')
+        # nur von leer auf genau einen: zwei auf einmal oder ein weiterer ohne Auswahl wird nicht still gewaehlt
+        (Get-DriveSelection @() @('E:', 'F:') '').Sel | Should -Be ''
+        (Get-DriveSelection @('E:') @('E:', 'F:') '').Sel | Should -Be ''
     }
-    It 'Auswahl: gewaehlter Stick abgezogen -> naechster vorhandener, sonst leer' {
+    It 'Auswahl: gewaehlter Stick abgezogen -> Auswahl leer, nie ein anderer Stick' {
         $r = Get-DriveSelection @('E:', 'F:', 'H:') @('E:', 'H:') 'F:'
-        $r.Sel | Should -Be 'H:'
+        $r.Sel | Should -Be ''
+        $r.Lost | Should -Be 'F:'
         @($r.Removed) | Should -Be @('F:')
-        (Get-DriveSelection @('E:', 'F:') @('E:') 'F:').Sel | Should -Be 'E:'
+        (Get-DriveSelection @('E:', 'F:') @('E:') 'F:').Sel | Should -Be ''
         $r = Get-DriveSelection @('E:') @() 'E:'
         $r.Sel | Should -Be ''
+        $r.Lost | Should -Be 'E:'
         @($r.Removed) | Should -Be @('E:')
+        # derselbe Stick kommt wieder (Liste war nicht leer, weil ein anderer steckt): keine stille Auswahl
+        (Get-DriveSelection @('H:') @('E:', 'H:') '').Sel | Should -Be ''
+    }
+    It 'Fertig-Text gilt nur fuer genau den bespielten Stick, Tausch unter gleichem Buchstaben und Namen wird erkannt' {
+        $script:SetupText | Should -Match "\`$sig = \(@\(\`$list \| ForEach-Object \{ \`$_\.Letter \+ '\|' \+ \`$_\.Label \+ '\|' \+ \`$_\.Size \+ '\|' \+ \`$_\.Serial \}\) -join ';'\)"
+        $script:SetupText | Should -Match "return \(\`$x\.Letter \+ '\|' \+ \`$x\.Size \+ '\|' \+ \`$x\.Serial\)"
+        $script:SetupText | Should -Match "Set-ReadyText \('Stick ' \+ \`$script:LostDrive \+ ' entfernt\. Bitte Stick wählen\.'\) 'HuWarn'"
+        @([regex]::Matches($script:SetupText, 'Show-Msg[^\r\n]*\r?\n\s*(# [^\r\n]*\r?\n\s*)?try \{ Update-Drives -Auto \} catch \{ \}')).Count | Should -BeGreaterOrEqual 2
     }
     It 'Auswahl: keine Aenderung ergibt keine Ereignisse' {
         $r = Get-DriveSelection @('E:', 'F:') @('E:', 'F:') 'F:'
@@ -893,7 +906,7 @@ Describe 'Setup: Sticks von selbst erkennen, kurzer Hinweis beim Hauptknopf' {
         $script:SetupText | Should -Match "Set-ReadyText 'Prüfe Verbindung \.\.\.'"
         $script:SetupText | Should -Match "Set-ReadyText \('Kopiere auf ' \+ \`$dr \+ ' \.\.\.'\)"
         # Ergebnis bleibt stehen, bis ein anderer Stick gewaehlt wird
-        $script:SetupText | Should -Match 'if \(\[string\]\$d -eq \[string\]\$script:HintDrive\) \{ return \}'
+        $script:SetupText | Should -Match 'if \(\$key -eq \[string\]\$script:HintDrive\) \{ return \}'
     }
     It 'Erkennung: Timer nur bei Aenderung, Pause bei Vorgang, offener Liste und Unterfenster, nicht im Starttest' {
         $script:SetupText | Should -Match '\$script:DriveTimer\.Interval = \[TimeSpan\]::FromSeconds\(2\)'
