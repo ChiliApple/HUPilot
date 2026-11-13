@@ -518,10 +518,15 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
   <!-- Hauptknopf: alles in einem Durchgang -->
   <Border x:Name="bdReady" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource HuAccent}" Background="{DynamicResource HuPanel2}">
     <DockPanel>
+      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+        <TextBlock Text="Stick" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource HuMuted}" ToolTip="Ziel-Stick für Stick fertig machen, 5. Auf Stick kopieren und die Stick-Protokolle in Status und Hashes importieren." ToolTipService.ShowDuration="30000"/>
+        <ComboBox x:Name="cDrive" Width="190" VerticalAlignment="Center" ToolTip="Ziel-Stick für Stick fertig machen und 5. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000"/>
+        <Button x:Name="bReload" Content="Aktualisieren" Padding="8,3" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="USB-Laufwerke neu einlesen (nach dem Anstecken eines Sticks)." ToolTipService.ShowDuration="30000"/>
+      </StackPanel>
       <Button x:Name="bReady" DockPanel.Dock="Left" Style="{StaticResource HuMain}" Padding="18,8" FontSize="15" FontWeight="Bold" ToolTip="Macht den gewählten Stick in einem Durchgang fertig:&#x0a;Felder prüfen, Verbindung und Secret prüfen, Tags prüfen (nur Warnung), speichern,&#x0a;WLAN-Paket bauen, wenn es fehlt oder veraltet ist, auf den Stick kopieren und die kopierten Dateien kontrollieren.&#x0a;Bricht beim ersten echten Fehler ab und sagt, was zu tun ist." ToolTipService.ShowDuration="60000">
         <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="13" Height="13" Margin="0,0,8,0" Stroke="White" StrokeThickness="1.5"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
       </Button>
-      <TextBlock x:Name="tReady" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" Text="Stick anstecken, bei &quot;Stick&quot; auswählen, dann hier klicken." ToolTip="Ergebnis des letzten Durchgangs. Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
+      <TextBlock x:Name="tReady" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" Text="Stick anstecken, links auswählen (ggf. &quot;Aktualisieren&quot;), dann &quot;Stick fertig machen&quot; klicken." ToolTip="Ergebnis des letzten Durchgangs. Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
     </DockPanel>
   </Border>
   <ScrollViewer x:Name="svMain" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -592,9 +597,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="6,0,0,4" Foreground="{DynamicResource HuMuted}" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut&#x0a;unbekannt = gebaut mit einer älteren Version, neu bauen empfohlen" ToolTipService.ShowDuration="30000"/>
     </WrapPanel>
     <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Ziel-Stick für 5. Auf Stick kopieren und für Stick fertig machen." ToolTipService.ShowDuration="30000"/>
-      <ComboBox x:Name="cDrive" ToolTip="Ziel-Stick für 5. Auf Stick kopieren und Stick fertig machen. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000" Width="180" Margin="0,0,0,4"/>
-      <Button x:Name="bReload" ToolTip="USB-Laufwerke neu einlesen." ToolTipService.ShowDuration="30000" Content="Aktualisieren" Padding="8,2" Margin="6,0,0,4"/>
+      <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Kopieren auf den Stick, der unten beim grünen Knopf ausgewählt ist." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen. Danach Kontrolle der kopierten Dateien." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eCopy" Style="{StaticResource HuLamp}"/><TextBlock Text="5. Auf Stick kopieren"/></StackPanel></Button>
       <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,4"/>
     </WrapPanel>
@@ -755,13 +758,25 @@ function Copy-LogItems($List) {
     $txt = ($items | ForEach-Object { $_.Tag.Text + $(if ($_.Tag.Detail) { "`r`n          Details: " + $_.Tag.Detail } else { '' }) }) -join "`r`n"
     try { if ($txt) { [System.Windows.Clipboard]::SetText($txt) }; return $items.Count } catch { return 0 }
 }
-try { $h = [double](Get-UiSetting 'LogHeight' 120); if ($h -ge 60 -and $h -le 800) { $ui.lLog.Height = $h } } catch { }
+# Protokollhoehe: gemerkter Wunsch in ui.json (LogHeight). Angezeigt wird hoechstens so viel, dass dem Formular etwa 200 px bleiben,
+# mindestens etwa 3 Zeilen. Wird das Fenster kleiner, schrumpft das Protokoll mit, ohne den gemerkten Wert zu aendern.
+$script:LogWanted = 120
+try { $h = [double](Get-UiSetting 'LogHeight' 120); if ($h -ge 60 -and $h -le 800) { $script:LogWanted = $h } } catch { }
+$ui.lLog.Height = $script:LogWanted
+function Get-LogMax {
+    $avail = $ui.svMain.ActualHeight + $ui.lLog.ActualHeight
+    if ($avail -le 0) { return 800 }
+    return [math]::Max(60, [math]::Min(800, $avail - 200))
+}
+function Update-LogFit { try { $ui.lLog.Height = [math]::Max(60, [math]::Min($script:LogWanted, (Get-LogMax))) } catch { } }
 $ui.thLog.Add_DragDelta({
     param($s, $e)
-    $max = [math]::Max(60, [math]::Min(800, $win.ActualHeight - 330))
-    $ui.lLog.Height = [math]::Max(60, [math]::Min($max, $ui.lLog.Height - $e.VerticalChange))
+    $ui.lLog.Height = [math]::Max(60, [math]::Min((Get-LogMax), $ui.lLog.Height - $e.VerticalChange))
+    $script:LogWanted = $ui.lLog.Height
 })
-$ui.thLog.Add_DragCompleted({ Set-UiSetting 'LogHeight' ([int]$ui.lLog.Height) })
+$ui.thLog.Add_DragCompleted({ Set-UiSetting 'LogHeight' ([int]$script:LogWanted) })
+$win.Add_SizeChanged({ Update-LogFit })
+$win.Add_ContentRendered({ Update-LogFit })
 $ui.bLogRev.Add_Click({
     $a = @($ui.lLog.Items); $ui.lLog.Items.Clear()
     [array]::Reverse($a)

@@ -117,6 +117,13 @@ Describe 'Setup: Fenster (XAML)' {
         $x.SelectSingleNode("//w:ScrollViewer[@x:Name='svMain']//*[@x:Name='lLog']", $ns) | Should -BeNullOrEmpty
         $x.SelectSingleNode("//w:ListBox[@x:Name='lLog']", $ns) | Should -Not -BeNullOrEmpty
         $x.SelectSingleNode("//w:Button[@x:Name='bLogCopy']", $ns) | Should -Not -BeNullOrEmpty
+        # Stick-Auswahl in der festen Leiste beim Hauptknopf, nicht im Scrollbereich
+        $x.SelectSingleNode("//w:ScrollViewer[@x:Name='svMain']//*[@x:Name='cDrive']", $ns) | Should -BeNullOrEmpty
+        $x.SelectSingleNode("//w:Border[@x:Name='bdReady']//w:ComboBox[@x:Name='cDrive']", $ns) | Should -Not -BeNullOrEmpty
+        $x.SelectSingleNode("//w:Border[@x:Name='bdReady']//w:Button[@x:Name='bReload']", $ns) | Should -Not -BeNullOrEmpty
+        # Protokoll laesst dem Formular mindestens 200 px, der gemerkte Wert bleibt
+        $script:SetupText | Should -Match 'return \[math\]::Max\(60, \[math\]::Min\(800, \$avail - 200\)\)'
+        $script:SetupText | Should -Match 'Set-UiSetting ''LogHeight'' \(\[int\]\$script:LogWanted\)'
         foreach ($n in 'bReady', 'thLog', 'bLogRev', 'bLogClear', 'eTest', 'eTags', 'eWrite', 'ePkg', 'eCopy', 'eStatus', 'eHash', 'tDirty', 'tPkg', 'pKey', 'pAdmPw', 'pAdm2Pw') {
             $x.SelectSingleNode("//*[@x:Name='$n']", $ns) | Should -Not -BeNullOrEmpty -Because $n
         }
