@@ -12,7 +12,8 @@ BeforeAll {
     $script:SetupAst = $ast
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
-        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FitWidth', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick'
+        'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FitWidth', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick',
+        'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
     . ([scriptblock]::Create($script:FnText))
@@ -390,7 +391,8 @@ Describe 'Setup: Protokoll mit drei Stufen' {
         @([regex]::Matches($script:SetupText, "(Out-Log|& \`$plog|& \`$hlog|Stop-Field) \(?'(FEHLER|FEHLT|ACHTUNG|WARNUNG|ABBRUCH)")).Count | Should -Be 0
         $script:SetupText | Should -Match "'setup_' \+ \(Get-Date -Format 'yyyyMMdd_HHmm'\) \+ '\.log'"
         $script:SetupText | Should -Match "Select-Object -Skip 19"
-        $script:SetupText | Should -Match "Where-Object \{ \`$_\.Name -ne 'logs' -and"
+        $script:SetupText | Should -Match "Where-Object \{ -not \(Test-SkipForStick \`$_\.Name\) \}"
+        Test-SkipForStick 'logs' | Should -BeTrue
     }
 }
 
@@ -465,10 +467,11 @@ Describe 'Setup: Befunde der Pruefung' {
         $script:TestCfg = $cfg
         Copy-ToStick $dst $false | Should -BeTrue
         (Get-Content (Join-Path $dst 'HUPilot\config.json') -Raw -Encoding UTF8) | Should -Not -Match 'AAAAA-BBBBB'
-        $script:SetupText | Should -Match "Where-Object \{ \`$_\.Name -ne 'logs' -and \`$_\.Name -ne 'config\.json' -and"
+        $script:SetupText | Should -Match "Where-Object \{ -not \(Test-SkipForStick \`$_\.Name\) \}"
+        Test-SkipForStick 'config.json' | Should -BeTrue
         # config.json wird vor der Kopierschleife geschrieben
         $i1 = $script:SetupText.IndexOf("[System.IO.File]::WriteAllBytes((Join-Path `$dst 'config.json'), `$cfgBytes)")
-        $i2 = $script:SetupText.IndexOf("`$_.Name -ne 'config.json' -and")
+        $i2 = $script:SetupText.IndexOf("Where-Object { -not (Test-SkipForStick `$_.Name) }")
         $i1 | Should -BeGreaterThan 0
         $i1 | Should -BeLessThan $i2
     }
@@ -631,5 +634,161 @@ Describe 'Setup: Tabellen ganz anzeigen, nichts klebt zusammen' {
         $script:SetupText | Should -Match '<Setter Property="MinRowHeight" Value="26"/>'
         $script:SetupText | Should -Match "if \(\`$col\.Key -eq 'Stand'\) \{ try \{ \`$dc\.ElementStyle = \`$standStyle \}"
         $script:SetupText | Should -Match 'HuStandOkBg'
+    }
+}
+
+Describe 'Setup: Paketbau mitnehmen (Test)' {
+    BeforeAll {
+        $script:IcdSigExt = @('.exe', '.dll', '.sys', '.mui')
+        # Attrappe fuer Signaturen: Dateien, deren Inhalt mit "MS-SIG" beginnt, gelten als eigene, gueltige Microsoft-Signatur,
+        # "FREMD-SIG" als eigene Signatur eines anderen Herstellers, alles andere als unsigniert
+        $script:FakeSig = {
+            param($p)
+            $s = [System.IO.File]::ReadAllText($p)
+            if ($s.StartsWith('MS-SIG')) { return [pscustomobject]@{ Valid = $true; Ms = $true; Embedded = $true } }
+            if ($s.StartsWith('FREMD-SIG')) { return [pscustomobject]@{ Valid = $true; Ms = $false; Embedded = $true } }
+            return [pscustomobject]@{ Valid = $false; Ms = $false; Embedded = $false }
+        }
+        function New-FakeIcd([string]$Root) {
+            $x86 = Join-Path $Root 'x86'
+            if (Test-Path -LiteralPath $x86) { Remove-Item -LiteralPath $x86 -Recurse -Force }
+            New-Item -ItemType Directory -Path (Join-Path $x86 'de') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $x86 'ICD.exe') -Value 'MS-SIG icd' -NoNewline
+            Set-Content -LiteralPath (Join-Path $x86 'ICDCore.dll') -Value 'MS-SIG core' -NoNewline
+            Set-Content -LiteralPath (Join-Path $x86 'Newtonsoft.Json.dll') -Value 'unsigniert im Original' -NoNewline
+            Set-Content -LiteralPath (Join-Path $x86 'de\ICDUI.resources.dll') -Value 'unsigniert' -NoNewline
+            Set-Content -LiteralPath (Join-Path $x86 'Microsoft-Common-Provisioning.dat') -Value 'speicher' -NoNewline
+            $man = New-IcdManifest $x86 '10.0.28000.1' $script:FakeSig
+            [System.IO.File]::WriteAllText((Join-Path $Root 'HUPilot-ICD.json'), ($man | ConvertTo-Json -Depth 4))
+            return $x86
+        }
+    }
+    BeforeEach {
+        $script:IcdTmp = Join-Path ([System.IO.Path]::GetTempPath()) ('HUPilot-IcdTest-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:IcdTmp -Force | Out-Null
+    }
+    AfterEach { Remove-Item -LiteralPath $script:IcdTmp -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'Suchreihenfolge: zuerst das installierte ADK, sonst die Kopie, sonst nichts' {
+        $inst = Join-Path $script:IcdTmp 'ADK\ICD.exe'; $cp = Join-Path $script:IcdTmp 'HUPilot\ADK-ICD\x86'
+        New-Item -ItemType Directory -Path (Split-Path $inst -Parent), $cp -Force | Out-Null
+        Find-Icd $inst $cp | Should -BeNullOrEmpty
+        Get-IcdText (Find-Icd $inst $cp) | Should -Be 'ICD.exe fehlt'
+        Set-Content -LiteralPath (Join-Path $cp 'ICD.exe') -Value 'x'
+        (Find-Icd $inst $cp).Source | Should -Be 'Kopie'
+        (Find-Icd $inst $cp).Path | Should -Be (Join-Path $cp 'ICD.exe')
+        Get-IcdText (Find-Icd $inst $cp) | Should -Match '^ICD\.exe aus der Kopie in der Quelle \(Test\), Version'
+        Set-Content -LiteralPath $inst -Value 'x'
+        (Find-Icd $inst $cp).Source | Should -Be 'ADK'
+        (Find-Icd $inst $cp).Path | Should -Be $inst
+        Get-IcdText (Find-Icd $inst $cp) | Should -Match '^ICD\.exe aus dem Windows ADK am PC, Version'
+        # ohne ADK und ohne Kopie: kein Fehler, nur "fehlt"
+        Find-Icd '' '' | Should -BeNullOrEmpty
+    }
+    It 'Versionen vergleichen fuer den Hinweis "Kopie aktualisieren"' {
+        Compare-IcdVersion '10.0.28000.1' '10.0.26100.1' | Should -Be 1
+        Compare-IcdVersion '10.0.26100.1' '10.0.28000.1' | Should -Be -1
+        Compare-IcdVersion '10.0.28000.1' '10.0.28000.1' | Should -Be 0
+        Compare-IcdVersion '10.0.28000.1' 'unbekannt' | Should -Be 0
+        Get-IcdCopyVersion (Join-Path $script:IcdTmp 'fehlt\x86') (Join-Path $script:IcdTmp 'fehlt\HUPilot-ICD.json') | Should -Be ''
+    }
+    It 'Pruefliste: SHA256 und eigene Signatur je Datei, Version, Kopie in Ordnung' {
+        $x86 = New-FakeIcd $script:IcdTmp
+        $man = Get-Content -LiteralPath (Join-Path $script:IcdTmp 'HUPilot-ICD.json') -Raw | ConvertFrom-Json
+        $man.Version | Should -Be '10.0.28000.1'
+        @($man.Files).Count | Should -Be 5
+        (@($man.Files | Where-Object { $_.Path -eq 'ICD.exe' })[0]).Signed | Should -BeTrue
+        (@($man.Files | Where-Object { $_.Path -eq 'Newtonsoft.Json.dll' })[0]).Signed | Should -BeFalse
+        (@($man.Files | Where-Object { $_.Path -eq 'ICD.exe' })[0]).Sha256 | Should -Be (Get-FileSha (Join-Path $x86 'ICD.exe'))
+        @(Test-IcdCopy $x86 (Join-Path $script:IcdTmp 'HUPilot-ICD.json') $script:FakeSig) | Should -BeNullOrEmpty
+        Get-IcdCopyVersion $x86 (Join-Path $script:IcdTmp 'HUPilot-ICD.json') | Should -Be '10.0.28000.1'
+    }
+    It 'veraenderte, fehlende und zusaetzliche Dateien werden gemeldet' {
+        $x86 = New-FakeIcd $script:IcdTmp; $m = Join-Path $script:IcdTmp 'HUPilot-ICD.json'
+        Set-Content -LiteralPath (Join-Path $x86 'Newtonsoft.Json.dll') -Value 'boese' -NoNewline
+        @(Test-IcdCopy $x86 $m $script:FakeSig) -join ';' | Should -Match 'Newtonsoft\.Json\.dll: verändert'
+        $x86 = New-FakeIcd $script:IcdTmp
+        Remove-Item -LiteralPath (Join-Path $x86 'de\ICDUI.resources.dll')
+        @(Test-IcdCopy $x86 $m $script:FakeSig) -join ';' | Should -Match 'ICDUI\.resources\.dll: fehlt'
+        $x86 = New-FakeIcd $script:IcdTmp
+        Set-Content -LiteralPath (Join-Path $x86 'version.dll') -Value 'MS-SIG untergeschoben'
+        @(Test-IcdCopy $x86 $m $script:FakeSig) -join ';' | Should -Match 'version\.dll: gehört nicht zur Kopie'
+        # auch eine zusaetzliche Speicherdatei (sie koennte den Paketinhalt aendern)
+        $x86 = New-FakeIcd $script:IcdTmp
+        Set-Content -LiteralPath (Join-Path $x86 'Extra-Provisioning.dat') -Value 'x'
+        @(Test-IcdCopy $x86 $m $script:FakeSig).Count | Should -Be 1
+    }
+    It 'Signatur: ICD.exe und im Original signierte Dateien muessen gueltig von Microsoft signiert sein' {
+        # Datei und Pruefliste passend getauscht (Pruefsumme stimmt), aber ohne Microsoft-Signatur: wird nicht gestartet
+        $x86 = New-FakeIcd $script:IcdTmp; $m = Join-Path $script:IcdTmp 'HUPilot-ICD.json'
+        Set-Content -LiteralPath (Join-Path $x86 'ICD.exe') -Value 'FREMD-SIG icd' -NoNewline
+        $o = Get-Content -LiteralPath $m -Raw | ConvertFrom-Json
+        foreach ($e in $o.Files) { if ($e.Path -eq 'ICD.exe') { $e.Sha256 = Get-FileSha (Join-Path $x86 'ICD.exe'); $e.Signed = $false } }
+        [System.IO.File]::WriteAllText($m, ($o | ConvertTo-Json -Depth 4))
+        @(Test-IcdCopy $x86 $m $script:FakeSig) -join ';' | Should -Match 'ICD\.exe: keine gültige Signatur von Microsoft'
+        # signierte DLL durch unsignierte ersetzt (Pruefliste mitgezogen, Kennzeichen bleibt): gemeldet
+        $x86 = New-FakeIcd $script:IcdTmp
+        Set-Content -LiteralPath (Join-Path $x86 'ICDCore.dll') -Value 'unsigniert' -NoNewline
+        $o = Get-Content -LiteralPath $m -Raw | ConvertFrom-Json
+        foreach ($e in $o.Files) { if ($e.Path -eq 'ICDCore.dll') { $e.Sha256 = Get-FileSha (Join-Path $x86 'ICDCore.dll') } }
+        [System.IO.File]::WriteAllText($m, ($o | ConvertTo-Json -Depth 4))
+        @(Test-IcdCopy $x86 $m $script:FakeSig) -join ';' | Should -Match 'ICDCore\.dll: keine gültige Signatur'
+        # im Original unsignierte DLL traegt ploetzlich eine fremde Signatur: gemeldet
+        $x86 = New-FakeIcd $script:IcdTmp
+        Set-Content -LiteralPath (Join-Path $x86 'Newtonsoft.Json.dll') -Value 'FREMD-SIG' -NoNewline
+        $o = Get-Content -LiteralPath $m -Raw | ConvertFrom-Json
+        foreach ($e in $o.Files) { if ($e.Path -eq 'Newtonsoft.Json.dll') { $e.Sha256 = Get-FileSha (Join-Path $x86 'Newtonsoft.Json.dll') } }
+        [System.IO.File]::WriteAllText($m, ($o | ConvertTo-Json -Depth 4))
+        @(Test-IcdCopy $x86 $m $script:FakeSig) -join ';' | Should -Match 'Newtonsoft\.Json\.dll: fremde oder ungültige Signatur'
+        # -NoSig (Kontrolle nach dem Kopieren auf einen Stick) prueft nur die Pruefsummen
+        @(Test-IcdCopy $x86 $m $script:FakeSig -NoSig) | Should -BeNullOrEmpty
+    }
+    It 'fehlende oder kaputte Pruefliste und Pfade mit .. werden abgelehnt' {
+        $x86 = New-FakeIcd $script:IcdTmp; $m = Join-Path $script:IcdTmp 'HUPilot-ICD.json'
+        Test-IcdCopy $x86 (Join-Path $script:IcdTmp 'gibtsnicht.json') $script:FakeSig | Should -Match 'Prüfliste HUPilot-ICD\.json fehlt'
+        Set-Content -LiteralPath $m -Value '{kaputt'
+        Test-IcdCopy $x86 $m $script:FakeSig | Should -Match 'fehlt oder ist beschädigt'
+        $x86 = New-FakeIcd $script:IcdTmp
+        $o = Get-Content -LiteralPath $m -Raw | ConvertFrom-Json
+        $o.Files += [pscustomobject]@{ Path = '..\..\Windows\evil.dll'; Sha256 = 'x'; Size = 1; Signed = $false }
+        [System.IO.File]::WriteAllText($m, ($o | ConvertTo-Json -Depth 4))
+        @(Test-IcdCopy $x86 $m $script:FakeSig) -join ';' | Should -Match 'ungültiger Pfad'
+        Test-IcdCopy (Join-Path $script:IcdTmp 'nichtda') $m $script:FakeSig | Should -Be 'Ordner der Kopie fehlt'
+    }
+    It 'Stick: die Kopie kommt nie im allgemeinen Durchlauf mit, nur mit Haekchen (gemerkt, Standard aus)' {
+        Test-SkipForStick 'ADK-ICD' | Should -BeTrue
+        Test-SkipForStick 'ADK-ICD.neu' | Should -BeTrue
+        Test-SkipForStick '_demo' | Should -BeTrue
+        Test-SkipForStick 'config.json' | Should -BeTrue
+        Test-SkipForStick 'Setup' | Should -BeFalse
+        Test-SkipForStick 'go.ps1' | Should -BeFalse
+        $script:SetupText | Should -Match "Copy-IcdToStick \`$dst \(\[bool\]\`$ui\.cIcdStick\.IsChecked"
+        $script:SetupText | Should -Match "\`$ui\.cIcdStick\.IsChecked = \(\[string\]\(Get-UiSetting 'IcdToStick' \`$false\) -eq 'True'\)"
+        $script:SetupText | Should -Match "Set-UiSetting 'IcdToStick'"
+        # ohne Haekchen: eine Kopie am Stick bleibt, es wird nichts kopiert oder geloescht
+        $dst = Join-Path $script:IcdTmp 'Stick\HUPilot'
+        New-Item -ItemType Directory -Path (Join-Path $dst 'ADK-ICD\x86') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dst 'ADK-ICD\x86\ICD.exe') -Value 'alt'
+        $script:Logs.Clear()
+        Copy-IcdToStick $dst $false
+        Test-Path -LiteralPath (Join-Path $dst 'ADK-ICD\x86\ICD.exe') | Should -BeTrue
+        ($script:Logs -join ';') | Should -Match 'bleibt unverändert'
+    }
+    It 'Paketbau: Kopie wird vor jedem Start geprueft, ADK und Repo bleiben getrennt' {
+        $b = [regex]::Match($script:SetupText, '(?s)function Build-PackageCore.*?\r?\n\}\r?\n').Value
+        $b | Should -Match 'if \(\$fromCopy\) \{'
+        $b | Should -Match '\$icdBad = @\(Test-IcdCopy \$icdCopyDir \$icdCopyMan\)'
+        ($b.IndexOf('Test-IcdCopy') -lt $b.IndexOf('Start-Process -FilePath $icd')) | Should -BeTrue
+        $b | Should -Match "Set-Step 'Pkg' 'err' 'Kopie des Paketbaus ungültig'; return \`$false"
+        # Meldung bei fehlender ICD.exe nennt den neuen Weg
+        $b | Should -Match 'an einem PC mit ADK "Paketbau mitnehmen" klicken'
+        # nie ins Repo, kein Pull-Ausnahmefall noetig (Pull entfernt nur Dateien aus installed.json)
+        $gi = Get-Content -LiteralPath (Join-Path $script:Root '.gitignore') -Raw
+        $gi | Should -Match '(?m)^ADK-ICD/\r?$'
+        $pull = Get-Content -LiteralPath (Join-Path $script:Root 'Stick\HUPilot\Setup\Pull.ps1') -Raw -Encoding UTF8
+        $pull | Should -Match '\$prevFiles \| ForEach-Object'
+        # die Kopie laedt nie selbst etwas aus dem Internet
+        $fns = [regex]::Match($script:SetupText, '(?s)# ---------- Paketbau mitnehmen \(Test\).*?function Copy-IcdToStick').Value
+        $fns | Should -Not -Match 'Invoke-WebRequest|Invoke-RestMethod|DownloadFile'
     }
 }
