@@ -2,8 +2,9 @@
 # HUPilot  go.ps1  (Version: HUPilot\Config\version.json)
 # https://github.com/ChiliApple/HUPilot
 # ZIELMASCHINE: neues Windows-Geraet im OOBE (Shift+F10 -> D:\go)
-# Ablauf:
-#   1. config.json vom Stick lesen, Group Tag waehlen, Edition pruefen
+# Ablauf (Schritt x von 6 in Anzeige und Log):
+#   1. Pruefen: config.json, Seriennummer, Edition, WLAN-Paket, Hardware-Hash - erst DANN die Fragen
+#      (Tag, Benutzer, Zuruecksetzen), eine Zusammenfassung, ab da ohne Rueckfrage (ausser Sonderfaellen)
 #   2. WLAN verbinden (falls noch kein Internet)
 #   3. Hardware-Hash -> Autopilot-Import mit Group Tag (oder Tag setzen)
 #   4. WLAN-Paket lokal kopieren -> GRUEN "STICK ABZIEHEN"
@@ -75,18 +76,24 @@ $GB = 'https://graph.microsoft.com/beta'
 # Aendert sich der Status, bleibt die alte Zeile stehen (Verlauf) und eine neue beginnt.
 $script:LiveOn = $false
 $script:SpinI = 0
+# Schritt-Anzeige vorne in der Live-Zeile (Show-Step setzt sie), kurz fuer schmale Fenster
+$script:LivePre = ''
+$script:LivePreShort = ''
 function Format-Dauer {
     param([double]$Sec)
     $s = [int][math]::Max(0, [math]::Floor($Sec))
     return ('{0}:{1:00}' -f [int][math]::Floor($s / 60), ($s % 60))
 }
 function Show-Live {
-    param([string]$Text)
+    # -NoPre: ohne Schritt-Anzeige (Fragen)
+    param([string]$Text, [switch]$NoPre)
     $c = '|/-\'[$script:SpinI % 4]
     $script:SpinI++
-    $line = '  ' + $Text + '   ' + $c
+    $pre = $(if ($NoPre) { '' } else { $script:LivePre })
+    $line = '  ' + $pre + $Text + '   ' + $c
     try {
         $w = [Console]::WindowWidth - 1
+        if ($line.Length -gt $w -and -not $NoPre -and $script:LivePreShort) { $line = '  ' + $script:LivePreShort + $Text + '   ' + $c }
         if ($line.Length -gt $w) { $line = $line.Substring(0, $w) }
         Write-Host ("`r" + $line.PadRight($w)) -NoNewline
     } catch { Write-Host ("`r" + $line) -NoNewline }
@@ -109,7 +116,7 @@ function Wait-Live {
         $cd = $(if ($Next) { [string][int][math]::Max(0, [math]::Ceiling($end - $now)) + ' s' } else { '' })
         $l = $Text + '  |  ' + $el + $mx + $(if ($cd) { '  |  ' + $Next + ' in ' + $cd } else { '' })
         # schmales Fenster (grosse Schrift): kuerzer, damit Zeit und Countdown sichtbar bleiben
-        $w = 120; try { $w = [Console]::WindowWidth - 6 } catch { }
+        $w = 120; try { $w = [Console]::WindowWidth - 6 - $script:LivePreShort.Length } catch { }
         if ($l.Length -gt $w) { $l = $Text + ' | ' + $el + $(if ($cd) { ' | ' + $cd } else { '' }) }
         Show-Live $l
         $ms = [int][math]::Min(1000, [math]::Max(0, ($end - (Get-Mono)) * 1000))
@@ -117,24 +124,57 @@ function Wait-Live {
     } while ((Get-Mono) -lt $end)
 }
 
+# Tastaturpuffer leeren - vor JEDER Frage, damit ein doppeltes Enter nicht die naechste Frage mitbeantwortet
+function Clear-KeyBuffer {
+    try { if (-not [Console]::IsInputRedirected) { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } } catch { }
+}
+function Test-KeyAnswer {
+    # Taste auswerten: 'ENTER' = Standard, gueltige Taste = Antwort, '' = keine gueltige Antwort (Countdown anhalten)
+    # Ohne Liste gueltiger Tasten zaehlt jede Taste als Antwort
+    param([string]$Key, [string[]]$Valid = @())
+    if ($Key -eq 'ENTER') { return 'ENTER' }
+    if (-not $Valid -or -not @($Valid).Count) { return $Key }
+    if ($Key -and (@($Valid) -contains $Key)) { return $Key }
+    return ''
+}
 function Read-KeyTimeout {
-    # Tastendruck mit Zeitlimit; zeigt live "<Label> in x s"
-    param([int]$Seconds = 10, [string]$Label = 'ohne Eingabe weiter')
+    # Tastendruck mit Zeitlimit; zeigt live "<Label> in x s". Rueckgabe: 'ENTER', Taste (gross) oder '' (Zeit um = Standard)
+    # -Valid: gueltige Tasten. Eine andere Taste haelt den Countdown an, dann wird auf eine gueltige Taste oder Enter gewartet.
+    # Umgeleitete Eingabe (kein Konsolenpuffer): sofort '' = Standard
+    param([int]$Seconds = 10, [string]$Label = 'ohne Eingabe weiter', [string[]]$Valid = @(), [string]$Hint = '')
+    Clear-KeyBuffer
     $until = (Get-Mono) + $Seconds
     $res = ''
+    $halt = $false
+    if (-not $Hint) { $Hint = 'Enter' + $(if (@($Valid).Count) { ' oder ' + ((@($Valid) | Where-Object { $_ -ne 'Y' }) -join ' / ') } else { '' }) }
     try {
-        while ((Get-Mono) -lt $until) {
+        if ([Console]::IsInputRedirected) { throw 'Eingabe umgeleitet - Standard' }
+        while ($halt -or (Get-Mono) -lt $until) {
             if ([Console]::KeyAvailable) {
                 $key = [Console]::ReadKey($true)
-                if ($key.Key -eq 'Enter') { $res = 'ENTER' } else { $res = ([string]$key.KeyChar).ToUpper() }
-                break
+                $raw = $(if ($key.Key -eq 'Enter') { 'ENTER' } else { ([string]$key.KeyChar).ToUpper() })
+                $a = Test-KeyAnswer $raw $Valid
+                if ($a) { $res = $a; break }
+                if (-not $halt) { $halt = $true; Log 'Countdown angehalten (Taste ohne Bedeutung)' }
             }
-            if ($Label) { Show-Live ($Label + ' in ' + [int][math]::Ceiling($until - (Get-Mono)) + ' s') }
+            if ($halt) { Show-Live -NoPre ('Countdown angehalten - bitte ' + $Hint + ' drücken') }
+            elseif ($Label) { Show-Live -NoPre ($Label + ' in ' + [int][math]::Ceiling($until - (Get-Mono)) + ' s') }
             Start-Sleep -Milliseconds 200
         }
-    } catch { Log ('Tastatur-Abfrage: ' + $_.Exception.Message) }
+    } catch { Log ('Tastatur-Abfrage: ' + $_) }
     Complete-Live
     return $res
+}
+function Read-Line {
+    # Read-Host mit vorher geleertem Tastaturpuffer
+    param([string]$Prompt)
+    Clear-KeyBuffer
+    $r = ''
+    try { $r = [string](Read-Host $Prompt) } catch { }
+    return $r
+}
+function Wait-Close {
+    [void](Read-Line '  Enter = Fenster schließen')
 }
 
 function Log {
@@ -156,6 +196,16 @@ function Say {
     Complete-Live
     Write-Host ('  ' + $Msg) -ForegroundColor $Color
     Log $Msg
+}
+# Fortschritt: "Schritt x von 6: <Klartext>" als Meldung und vorne in der Live-Zeile (beide Wege haben 6 Schritte:
+# Pruefen, Internet, Anmelden, Hochladen, Profil, Zuruecksetzen bzw. Neustart)
+$StepTotal = 6
+function Show-Step {
+    param([int]$N, [string]$Name)
+    $script:LivePre = 'Schritt ' + $N + '/' + $StepTotal + ' ' + $Name + ' | '
+    $script:LivePreShort = '' + $N + '/' + $StepTotal + ' | '
+    Write-Host ''
+    Say ('Schritt ' + $N + ' von ' + $StepTotal + ': ' + $Name) 'Cyan'
 }
 function Banner {
     param([string]$Text, [string]$Bg, [string[]]$Lines)
@@ -193,7 +243,7 @@ function Fail {
         'Nochmal versuchen: D:\go',
         'Klappt es wieder nicht: Foto von diesem Bild an den Admin.',
         ('Log: ' + $LocalLog))
-    Read-Host '  Enter = Fenster schließen' | Out-Null
+    Wait-Close
     exit 1
 }
 function Get-ErrText {
@@ -265,7 +315,7 @@ function Save-Offline {
         ('Hash + Tag ' + $cfg.GroupTag + ' liegen am Stick: HUPilot\logs\hashes.csv'),
         'Am PC: HUPilot-Setup > "Hashes importieren".',
         'Gerät wurde NICHT zurückgesetzt - Stick kann abgezogen werden.')
-    Read-Host '  Enter = Fenster schließen' | Out-Null
+    Wait-Close
     exit 2
 }
 
@@ -306,19 +356,97 @@ Write-Host ('  HUPilot v' + $Ver) -ForegroundColor Cyan
 Write-Host ''
 Log ('===== START go.ps1 v' + $Ver + ' =====')
 
-# ---------- 1. Config + Seriennummer ----------
-$cfg = $null
-try { $cfg = Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Fail ('config.json nicht lesbar: ' + $_.Exception.Message) }
-foreach ($k in 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','WlanSsid','WlanKey') {
-    if (-not $cfg.$k) { Fail ('config.json: Feld ' + $k + ' fehlt') }
+# ---------- Hilfsfunktionen ohne Seiteneffekte (einzeln geprueft in .github\tests\Go.Tests.ps1) ----------
+function Get-TagChoices {
+    # Auswahl fuer die Tag-Frage aus config.json "TagChoices":
+    #   Feld fehlt (oder null)  -> Jahre SN-<Jahr-5> bis SN-<Jahr> (bisheriger Rueckfall)
+    #   Feld vorhanden und leer -> keine Auswahl, nur der Standard-Tag (die Tag-Frage entfaellt)
+    #   Eintraege, die nicht zum TagPattern passen -> Hidden (mit Hinweis ausgeblendet), mehr als 9 gueltige -> Cut (abgeschnitten)
+    param($Cfg, [string]$Pattern, [int]$Year = (Get-Date).Year)
+    $src = 'Config'
+    $raw = @()
+    if ($null -eq $Cfg -or -not (@($Cfg.PSObject.Properties.Name) -contains 'TagChoices') -or $null -eq $Cfg.TagChoices) {
+        $src = 'Jahre'
+        $raw = @(($Year - 5)..$Year | ForEach-Object { 'SN-' + $_ })
+    } else { $raw = @($Cfg.TagChoices) }
+    $ok = @(); $bad = @()
+    foreach ($e in $raw) {
+        $t = ([string]$e).Trim()
+        if (-not $t) { continue }
+        $m = $false
+        try { $m = ($t -match $Pattern) } catch { }
+        if ($m) { $ok += $t } else { $bad += $t }
+    }
+    $cut = @()
+    if ($ok.Count -gt 9) { $cut = @($ok[9..($ok.Count - 1)]); $ok = @($ok[0..8]) }
+    return [pscustomobject]@{ Choices = $ok; Hidden = $bad; Cut = $cut; Source = $src }
 }
-if ([string]$cfg.ClientSecret -match '^<.*>$' -or [string]$cfg.TenantId -match '^<.*>$') { Fail 'config.json: Platzhalter noch nicht ersetzt (TenantId / ClientSecret)' }
+function ConvertFrom-SecretExpires {
+    # config.json "SecretExpires" (schreibt das Setup): UTC im Format yyyy-MM-ddTHH:mm:ssZ
+    # Rueckgabe [datetime] in UTC oder $null = unbekannt (Feld fehlt, leer oder nicht lesbar)
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetime]) { return $Value.ToUniversalTime() }   # PowerShell 7 wandelt ISO-Zeiten beim Einlesen selbst um
+    $s = ([string]$Value).Trim()
+    if (-not $s) { return $null }
+    $d = [datetime]::MinValue
+    $st = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+    if ([datetime]::TryParseExact($s, "yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture, $st, [ref]$d)) { return $d }
+    return $null
+}
+function Get-EdMarkBase {
+    # Felder der Merkdatei Edition ohne die gemerkten Antworten (zum Neuschreiben)
+    param($M)
+    $h = @{}
+    foreach ($n in 'Seriennr', 'Zeit', 'Von', 'Ziel', 'Aktiviert', 'AktiviertAm') { if ($M -and (@($M.PSObject.Properties.Name) -contains $n)) { $h[$n] = $M.$n } }
+    return $h
+}
+$UpnPattern = '^[^@\s,]+@[^@\s,]+\.[^@\s,]+$'
+function Get-EdMarkAnswers {
+    # Gemerkte Antworten (Tag, Benutzer, Zuruecksetzen) aus der Merkdatei Edition, sonst $null.
+    # Nur vollstaendig und gueltig; nach erfolgter Aktivierung nicht mehr anbieten. Schluessel stehen nie in der Merkdatei.
+    param($M, [string]$Pattern)
+    if (-not $M -or $M.Aktiviert -eq $true) { return $null }
+    $a = $M.Antworten
+    if (-not $a) { return $null }
+    $tag = ([string]$a.Tag).Trim()
+    $okTag = $false
+    try { $okTag = ($tag -and $tag -match $Pattern) } catch { }
+    if (-not $okTag) { return $null }
+    $u = ([string]$a.Benutzer).Trim()
+    if ($u -and $u -notmatch '^[^@\s,]+@[^@\s,]+\.[^@\s,]+$') { return $null }
+    if ($a.Zuruecksetzen -isnot [bool]) { return $null }
+    return @{ Tag = $tag; Benutzer = $u; Reset = [bool]$a.Zuruecksetzen }
+}
+
+# ---------- Schritt 1: Pruefen - alles, was ohne Netz geht, VOR den Fragen ----------
+Show-Step 1 'Prüfen'
+$cfg = $null
+try { $cfg = Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Fail ('config.json am Stick ist nicht lesbar (' + $_.Exception.Message + '). Am PC im Setup öffnen und neu speichern.') }
+if (-not $cfg) { Fail 'config.json am Stick ist leer. Am PC im Setup ausfüllen und speichern.' }
+foreach ($k in 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','WlanSsid','WlanKey') {
+    if (-not $cfg.$k) { Fail ('In config.json fehlt das Feld ' + $k + '. Am PC im Setup ausfüllen und speichern.') }
+}
+if ([string]$cfg.ClientSecret -match '^<.*>$' -or [string]$cfg.TenantId -match '^<.*>$') { Fail 'config.json enthält noch Platzhalter (TenantId oder ClientSecret). Am PC im Setup die echten Werte eintragen und speichern.' }
 $TagPattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 if ($cfg.TagPattern) { $TagPattern = [string]$cfg.TagPattern }
-if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungültig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
+try { [void][regex]::new($TagPattern) } catch { Fail ('TagPattern in config.json ist kein gültiger Ausdruck (' + $TagPattern + '). Am PC in config.json korrigieren oder das Feld löschen.') }
+if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Der Standard-Tag "' + $cfg.GroupTag + '" passt nicht zum erlaubten Muster ' + $TagPattern + '. Am PC im Setup den Group Tag korrigieren.') }
+# Mindest-Akku VOR der ersten Verwendung lesen (Wait-Power bei Home auf Pro und vor dem Zuruecksetzen)
+if ($null -ne $cfg.MinBattery) {
+    try { $MinBattery = [int][math]::Max(0, [math]::Min(100, [int]$cfg.MinBattery)) } catch { Log ('MinBattery in config.json ungültig (' + [string]$cfg.MinBattery + ') - bleibt ' + $MinBattery) }
+}
+Log ('Mindest-Akku ohne Netzteil: ' + $MinBattery + ' %')
+# Tag-Auswahl gleich pruefen: ungueltige Eintraege ausblenden statt erst nach der Wahl rot abzubrechen
+$TagSel = Get-TagChoices $cfg $TagPattern
+$choices = @($TagSel.Choices)
+if ($TagSel.Source -eq 'Jahre') { Log ('TagChoices fehlt in config.json - Auswahl: ' + ($choices -join ', ')) }
+elseif (-not $choices.Count -and -not @($TagSel.Hidden).Count) { Log 'TagChoices leer - keine Auswahl, nur der Standard-Tag' }
+if (@($TagSel.Hidden).Count) { Log ('TagChoices: passt nicht zum Muster ' + $TagPattern + ', ausgeblendet: ' + (@($TagSel.Hidden) -join ', ')) }
+if (@($TagSel.Cut).Count) { Log ('TagChoices: mehr als 9 Einträge, abgeschnitten: ' + (@($TagSel.Cut) -join ', ')) }
 
 try { $Serial = ([string](Get-CimInstance Win32_BIOS).SerialNumber).Trim() } catch { }
-if (-not $Serial) { Fail 'Seriennummer nicht lesbar' }
+if (-not $Serial) { Fail 'Die Seriennummer des Geräts ist nicht lesbar (BIOS). Gerät neu starten, dann nochmal D:\go.' }
 try {
     New-Item -ItemType Directory -Path (Join-Path $CfgDir 'logs') -Force | Out-Null
     $StickLog = Join-Path $CfgDir ('logs\{0}_{1}.log' -f $Serial, (Get-Date -Format 'yyyyMMdd_HHmm'))
@@ -344,6 +472,7 @@ function Wait-Power {
         '',
         'Wartet, bis das Netzteil steckt.   J = trotzdem weiter')
     while (-not $p.Ok) {
+        # ohne -Valid: jede Taste kehrt zurueck, damit der Strom weiter alle 5 s geprueft wird
         $k = Read-KeyTimeout 5 ('Strom: ' + $p.Text + '  |  nächste Prüfung')
         if ($k -eq 'J' -or $k -eq 'Y') { Log ('Strom-Warnung übergangen: ' + $p.Text); break }
         $p = Get-PowerInfo
@@ -352,57 +481,18 @@ function Wait-Power {
     try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
 }
 
-# ---------- Tag-Auswahl (10 s, sonst Standard) ----------
-$choices = @()
-if ($cfg.TagChoices) { $choices = @($cfg.TagChoices) }
-else { $y = (Get-Date).Year; $choices = @(($y - 5)..$y | ForEach-Object { 'SN-' + $_ }) }
-if ($choices.Count -gt 9) { $choices = $choices[0..8] }
-Write-Host '  Group Tag wählen:' -ForegroundColor Cyan
-Write-Host ('    [Enter]  ' + $cfg.GroupTag + '   (Standard)') -ForegroundColor White
-for ($i = 0; $i -lt $choices.Count; $i++) { Write-Host ('    [' + ($i + 1) + ']      ' + $choices[$i]) }
-$sel = Read-KeyTimeout 10 ('ohne Eingabe: ' + $cfg.GroupTag)
-if ($sel -match '^[1-9]$' -and [int]$sel -le $choices.Count) { $cfg.GroupTag = $choices[[int]$sel - 1] }
-if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Group Tag ungültig: ' + $cfg.GroupTag + ' (Muster ' + $TagPattern + ')') }
-Write-Host ''
-
-# ---------- Optional: Benutzer vorab zuweisen (config "AskUser": true) ----------
-if ($cfg.AskUser -eq $true) {
-    Write-Host '  Benutzer vorab zuweisen? Anmeldename (UPN) eintippen, Enter = keiner' -ForegroundColor Cyan
-    while ($true) {
-        $u = ([string](Read-Host '  UPN')).Trim()
-        if (-not $u) { break }
-        if ($u -match '^[^@\s,]+@[^@\s,]+\.[^@\s,]+$') { $AssignUpn = $u; break }
-        Write-Host '  Ungültig - Form name@schule.at' -ForegroundColor Yellow
-    }
-    Write-Host ''
-}
-
-# ---------- Zuruecksetzen ja/nein (10 s, sonst Standard aus config.json "Reset") ----------
-$DoReset = $true
-if ($null -ne $cfg.Reset) { $DoReset = [bool]$cfg.Reset }
-Write-Host '  Nach dem Upload zurücksetzen?' -ForegroundColor Cyan
-if ($DoReset) { Write-Host '    [Enter]  JA, zurücksetzen   (Standard)' -ForegroundColor White; Write-Host '    [N]      nein, nur hochladen' }
-else          { Write-Host '    [Enter]  NEIN, nur hochladen (Standard)' -ForegroundColor White; Write-Host '    [J]      ja, zurücksetzen' }
-$k = Read-KeyTimeout 10 ('ohne Eingabe: ' + $(if ($DoReset) { 'zurücksetzen' } else { 'nur hochladen' }))
-if ($k -eq 'N') { $DoReset = $false } elseif ($k -eq 'J' -or $k -eq 'Y') { $DoReset = $true }
-Write-Host ''
-
-Say ('Seriennummer : ' + $Serial) 'White'
-Say ('Tenant       : ' + $cfg.Tenant) 'White'
-Say ('Group Tag    : ' + $cfg.GroupTag) 'White'
-if ($AssignUpn) { Say ('Benutzer     : ' + $AssignUpn) 'White' }
-Say ('Zurücksetzen: ' + $(if ($DoReset) { 'JA' } else { 'NEIN - nur Upload' })) 'White'
-
 $os = Get-CimInstance Win32_OperatingSystem
-Say ('Windows      : ' + $os.Caption + ' ' + $os.Version)
+Log ('Windows: ' + $os.Caption + ' ' + $os.Version)
 
 # ---------- Edition: Windows Home -> Pro (optional, config.json "EditionKey" = MAK fuer Pro) ----------
 # Ablauf: Rueckfrage -> Dienste starten -> changepk mit dem GENERISCHEN Pro-Schluessel (stellt nur die Edition um,
 # verbraucht keine Aktivierung) -> Windows startet neu -> D:\go erneut -> nach dem Netz MAK installieren + aktivieren.
 # Merkdatei (lokal + am Stick je Seriennummer) verhindert eine Schleife: nach einem Fehlversuch kein zweiter Versuch.
+# Sie merkt sich auch die Antworten (Tag, Benutzer, Zuruecksetzen) fuer den Start nach dem Neustart - nie Schluessel.
 # Im OOBE tat changepk mit dem MAK direkt nichts (Test 13.11.2026, Dienste vermutlich gestoppt) - daher dieser Weg.
+# Hier nur PRUEFEN (ohne Netz); Rueckfrage bei den Fragen, Umstellung nach der Zusammenfassung.
 $EdKey = ([string]$cfg.EditionKey).Trim().ToUpper()
-if ($EdKey -and $EdKey -notmatch '^[A-Z0-9]{5}(-[A-Z0-9]{5}){4}$') { Fail 'config.json: EditionKey (MAK) hat nicht die Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX' }
+if ($EdKey -and $EdKey -notmatch '^[A-Z0-9]{5}(-[A-Z0-9]{5}){4}$') { Fail 'Der MAK (Pro) in config.json hat nicht die Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX. Am PC im Setup korrigieren oder leeren.' }
 # Allgemeine Schluessel von Microsoft (Installation/KMS-Client) aktivieren nicht - als MAK abgelehnt (Verwechslung im Test 13.11.2026)
 $EdGenericKeys = @('VK7JG-NPHTM-C97JM-9MPGT-3V66T', '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT', 'YTMG3-N6DKC-DKB77-7M9GH-8HVX7', 'W269N-WFGWX-YVC9B-4J6C9-T83GX', 'MH37W-N47XK-V7XM9-C7227-GCQG9')
 $EdKeyIsGeneric = ($EdKey -and $EdGenericKeys -contains $EdKey)
@@ -422,7 +512,7 @@ function Hide-Key([string]$Text) {
     return [regex]::Replace($Text, '[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}', { param($m) Get-KeyTail $m.Value })
 }
 function Save-EdMark([hashtable]$Data) {
-    $j = $Data | ConvertTo-Json -Compress
+    $j = $Data | ConvertTo-Json -Compress -Depth 3
     foreach ($f in $EdMarkLocal, $EdMarkStick) { try { [System.IO.File]::WriteAllText($f, $j, (New-Object System.Text.UTF8Encoding($false))) } catch { Log ('Merkdatei Edition nicht schreibbar: ' + $f + ' - ' + $_.Exception.Message) } }
 }
 function Get-SysExe([string]$Name) {
@@ -440,50 +530,148 @@ function Start-EdService([string]$Name) {
     } catch { Log ('Dienst ' + $Name + ' nicht gestartet: ' + $_.Exception.Message) }
 }
 $IsHome = $EdId -match '^Core' -or ($os.Caption -notmatch 'Pro|Education|Enterprise')
+$genKey = 'VK7JG-NPHTM-C97JM-9MPGT-3V66T'   # generischer Schluessel Windows Pro (Microsoft), aktiviert nicht
+$target = 'Professional'
+if ($EdId -eq 'CoreN') { $genKey = '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT'; $target = 'ProfessionalN' }
+$cpk = Get-SysExe 'changepk.exe'
+$homeMsg = 'Windows "' + $os.Caption + '" lässt sich nicht mit Intune verwalten, nötig ist Pro oder Pro Education (auch Education, Enterprise)'
 if ($IsHome) {
-    $homeMsg = 'Edition "' + $os.Caption + '" lässt keine Intune-Verwaltung zu - nötig ist Pro oder Pro Education (auch Education, Enterprise)'
-    if (-not $EdKey) { Fail ($homeMsg + '. Umstellen auf Pro: im Setup den MAK (Pro) eintragen') }
-    if ($EdKeyIsGeneric) { Fail ($homeMsg + '. Im Setup steht bei MAK (Pro) der allgemeine Schlüssel von Microsoft (' + (Get-KeyTail $EdKey) + '), der aktiviert nicht - den MAK der Schule eintragen') }
-    $edRetry = $false
-    if ($EdMark) {
-        # Frueherer Versuch gescheitert: nie von selbst wiederholen, nur auf ausdruecklichen Tastendruck
-        Write-Host ''
-        Write-Host ('  Umstellung auf Pro hat beim letzten Mal nicht geklappt (' + [string]$EdMark.Zeit + '), Edition weiter ' + $EdId + '.') -ForegroundColor Yellow
-        Write-Host '    [W]      nochmal versuchen' -ForegroundColor White
-        Write-Host '    [Enter]  abbrechen   (Standard)'
-        $k = Read-KeyTimeout 30 'ohne Eingabe: abbrechen'
-        if ($k -ne 'W') { Fail ('Umstellung auf Pro hat nicht geklappt (Versuch ' + [string]$EdMark.Zeit + ', Edition weiter ' + $EdId + '). Nochmal: D:\go und W drücken. Sonst über Windows: Einrichtung mit lokalem Konto abschließen, Einstellungen > Aktivierung > Product Key ändern') }
-        Log 'Umstellung auf Pro: erneuter Versuch auf Tastendruck'
-        $edRetry = $true
-    }
-    $genKey = 'VK7JG-NPHTM-C97JM-9MPGT-3V66T'   # generischer Schluessel Windows Pro (Microsoft), aktiviert nicht
-    $target = 'Professional'
-    if ($EdId -eq 'CoreN') { $genKey = '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT'; $target = 'ProfessionalN' }
+    if (-not $EdKey) { Fail ($homeMsg + '. Für die Umstellung auf Pro am PC im Setup den MAK (Pro) eintragen.') }
+    if ($EdKeyIsGeneric) { Fail ($homeMsg + '. Im Setup steht bei MAK (Pro) der allgemeine Schlüssel von Microsoft (' + (Get-KeyTail $EdKey) + '), der aktiviert nicht. Am PC im Setup den MAK der Schule eintragen.') }
     $te = ''
     try { $te = ((& (Get-SysExe 'dism.exe') /English /Online /Get-TargetEditions 2>&1) | Out-String) } catch { $te = $_.Exception.Message }
     Log ('Zieleditionen: ' + (($te -split "`r?`n" | Where-Object { $_ -match 'Target Edition' } | ForEach-Object { ($_ -split ':')[-1].Trim() }) -join ', '))
     if ($te -notmatch ('(?m)Target Edition\s*:\s*' + $target + '\s*$')) {
-        Fail ($homeMsg + '. Windows bietet ' + $target + ' nicht als Ziel an' + $(if ($EdId -eq 'CoreN') { ' (Home N braucht einen Pro-N-Schlüssel)' } else { '' }))
+        Fail ($homeMsg + '. Windows bietet ' + $target + ' nicht als Ziel an' + $(if ($EdId -eq 'CoreN') { ' (Home N braucht einen Pro-N-Schlüssel)' } else { '' }) + '. Foto an den Admin.')
     }
-    $cpk = Get-SysExe 'changepk.exe'
-    if (-not (Test-Path -LiteralPath $cpk)) { Fail ($homeMsg + '. changepk.exe fehlt auf diesem Gerät: ' + $cpk) }
-    if (-not $edRetry) {
-        Write-Host ''
+    if (-not (Test-Path -LiteralPath $cpk)) { Fail ($homeMsg + '. changepk.exe fehlt auf diesem Gerät (' + $cpk + '). Foto an den Admin.') }
+}
+
+# WLAN-Paket am Stick vorhanden?
+if ($null -ne $cfg.WlanPackage) { $WlanPkgName = [string]$cfg.WlanPackage }
+if ($WlanPkgName) {
+    $StickPkg = Join-Path $CfgDir $WlanPkgName
+    if (-not (Test-Path $StickPkg)) { Fail ('Das WLAN-Paket fehlt am Stick (' + $StickPkg + '). Am PC im Setup das WLAN-Paket bauen und auf den Stick kopieren. Ohne WLAN-Paket: in config.json "WlanPackage": "" eintragen.') }
+}
+
+# Hardware-Hash (vor dem Netz - wird bei Offline am Stick gespeichert)
+$hash = $null
+try {
+    $dd = Get-CimInstance -Namespace root/cimv2/mdm/dmmap -Class MDM_DevDetail_Ext01 -Filter "InstanceID='Ext' AND ParentID='./DevDetail'"
+    $hash = $dd.DeviceHardwareData
+} catch { Log ('Hash-Fehler: ' + $_.Exception.Message) }
+if (-not $hash) { Fail 'Der Hardware-Hash ist nicht lesbar (Windows-Verwaltung). Gerät neu starten, dann nochmal D:\go.' }
+Log ('Hash gelesen (' + $hash.Length + ' Zeichen)')
+Say 'Geprüft: Einstellungen, Seriennummer, Windows, WLAN-Paket, Hardware-Hash' 'Green'
+Write-Host ''
+
+# ---------- Fragen: Windows Home, gemerkte Antworten, Tag, Benutzer, Zuruecksetzen ----------
+$edRetry = $false
+if ($IsHome) {
+    if ($EdMark) {
+        # Frueherer Versuch gescheitert: nie von selbst wiederholen, nur auf ausdruecklichen Tastendruck
+        Write-Host ('  Umstellung auf Pro hat beim letzten Mal nicht geklappt (' + [string]$EdMark.Zeit + '), Edition weiter ' + $EdId + '.') -ForegroundColor Yellow
+        Write-Host '    [W]      nochmal versuchen' -ForegroundColor White
+        Write-Host '    [Enter]  abbrechen   (Standard)'
+        $k = Read-KeyTimeout 30 'ohne Eingabe: abbrechen' -Valid 'W'
+        if ($k -ne 'W') { Fail ('Umstellung auf Pro hat nicht geklappt (Versuch ' + [string]$EdMark.Zeit + ', Edition weiter ' + $EdId + '). Nochmal: D:\go und W drücken. Sonst über Windows: Einrichtung mit lokalem Konto abschließen, Einstellungen > Aktivierung > Product Key ändern') }
+        Log 'Umstellung auf Pro: erneuter Versuch auf Tastendruck'
+        $edRetry = $true
+    } else {
         Write-Host '  Windows Home erkannt - Intune-Verwaltung braucht Pro oder Pro Education.' -ForegroundColor Yellow
         Write-Host '  Auf Windows Pro umstellen? Gerät startet dabei neu, danach D:\go erneut starten.' -ForegroundColor Yellow
         Write-Host '    [J]      ja, auf Pro umstellen' -ForegroundColor White
         Write-Host '    [Enter]  nein, abbrechen   (Standard)'
-        $k = Read-KeyTimeout 30 'ohne Eingabe: abbrechen'
-        if ($k -ne 'J' -and $k -ne 'Y') { Fail ($homeMsg + '. Umstellen auf Pro abgelehnt') }
+        $k = Read-KeyTimeout 30 'ohne Eingabe: abbrechen' -Valid 'J', 'Y'
+        if ($k -ne 'J' -and $k -ne 'Y') { Fail ($homeMsg + '. Umstellung auf Pro wurde abgelehnt. Zum Umstellen nochmal D:\go und J drücken.') }
     }
+    Write-Host ''
+}
+
+# Gemerkte Antworten vom Start vor dem Neustart (Home auf Pro): Enter = uebernehmen, andere Taste = neu fragen
+$DoReset = $true
+if ($null -ne $cfg.Reset) { $DoReset = [bool]$cfg.Reset }
+$useSaved = $false
+$Saved = Get-EdMarkAnswers $EdMark $TagPattern
+if ($Saved) {
+    Write-Host ('  Antworten vom letzten Start (' + [string]$EdMark.Zeit + '):') -ForegroundColor Cyan
+    Write-Host ('    Group Tag    : ' + $Saved.Tag)
+    if ($cfg.AskUser -eq $true) { Write-Host ('    Benutzer     : ' + $(if ($Saved.Benutzer) { $Saved.Benutzer } else { 'keiner' })) }
+    Write-Host ('    Zurücksetzen : ' + $(if ($Saved.Reset) { 'JA' } else { 'NEIN, nur hochladen' }))
+    Write-Host '    [Enter]          übernehmen   (Standard)' -ForegroundColor White
+    Write-Host '    [andere Taste]   neu wählen'
+    $k = Read-KeyTimeout 20 'ohne Eingabe: übernehmen'
+    if ($k -eq '' -or $k -eq 'ENTER') {
+        $useSaved = $true
+        $cfg.GroupTag = $Saved.Tag
+        if ($cfg.AskUser -eq $true) { $AssignUpn = $Saved.Benutzer }
+        $DoReset = $Saved.Reset
+        Log ('Gemerkte Antworten übernommen: Tag ' + $cfg.GroupTag + ', Benutzer ' + $AssignUpn + ', Zurücksetzen ' + $DoReset)
+    } else { Log 'Gemerkte Antworten verworfen - neu fragen' }
+    Write-Host ''
+}
+
+# ---------- Tag-Auswahl (10 s, sonst Standard) - entfaellt bei leerer Auswahl ----------
+if (-not $useSaved -and $choices.Count) {
+    Write-Host '  Group Tag wählen:' -ForegroundColor Cyan
+    Write-Host ('    [Enter]  ' + $cfg.GroupTag + '   (Standard)') -ForegroundColor White
+    for ($i = 0; $i -lt $choices.Count; $i++) { Write-Host ('    [' + ($i + 1) + ']      ' + $choices[$i]) }
+    if (@($TagSel.Hidden).Count) { Write-Host ('  Hinweis: ungültige Tags in der Auswahl ausgeblendet: ' + (@($TagSel.Hidden) -join ', ') + ' (Admin: im Setup korrigieren)') -ForegroundColor Yellow }
+    $sel = Read-KeyTimeout 10 ('ohne Eingabe: ' + $cfg.GroupTag) -Valid @(1..$choices.Count | ForEach-Object { [string]$_ })
+    if ($sel -match '^[1-9]$' -and [int]$sel -le $choices.Count) { $cfg.GroupTag = $choices[[int]$sel - 1] }
+    Write-Host ''
+} elseif (-not $useSaved -and @($TagSel.Hidden).Count) {
+    Say ('Hinweis: alle Tags der Auswahl sind ungültig und ausgeblendet (' + (@($TagSel.Hidden) -join ', ') + '), es gilt der Standard-Tag. Admin: im Setup korrigieren') 'Yellow'
+}
+if ($cfg.GroupTag -notmatch $TagPattern) { Fail ('Der Group Tag "' + $cfg.GroupTag + '" passt nicht zum erlaubten Muster ' + $TagPattern + '. Am PC im Setup korrigieren.') }
+
+# ---------- Optional: Benutzer vorab zuweisen (config "AskUser": true) ----------
+if (-not $useSaved -and $cfg.AskUser -eq $true) {
+    Write-Host '  Benutzer vorab zuweisen? Anmeldename (UPN) eintippen, Enter = keiner' -ForegroundColor Cyan
+    while ($true) {
+        $u = (Read-Line '  UPN').Trim()
+        if (-not $u) { break }
+        if ($u -match $UpnPattern) { $AssignUpn = $u; break }
+        Write-Host '  Ungültig - Form name@schule.at' -ForegroundColor Yellow
+    }
+    Write-Host ''
+}
+
+# ---------- Zuruecksetzen ja/nein (10 s, sonst Standard aus config.json "Reset") ----------
+if (-not $useSaved) {
+    Write-Host '  Nach dem Upload zurücksetzen?' -ForegroundColor Cyan
+    if ($DoReset) { Write-Host '    [Enter]  JA, zurücksetzen   (Standard)' -ForegroundColor White; Write-Host '    [N]      nein, nur hochladen' }
+    else          { Write-Host '    [Enter]  NEIN, nur hochladen (Standard)' -ForegroundColor White; Write-Host '    [J]      ja, zurücksetzen' }
+    $k = Read-KeyTimeout 10 ('ohne Eingabe: ' + $(if ($DoReset) { 'zurücksetzen' } else { 'nur hochladen' })) -Valid 'J', 'Y', 'N'
+    if ($k -eq 'N') { $DoReset = $false } elseif ($k -eq 'J' -or $k -eq 'Y') { $DoReset = $true }
+    Write-Host ''
+}
+
+# ---------- Zusammenfassung - ab hier ohne weitere Rueckfrage (ausser Sonderfaellen) ----------
+Write-Host '  ---------- Zusammenfassung ----------' -ForegroundColor Cyan
+Say ('Seriennummer : ' + $Serial) 'White'
+Say ('Tenant       : ' + $cfg.Tenant) 'White'
+Say ('Group Tag    : ' + $cfg.GroupTag) 'White'
+if ($cfg.AskUser -eq $true -or $AssignUpn) { Say ('Benutzer     : ' + $(if ($AssignUpn) { $AssignUpn } else { 'keiner' })) 'White' }
+Say ('Zurücksetzen : ' + $(if ($DoReset) { 'JA' } else { 'NEIN, nur hochladen' })) 'White'
+Say ('Windows      : ' + $os.Caption + ' ' + $os.Version + $(if ($IsHome) { '  ->  wird auf Pro umgestellt (Neustart)' } else { '' })) 'White'
+if ($EdMark -and $EdId -match '^Professional') { Say ('Edition      : auf ' + $EdId + ' umgestellt (' + [string]$EdMark.Zeit + ')') 'Green' }
+if ($EdMark -and $EdKeyIsGeneric -and -not $EdMark.Aktiviert -and $EdId -match '^Professional') { Say ('WARNUNG: keine Aktivierung - bei MAK (Pro) steht der allgemeine Schlüssel von Microsoft (' + (Get-KeyTail $EdKey) + '). Im Setup den MAK der Schule eintragen') 'Yellow' }
+Write-Host '  Ab hier läuft alles ohne weitere Fragen.' -ForegroundColor Gray
+Write-Host ''
+
+# ---------- Windows Home auf Pro umstellen (Rueckfrage war oben) ----------
+if ($IsHome) {
     Wait-Power
     Say ('Stelle auf ' + $target + ' um (MAK ' + (Get-KeyTail $EdKey) + ' wird nach dem Neustart aktiviert) ...') 'Cyan'
-    Save-EdMark @{ Seriennr = $Serial; Zeit = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); Von = $EdId; Ziel = $target; Aktiviert = $false }
+    # Antworten fuer den Start nach dem Neustart mitschreiben (keine Schluessel)
+    Save-EdMark @{ Seriennr = $Serial; Zeit = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); Von = $EdId; Ziel = $target; Aktiviert = $false; Antworten = @{ Tag = [string]$cfg.GroupTag; Benutzer = [string]$AssignUpn; Zuruecksetzen = [bool]$DoReset } }
     Protokoll ('EDITION: Umstellung ' + $EdId + ' -> ' + $target + ' gestartet')
     Banner 'WINDOWS WIRD AUF PRO UMGESTELLT' 'DarkBlue' @(
         '',
         'Gerät startet von selbst neu (auch mehrmals) - NICHT ausschalten.',
         'Danach im Einrichtungsbildschirm: Shift+F10, dann  D:\go',
+        'Die Antworten von eben werden dann zum Übernehmen angeboten.',
         '',
         'Fragt Windows in einem Fenster nach: bestätigen.',
         'Kommt nach 10 Minuten kein Neustart, wird abgebrochen (Rot).')
@@ -530,9 +718,6 @@ if ($IsHome) {
 }
 # Nach erfolgreicher Umstellung: Merkdatei da, Edition jetzt Pro -> nach dem Netz aktivieren (siehe unten)
 $EdActivate = ($EdMark -and $EdKey -and -not $EdKeyIsGeneric -and -not $EdMark.Aktiviert -and $EdId -match '^Professional')
-if ($EdMark -and $EdKeyIsGeneric -and -not $EdMark.Aktiviert -and $EdId -match '^Professional') { Say ('WARNUNG: keine Aktivierung - bei MAK (Pro) steht der allgemeine Schlüssel von Microsoft (' + (Get-KeyTail $EdKey) + '). Im Setup den MAK der Schule eintragen') 'Yellow' }
-if ($EdMark -and $EdId -match '^Professional') { Say ('Edition      : auf ' + $EdId + ' umgestellt (' + [string]$EdMark.Zeit + ')') 'Green' }
-if ($null -ne $cfg.MinBattery) { $MinBattery = [int]$cfg.MinBattery }
 
 # ---------- Schutz: nur im Einrichtungsbildschirm (OOBE) ohne Benutzerdaten ----------
 if ($DoReset) {
@@ -552,7 +737,7 @@ if ($DoReset) {
             '',
             'Beim Zurücksetzen gehen ALLE Daten auf dem Gerät verloren.',
             'Zum Fortfahren  LÖSCHEN  eintippen, sonst nur Enter (Abbruch).')
-        $a = Read-Host '  Eingabe'
+        $a = Read-Line '  Eingabe'
         if ($a -cne 'LÖSCHEN' -and $a -cne 'LOESCHEN') { Log 'Abbruch: Gerät hat Benutzerdaten'; Protokoll 'ABBRUCH: Benutzerdaten vorhanden'; exit 1 }
         Log 'Benutzerdaten-Warnung mit LÖSCHEN bestätigt'
         try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
@@ -561,25 +746,9 @@ if ($DoReset) {
     Say ('Strom        : ' + (Get-PowerInfo).Text)
 }
 
-if ($null -ne $cfg.WlanPackage) { $WlanPkgName = [string]$cfg.WlanPackage }
-if ($WlanPkgName) {
-    $StickPkg = Join-Path $CfgDir $WlanPkgName
-    if (-not (Test-Path $StickPkg)) { Fail ('WLAN-Paket fehlt am Stick: ' + $StickPkg + '  (ohne WLAN-Paket: "WlanPackage": "" in config.json)') }
-}
-
-# ---------- Hash (vor dem Netz - wird bei Offline am Stick gespeichert) ----------
-$hash = $null
-try {
-    $dd = Get-CimInstance -Namespace root/cimv2/mdm/dmmap -Class MDM_DevDetail_Ext01 -Filter "InstanceID='Ext' AND ParentID='./DevDetail'"
-    $hash = $dd.DeviceHardwareData
-} catch { Log ('Hash-Fehler: ' + $_.Exception.Message) }
-if (-not $hash) { Fail 'Hardware-Hash nicht lesbar' }
-Say ('Hash gelesen (' + $hash.Length + ' Zeichen)') 'Green'
-
-
 # ---------- 2. Netz / WLAN ----------
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Write-Host ''
+Show-Step 2 'Internet'
 Say 'Prüfe Internet ...'
 Sync-Clock
 $netOk = Test-Net $cfg.TenantId
@@ -677,6 +846,24 @@ if ($EdActivate) {
 }
 
 # ---------- 3a. Token ----------
+Show-Step 3 'Anmelden'
+# Ablaufdatum des Secrets (config.json "SecretExpires", schreibt das Setup) - erst nach der Uhr-Korrektur bewerten.
+# Nur Hinweis, kein Abbruch: die Uhr am Geraet kann trotzdem falsch sein.
+$SecretExp = ConvertFrom-SecretExpires $cfg.SecretExpires
+$SecretExpTxt = ''
+if ($SecretExp) {
+    $SecretExpTxt = $SecretExp.ToLocalTime().ToString('dd.MM.yyyy HH:mm')
+    $hLeft = ($SecretExp - [datetime]::UtcNow).TotalHours
+    Log ('Secret gültig bis ' + $SecretExp.ToString('yyyy-MM-dd HH:mm') + ' UTC (noch ' + [int]$hLeft + ' h)')
+    if ($hLeft -le 0) {
+        Write-Host ''
+        Say ('ACHTUNG: Das Secret ist laut Setup seit ' + $SecretExpTxt + ' abgelaufen. Anmeldung wird trotzdem versucht.') 'Yellow'
+        Say 'Klappt sie nicht: am PC im Setup ein neues Secret eintragen und den Stick neu bespielen.' 'Yellow'
+        Write-Host ''
+    } elseif ($hLeft -lt 24) {
+        Say ('Hinweis: Das Secret läuft am ' + $SecretExpTxt + ' ab (in ' + [int][math]::Ceiling($hLeft) + ' Std). Bald im Setup erneuern.') 'Yellow'
+    }
+} else { Log 'Secret-Ablauf unbekannt (SecretExpires fehlt oder nicht lesbar)' }
 $tok = $null
 $TokAt = Get-Mono
 for ($i = 1; $i -le 3 -and -not $tok; $i++) {
@@ -686,12 +873,13 @@ for ($i = 1; $i -le 3 -and -not $tok; $i++) {
     } catch {
         $m = Get-ErrText $_
         Log ('Token-Versuch ' + $i + ': ' + $m)
-        if ($m -match 'AADSTS7000222') { Save-Offline 'Secret ABGELAUFEN - neues Secret in config.json eintragen' }
-        if ($m -match 'AADSTS7000215') { Save-Offline 'Secret FALSCH (Secret-ID statt Wert?)' }
+        $expInfo = $(if ($SecretExpTxt) { ' (laut Setup gültig bis ' + $SecretExpTxt + ')' } else { '' })
+        if ($m -match 'AADSTS7000222') { Save-Offline ('Secret ABGELAUFEN' + $expInfo + '. Am PC im Setup ein neues Secret eintragen') }
+        if ($m -match 'AADSTS7000215') { Save-Offline ('Secret FALSCH (Secret-ID statt Wert?)' + $expInfo + '. Am PC im Setup den Wert des Secrets eintragen') }
         if ($i -lt 3) { Wait-Live 5 ('Anmeldung fehlgeschlagen - Versuch ' + ($i + 1) + '/3') -1 0 'neuer Versuch'; Complete-Live }
     }
 }
-if (-not $tok) { Save-Offline 'Anmeldung am Tenant fehlgeschlagen (siehe Log)' }
+if (-not $tok) { Save-Offline 'Anmeldung am Tenant fehlgeschlagen (Details im Log). Am PC im Setup "Verbindung testen"' }
 $h  = @{ Authorization = 'Bearer ' + $tok }
 $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
 # Access-Token gilt laut MS Doku zufaellig 60-90 Min (learn.microsoft.com/entra/identity-platform/access-tokens#token-lifetime).
@@ -810,7 +998,7 @@ else {
     Write-Host ('  ACHTUNG: Für Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
     Write-Host '  Das Gerät würde nach dem Upload vergeblich auf ein Profil warten.' -ForegroundColor Yellow
     Write-Host '  [A] Abbrechen   -   [Enter] trotzdem hochladen' -ForegroundColor Yellow
-    $k = Read-KeyTimeout 20 'ohne Eingabe: trotzdem hochladen'
+    $k = Read-KeyTimeout 20 'ohne Eingabe: trotzdem hochladen' -Valid 'A'
     if ($k -eq 'A') { Log 'Abbruch: kein Profil für Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; exit 1 }
 }
 
@@ -852,6 +1040,7 @@ function Get-ApProfile {
 }
 
 $TagChanged = $false
+Show-Step 4 'Hochladen'
 
 # Erste Abfrage: ein Fehler (Netz, 429, 5xx) darf NICHT als "nicht registriert" gelten - sonst wuerde ein vorab
 # importiertes Geraet neu importiert und der Import scheitert irrefuehrend mit 806/808. 3 Versuche, dann Abbruch.
@@ -861,7 +1050,7 @@ for ($i = 1; $i -le 3; $i++) {
     if (-not $script:ApLookupFailed) { break }
     if ($i -lt 3) { Log ('Autopilot-Abfrage fehlgeschlagen - Versuch ' + ($i + 1) + '/3'); Wait-Live 15 ('Autopilot-Abfrage fehlgeschlagen - Versuch ' + ($i + 1) + '/3') -1 0 'neuer Versuch'; Complete-Live }
 }
-if ($script:ApLookupFailed) { Fail 'Autopilot-Abfrage 3x fehlgeschlagen (Netz/Graph, siehe Log) - nochmal go' }
+if ($script:ApLookupFailed) { Fail 'Die Abfrage bei Autopilot ist 3-mal fehlgeschlagen (Netz oder Microsoft gestört, Details im Log). Einige Minuten warten, dann nochmal D:\go.' }
 # Hardware geaendert (z. B. Mainboardtausch beim Support): Autopilot zeigt "Fix ausstehend" / "Achtung erforderlich",
 # der gespeicherte Hash passt nicht mehr. MS Doku (Autopilot motherboard replacement / Deregister a device):
 # zuerst Intune-Eintrag loeschen, dann Autopilot-Eintrag loeschen, dann mit neuem Hash neu registrieren.
@@ -872,20 +1061,20 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     Write-Host '  Der gespeicherte Hash passt nicht mehr - das Autopilot-Profil greift so nicht.' -ForegroundColor Yellow
     Write-Host '  Neu registrieren = Intune-Eintrag und Autopilot-Eintrag löschen, neuen Hash hochladen.' -ForegroundColor Yellow
     Write-Host '  [N] neu registrieren (empfohlen)   -   [Enter] abbrechen' -ForegroundColor Yellow
-    $k = ''
-    try { $k = ([string](Read-Host '  Auswahl')).Trim().ToUpper() } catch { }
-    if ($k -ne 'N') { Fail 'Hardware geändert - nicht neu registriert (Abbruch)' }
+    $k = (Read-Line '  Auswahl').Trim().ToUpper()
+    if ($k -ne 'N') { Fail 'Autopilot meldet eine Hardware-Änderung, neu registrieren wurde abgelehnt. Zum Neu-Registrieren nochmal D:\go und N drücken, sonst den Admin fragen.' }
     # 1. Intune-Eintraege mit dieser Seriennummer loeschen
     $md = @()
     try {
-        $f = [uri]::EscapeDataString("serialNumber eq '" + $Serial + "'")
+        # OData: einfaches Hochkomma im Wert verdoppeln
+        $f = [uri]::EscapeDataString("serialNumber eq '" + $Serial.Replace("'", "''") + "'")
         $md = @((Invoke-GraphGet ($GB + '/deviceManagement/managedDevices?$filter=' + $f + '&$select=id,deviceName,serialNumber')).value | Where-Object { $_.serialNumber -eq $Serial })
-    } catch { Fail ('Intune-Einträge lesen: ' + (Get-ErrText $_) + ' (App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All nötig)') }
+    } catch { Fail ('Intune-Einträge sind nicht lesbar: ' + (Get-ErrText $_) + '. Admin: App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All prüfen, dann nochmal D:\go.') }
     foreach ($d in $md) {
         try {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/managedDevices/' + $d.id) -Headers $h | Out-Null
             Say ('Intune-Eintrag gelöscht: ' + $d.deviceName) 'Yellow'
-        } catch { Fail ('Intune-Eintrag ' + $d.deviceName + ' nicht löschbar: ' + (Get-ErrText $_) + ' - im Intune-Portal löschen oder App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All ergänzen, dann nochmal go') }
+        } catch { Fail ('Intune-Eintrag ' + $d.deviceName + ' ist nicht löschbar: ' + (Get-ErrText $_) + '. Admin: im Intune-Portal löschen oder App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All ergänzen, dann nochmal D:\go.') }
     }
     if (-not $md.Count) { Log 'Kein Intune-Eintrag mit dieser Seriennummer' }
     # 2. Benutzer-Zuweisung aufheben (sonst laesst sich der Eintrag nicht loeschen)
@@ -895,7 +1084,7 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     }
     # 3. Autopilot-Eintrag loeschen und warten, bis er weg ist
     try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id) -Headers $h | Out-Null }
-    catch { Fail ('Autopilot-Eintrag löschen: ' + (Get-ErrText $_)) }
+    catch { Fail ('Der alte Autopilot-Eintrag ist nicht löschbar: ' + (Get-ErrText $_) + '. Admin: im Intune-Portal löschen, dann nochmal D:\go.') }
     Say 'Autopilot-Eintrag gelöscht - warte, bis er verschwunden ist (bis 30 Min) ...'
     Invoke-ApSync 'nach Löschen'
     $gone = $false
@@ -912,7 +1101,7 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
         } catch { Log ('Autopilot-Abfrage: ' + (Get-ErrText $_)) }
     }
     Complete-Live
-    if (-not $gone) { Fail 'Autopilot-Eintrag nach 30 Min noch vorhanden - später nochmal go (das Gerät wird dann normal neu importiert)' }
+    if (-not $gone) { Fail 'Der alte Autopilot-Eintrag ist nach 30 Minuten noch nicht verschwunden. Später nochmal D:\go, das Gerät wird dann normal neu importiert.' }
     Say 'Alter Autopilot-Eintrag entfernt - importiere neu mit aktuellem Hash' 'Green'
     $ap = $null
 }
@@ -926,8 +1115,7 @@ if ($ap) {
         Write-Host ('  Gerät hat schon den Tag "' + $ap.groupTag + '", gewählt ist "' + $cfg.GroupTag + '".') -ForegroundColor Yellow
         Write-Host ('    [Enter]  Tag "' + $ap.groupTag + '" behalten   (Standard)') -ForegroundColor White
         Write-Host ('    [J]      auf "' + $cfg.GroupTag + '" ändern')
-        try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }   # alte Tastendruecke verwerfen
-        $k = Read-KeyTimeout 10 ('ohne Eingabe: Tag ' + $ap.groupTag + ' behalten')
+        $k = Read-KeyTimeout 10 ('ohne Eingabe: Tag ' + $ap.groupTag + ' behalten') -Valid 'J', 'Y'   # leert vorher den Tastaturpuffer
         if ($k -eq 'J' -or $k -eq 'Y') { Log ('Tag-Änderung bestätigt: ' + $ap.groupTag + ' -> ' + $cfg.GroupTag) }
         else {
             Log ('Vorhandener Tag bleibt: ' + $ap.groupTag + ' (gewählt war ' + $cfg.GroupTag + ')')
@@ -942,8 +1130,7 @@ if ($ap) {
                 Write-Host ('  ACHTUNG: Für den vorhandenen Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
                 Write-Host '  Das Gerät würde vergeblich auf ein Profil warten (Tippfehler in der CSV?).' -ForegroundColor Yellow
                 Write-Host '  [A] Abbrechen   -   [Enter] trotzdem weiter' -ForegroundColor Yellow
-                try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }
-                $k2 = Read-KeyTimeout 20 'ohne Eingabe: trotzdem weiter'
+                $k2 = Read-KeyTimeout 20 'ohne Eingabe: trotzdem weiter' -Valid 'A'
                 if ($k2 -eq 'A') { Log 'Abbruch: kein Profil für behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; exit 1 }
             }
         }
@@ -956,7 +1143,7 @@ if ($ap) {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = $cfg.GroupTag } | ConvertTo-Json) | Out-Null
             Say ('Tag geändert -> ' + $cfg.GroupTag) 'Green'
             $TagChanged = $true
-        } catch { Fail ('Tag setzen fehlgeschlagen: ' + (Get-ErrText $_)) }
+        } catch { Fail ('Der Group Tag ließ sich in Autopilot nicht ändern: ' + (Get-ErrText $_) + '. Nochmal D:\go, sonst Foto an den Admin (App-Berechtigung DeviceManagementServiceConfig.ReadWrite.All).') }
     }
 }
 else {
@@ -979,7 +1166,7 @@ else {
         } | ConvertTo-Json -Depth 4
         $imp = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities') -Headers $hj -Body $body
         Log ('Import gesendet, id ' + $imp.id)
-    } catch { Fail ('Import abgelehnt: ' + (Get-ErrText $_)) }
+    } catch { Fail ('Microsoft hat den Import abgelehnt: ' + (Get-ErrText $_) + '. Nochmal D:\go, sonst Foto an den Admin.') }
 
     $state = ''
     $t0 = Get-Mono
@@ -1002,10 +1189,10 @@ else {
         $en = [string]$st.state.deviceErrorName; $ec = [string]$st.state.deviceErrorCode
         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h | Out-Null } catch { }
         # MS Doku (Error 806 or 808 when you import ...): auch ein Rest-Datensatz im EIGENEN Tenant/Intune kann 806/808 ausloesen
-        if ($ec -eq '808' -or $en -match 'OtherTenant') { Fail ('Gerät ist in einem ANDEREN Tenant registriert oder es gibt noch einen alten Datensatz im eigenen Tenant/Intune (' + $en + ' ' + $ec + ')') }
-        Fail ('Import-Fehler: ' + $en + ' (' + $ec + ')')
+        if ($ec -eq '808' -or $en -match 'OtherTenant') { Fail ('Das Gerät ist in einem ANDEREN Tenant registriert oder es gibt noch einen alten Datensatz im eigenen Tenant/Intune (' + $en + ' ' + $ec + '). Foto an den Admin, der Eintrag muss dort gelöscht werden.') }
+        Fail ('Microsoft meldet einen Import-Fehler: ' + $en + ' (' + $ec + '). Nochmal D:\go, sonst Foto an den Admin.')
     }
-    if ($state -ne 'complete') { Fail ('Import nach 10 Min nicht fertig (Status: ' + $state + ')') }
+    if ($state -ne 'complete') { Fail ('Der Import ist nach 10 Minuten nicht fertig (Status: ' + $state + '). Nochmal D:\go, ein inzwischen fertiger Import wird erkannt.') }
     try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h | Out-Null } catch { }
     Say 'Import abgeschlossen' 'Green'
 }
@@ -1029,10 +1216,18 @@ if ($StickPkg) {
     try {
         Copy-Item -Path $StickPkg -Destination $TmpPkg -Force
         if ((Get-Item $TmpPkg).Length -ne (Get-Item $StickPkg).Length) { throw 'Größe stimmt nicht' }
-    } catch { Fail ('WLAN-Paket kopieren: ' + $_.Exception.Message) }
+    } catch { Fail ('Das WLAN-Paket ließ sich nicht vom Stick kopieren (' + $_.Exception.Message + '). Stick neu anstecken, dann nochmal D:\go.') }
     Log 'WLAN-Paket lokal kopiert'
 }
 Protokoll ($(if ($AlreadyReg) { 'BEREITS REGISTRIERT' } else { 'UPLOAD OK' }) + $(if ($DoReset) { '' } else { ' (ohne Zurücksetzen)' }))
+# Upload fertig: gemerkte Antworten (Home auf Pro) nicht bei spaeteren Laeufen wieder anbieten.
+# Die Merkdatei selbst bleibt (Schutz gegen einen stillen zweiten Umstellungsversuch). Stick ist hier noch da.
+if ($EdMark -and $EdMark.Antworten) {
+    $mk = Get-EdMarkBase $EdMark
+    if ($EdActivate -and $okAct) { $mk.Aktiviert = $true; $mk.AktiviertAm = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+    Save-EdMark $mk
+    Log 'Merkdatei Edition: gemerkte Antworten entfernt (Upload fertig)'
+}
 Log '--- Stick wird ab jetzt nicht mehr gebraucht ---'
 $StickLog = $null
 
@@ -1078,7 +1273,9 @@ function Wait-ApProfile {
     # Rueckgabe: Assigned ($true = Bedingungen erfuellt), LastTxt (letzter Status), Profil (Name)
     # -NoDateMin > 0: passt alles ausser dem Zuweisungsdatum, nach so vielen Minuten trotzdem freigeben
     #   (nur fuer Neustart im OOBE - Test 30.10.2026: Profil kam ohne Datum an; ein Irrtum kostet nur einen Neustart)
-    param([int]$NoDateMin = 0)
+    # -Round: nur Anzeige (Zaehler der Warterunden), die Entscheidung bleibt unveraendert
+    param([int]$NoDateMin = 0, [string]$Round = '')
+    $lbl = 'Profil' + $(if ($Round) { ' (Runde ' + $Round + ')' } else { '' }) + ': '
     $assigned = $false
     $noDateSince = $null
     $shownTxt = ''
@@ -1096,7 +1293,7 @@ function Wait-ApProfile {
         if ($okCount -eq 0 -and ((Get-Mono) - $syncAt) / 60 -ge 5) { Invoke-ApSync 'Warten auf Profil'; $syncAt = Get-Mono }
         if ((Get-Mono) -ge $limit -and $okCount -eq 1) { $extra = $true }   # erster Treffer kam kurz vor Ablauf: genau eine Kontrollrunde zusaetzlich
         # Abfrage-Hinweis an die aktuelle Zeile anhaengen, damit bei Statuswechsel der ALTE Status als Verlauf stehen bleibt
-        if ($shownTxt) { Show-Live ('Profil: ' + $shownTxt + '  |  ' + (Format-Dauer ((Get-Mono) - $t0)) + '  |  frage ab ...') } else { Show-Live 'Profil: frage ab ...' }
+        if ($shownTxt) { Show-Live ($lbl + $shownTxt + '  |  ' + (Format-Dauer ((Get-Mono) - $t0)) + '  |  frage ab ...') } else { Show-Live ($lbl + 'frage ab ...') }
         $ap = Get-ApDevice
         $ps = ''
         $pn = ''
@@ -1145,17 +1342,34 @@ function Wait-ApProfile {
         if ($shownTxt -and $txt -ne $shownTxt) { Complete-Live }   # alte Zeile bleibt stehen
         $shownTxt = $txt
         if ($okCount -ge 2) {
-            Show-Live ('Profil: ' + $txt + '  |  ' + (Format-Dauer ((Get-Mono) - $t0)) + '  |  OK')
+            Show-Live ($lbl + $txt + '  |  ' + (Format-Dauer ((Get-Mono) - $t0)) + '  |  OK')
             Complete-Live
             $assigned = $true; break
         }
         if ($extra) { Complete-Live; break }
-        $lt = 'Profil: ' + $txt
+        $lt = $lbl + $txt
         if ($noDate -and $NoDateMin -gt 0) { $lt += ' (Neustart in ' + [int][math]::Max(1, [math]::Ceiling($NoDateMin - ((Get-Mono) - $noDateSince) / 60)) + ' Min)' }
         Wait-Live (Get-Random -Minimum 26 -Maximum 35) $lt $t0 ([int]($limit - $t0)) $(if ($okCount -eq 1) { 'Kontrolle' } else { 'nächste Abfrage' })
     }
     Complete-Live
     return [pscustomobject]@{ Assigned = $assigned; LastTxt = $lastTxt; Profil = $pn }
+}
+
+function Test-StickDrive {
+    # Laeuft go von einem Stick? $false nur, wenn sicher kein Stick (z. B. Testkopie auf der Festplatte),
+    # im Zweifel $true (lieber auf "Stick abziehen" warten: ein steckender Ventoy-Stick koennte beim Neustart booten)
+    param([string]$Root)
+    if (-not $Root -or $Root -notmatch '^[A-Za-z]:') { return $false }
+    $dl = $Root.Substring(0, 1)
+    if ($env:SystemDrive -and $Root.Substring(0, 2) -ieq $env:SystemDrive) { return $false }
+    try {
+        $di = New-Object System.IO.DriveInfo($dl)
+        if (-not $di.IsReady) { return $false }
+        if ([string]$di.DriveType -eq 'Network') { return $false }
+        if ([string]$di.DriveType -ne 'Fixed') { return $true }
+    } catch { return $true }
+    # Fixed: USB-Festplatten und manche Sticks melden sich als fest -> Bus pruefen
+    try { return ([string](Get-Partition -DriveLetter $dl -ErrorAction Stop | Get-Disk -ErrorAction Stop).BusType -in 'USB', 'SD', 'MMC') } catch { return $true }
 }
 
 if (-not $DoReset) {
@@ -1184,6 +1398,7 @@ if (-not $DoReset) {
         ('Group Tag: ' + $cfg.GroupTag + $(if ($AssignUpn) { '   Benutzer: ' + $AssignUpn } else { '' })),
         ('Warte auf das Autopilot-Profil (max. ' + $ProfileWaitMin + ' Min).'),
         'Fenster offen lassen.')
+    Show-Step 5 'Profil'
     # Im Einrichtungsbildschirm (OOBE) reicht ein Neustart: Windows holt das Autopilot-Profil bei jedem Neustart neu
     # (MS Doku: learn.microsoft.com/autopilot/troubleshooting-faq "How are Windows Autopilot device profiles downloaded?").
     $inOobe = $false
@@ -1199,6 +1414,8 @@ if (-not $DoReset) {
         $stickRoot = ''
         try { $stickRoot = Split-Path -Qualifier $PSScriptRoot } catch { Log ('Stick-Laufwerk: ' + $_.Exception.Message) }
         if (-not $stickRoot) { $stickRoot = 'Z:\HUPilot-kein-Stick' }   # Pfad gibt es nicht -> nicht warten
+        elseif (-not (Test-StickDrive $stickRoot)) { Log ('go läuft nicht von einem Stick (' + $stickRoot + ') - kein Warten auf Stick abziehen'); $stickRoot = 'Z:\HUPilot-kein-Stick' }
+        Show-Step 6 'Neustart'
         $t0 = Get-Mono
         $wait = $t0 + 300
         $shown = $false
@@ -1217,16 +1434,15 @@ if (-not $DoReset) {
             Banner 'PROFIL DA  -  NEUSTART VON HAND' 'DarkYellow' @(
                 '',
                 'Stick abziehen, dann Gerät neu starten.')
-            Read-Host '  Enter = Fenster schließen' | Out-Null
+            Wait-Close
             exit 0
         }
         Banner 'OK  -  PROFIL DA  -  NEUSTART IN 15 s' 'DarkGreen' @(
             '',
             'Danach kommt die Schul-Anmeldung.',
             '[A] = nicht neu starten')
-        try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }
-        $k = Read-KeyTimeout 15 'Neustart'
-        if ($k -eq 'A') { Log 'Neustart abgebrochen'; Read-Host '  Enter = Fenster schließen' | Out-Null; exit 0 }
+        $k = Read-KeyTimeout 15 'Neustart' -Valid 'A'
+        if ($k -eq 'A') { Log 'Neustart abgebrochen'; Wait-Close; exit 0 }
         # /f: offene Programme (z. B. "Program Manager" im OOBE) duerfen den Neustart nicht blockieren
         Log 'Neustart (shutdown /r /f /t 0)'
         Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\shutdown.exe') -ArgumentList '/r', '/f', '/t', '0' -WindowStyle Hidden
@@ -1245,7 +1461,7 @@ if (-not $DoReset) {
             'Upload ist fertig, das Profil fehlt noch.',
             'Später nochmal D:\go starten.')
     }
-    Read-Host '  Enter = Fenster schließen' | Out-Null
+    Wait-Close
     exit 0
 }
 
@@ -1257,26 +1473,54 @@ Banner 'OK  -  STICK ABZIEHEN  -  nächstes Gerät' 'DarkGreen' @(
 $GreenAt = Get-Mono
 
 # ---------- 5. Auf Profil warten ----------
-$wr = Wait-ApProfile
+# Kein Profil nach einer Runde ($ProfileWaitMin): Standard ist "weiter warten" (neue Runde Wait-ApProfile),
+# zurueckgesetzt wird ohne Profil NUR auf ausdruecklichen Tastendruck J, N bricht ab.
+# Hoechstens $ProfileRounds Runden (4 x 20 Min = 80 Min), danach gelb und NICHT zurueckgesetzt.
+Show-Step 5 'Profil'
+$ProfileRounds = 4
+$round = 1
+$wr = Wait-ApProfile -Round ('1/' + $ProfileRounds)
+while (-not $wr.Assigned) {
+    Log ('Profil nach Runde ' + $round + ' von ' + $ProfileRounds + ' NICHT sicher zugewiesen, letzter Status: ' + $wr.LastTxt)
+    $minSoFar = [int][math]::Round(((Get-Mono) - $GreenAt) / 60)
+    if ($round -ge $ProfileRounds) {
+        Protokoll ('ABBRUCH: kein Profil nach ' + $minSoFar + ' Min, nicht zurückgesetzt')
+        Banner 'NOCH KEIN PROFIL  -  NICHT ZURÜCKGESETZT' 'DarkYellow' @(
+            '',
+            ('Nach ' + $minSoFar + ' Minuten ist noch kein Autopilot-Profil da (letzter Stand: ' + $wr.LastTxt + ').'),
+            'Der Upload ist fertig, das Gerät bleibt im Einrichtungsbildschirm.',
+            '',
+            'Später: Stick rein, Shift+F10, D:\go  (Upload wird übersprungen).',
+            'Kommt das Profil nie: Admin fragen, ob für den Tag ein Profil zugewiesen ist.')
+        Wait-Close
+        exit 1
+    }
+    Banner 'NOCH KEIN PROFIL' 'DarkYellow' @(
+        '',
+        ('Seit ' + $minSoFar + ' Minuten kein Autopilot-Profil (letzter Stand: ' + $wr.LastTxt + ').'),
+        'Ohne Profil kommt nach dem Zurücksetzen das normale Windows-Setup.',
+        '',
+        ('[Enter]  weiter warten und erneut prüfen, Runde ' + ($round + 1) + ' von ' + $ProfileRounds + '   (Standard)'),
+        '[J]      trotzdem zurücksetzen, ohne Profil',
+        '[N]      abbrechen, später nochmal D:\go')
+    $k = Read-KeyTimeout 60 'ohne Eingabe: weiter warten' -Valid 'J', 'Y', 'N'
+    if ($k -eq 'N') { Log 'Abbruch durch Benutzer (kein Reset)'; Protokoll 'ABBRUCH: kein Profil, abgebrochen (N)'; exit 1 }
+    if ($k -eq 'J' -or $k -eq 'Y') { Log 'Zurücksetzen OHNE Profil mit Taste J bestätigt'; break }
+    $round++
+    try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
+    Write-Host ''
+    Say ('Weiter warten auf das Profil: Runde ' + $round + ' von ' + $ProfileRounds + '. Gerät NICHT ausschalten.') 'Cyan'
+    Invoke-ApSync 'neue Warterunde'
+    $wr = Wait-ApProfile -Round ('' + $round + '/' + $ProfileRounds)
+}
 $assigned = $wr.Assigned
 $lastTxt = $wr.LastTxt
 
-if (-not $assigned) {
-    Log ('Profil nach Wartezeit NICHT sicher zugewiesen, letzter Status: ' + $lastTxt)
-    Banner 'NOCH KEIN PROFIL' 'DarkYellow' @(
-        '',
-        'Ohne Profil kommt nach dem Zurücksetzen das normale Windows-Setup.',
-        '',
-        'N = abbrechen, später nochmal go  (empfohlen)',
-        'J = trotzdem zurücksetzen')
-    $a = Read-Host '  J / N'
-    if ($a -notmatch '^[jJyY]') { Log 'Abbruch durch Benutzer (kein Reset)'; exit 1 }
-}
-
 # Gruenen Hinweis mind. 60 s stehen lassen (damit man ihn sieht und den Stick abzieht)
 $rest = 60 - [int]((Get-Mono) - $GreenAt)
-if ($rest -gt 0) { Log ('Grün bleibt noch ' + $rest + ' s stehen'); Wait-Live $rest 'Profil da' -1 0 'Zurücksetzen startet'; Complete-Live }
+if ($rest -gt 0) { Log ('Grün bleibt noch ' + $rest + ' s stehen'); Wait-Live $rest $(if ($assigned) { 'Profil da' } else { 'Ohne Profil (J gedrückt)' }) -1 0 'Zurücksetzen startet'; Complete-Live }
 # ---------- 6. WLAN-Paket + Zuruecksetzen ohne Hersteller-Anpassungen ----------
+Show-Step 6 'Zurücksetzen'
 Wait-Power
 $ErrorActionPreference = 'Continue'
 function Fail-Reset {
@@ -1289,7 +1533,7 @@ function Fail-Reset {
         ('Log: ' + $LocalLog + ' und ' + $WipeLog),
         'Nochmal: Stick rein, Shift+F10, D:\go  (Upload wird übersprungen)',
         'Diagnose zum Abfotografieren: D:\diag')
-    Read-Host '  Enter = Fenster schließen' | Out-Null
+    Wait-Close
     exit 1
 }
 
@@ -1319,7 +1563,7 @@ if ($StickPkg) {
             'Intune verbietet auf diesem Gerät neue Bereitstellungspakete.',
             'Nach dem Zurücksetzen ist das Konfigurations-WLAN NICHT da:',
             'LAN-Kabel anstecken oder WLAN im Einrichtungsbildschirm von Hand wählen.')
-        $a = Read-Host '  J = trotzdem zurücksetzen, Enter = abbrechen'
+        $a = Read-Line '  J = trotzdem zurücksetzen, Enter = abbrechen'
         if ($a -notmatch '^[jJyY]') { Fail-Reset 'WLAN-Paket von Intune gesperrt (AllowAddProvisioningPackage=0) - abgebrochen' }
         Log 'Trotzdem zurücksetzen (ohne WLAN-Paket) bestätigt'
     }
@@ -1327,9 +1571,17 @@ if ($StickPkg) {
         $prov = Join-Path $env:SystemRoot 'System32\provtool.exe'
         if (-not (Test-Path $prov)) { Fail-Reset 'provtool.exe nicht gefunden' }
         Log ('provtool.exe ' + $TmpPkg + ' /quiet')
-        $pr = Start-Process -FilePath $prov -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -Wait -PassThru -WindowStyle Hidden
-        Log ('provtool Exitcode: ' + $pr.ExitCode)
-        if ($pr.ExitCode -ne 0) { Log 'provtool fehlgeschlagen - neuer Versuch als SYSTEM im Hilfsscript'; $SysPkg = $TmpPkg }
+        # Zeitlimit 2 Min wie im Zweig "nur hochladen"; haengt provtool, gilt das wie ein Fehler: neuer Versuch als SYSTEM im Hilfsscript
+        $pr = $null
+        $prOk = $false
+        Show-Live 'WLAN-Paket wird installiert ...'
+        try {
+            $pr = Start-Process -FilePath $prov -ArgumentList ('"' + $TmpPkg + '"', '/quiet') -PassThru -WindowStyle Hidden -ErrorAction Stop
+            if ($pr.WaitForExit(120000)) { Log ('provtool Exitcode: ' + $pr.ExitCode); $prOk = ($pr.ExitCode -eq 0) }
+            else { Log 'provtool nach 2 Min nicht fertig - abgebrochen'; try { $pr.Kill() } catch { } }
+        } catch { Log ('provtool: ' + $_.Exception.Message) }
+        Complete-Live
+        if (-not $prOk) { Log 'provtool fehlgeschlagen - neuer Versuch als SYSTEM im Hilfsscript'; $SysPkg = $TmpPkg }
         elseif (-not (Test-Path $persist)) { Log ('Hinweis: ' + $persist + ' nicht gefunden - WLAN nach dem Zurücksetzen evtl. von Hand') }
         else { Log 'WLAN-Paket in ProgramData\Provisioning gespeichert' }
     }
@@ -1563,4 +1815,4 @@ Banner 'ZURÜCKSETZEN NICHT GESTARTET' 'DarkRed' @(
     'Nach 15 Minuten kein Neustart.',
     'Foto von diesem Bild an den Admin.',
     ('Log: ' + $LocalLog + ' und ' + $WipeLog))
-Read-Host '  Enter = Fenster schließen' | Out-Null
+Wait-Close
