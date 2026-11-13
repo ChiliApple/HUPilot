@@ -213,10 +213,18 @@ function Test-ClockJump {
         if ([math]::Abs($d) -gt 60) { $script:ClockOff = $off; Log ('Hinweis: Uhr am Gerät um ' + [int]$d + ' s verstellt (Windows/Zeitzone) - Wartezeiten laufen unabhängig weiter') }
     } catch { }
 }
+function Get-ReadableColor {
+    # Nach einem Banner hat die Konsole einen farbigen Hintergrund (gruen, gelb, blau, rot): dort ist eine Akzentfarbe
+    # (Cyan, Gelb, Gruen ...) schlecht lesbar -> Weiss. Auf schwarzem Hintergrund bleibt die gewuenschte Farbe.
+    param([string]$Color, [string]$Bg = '')
+    if (-not $Bg) { try { $Bg = [string]$Host.UI.RawUI.BackgroundColor } catch { $Bg = 'Black' } }
+    if (-not $Bg -or $Bg -eq 'Black' -or $Bg -eq '-1') { return $Color }
+    return 'White'
+}
 function Say {
     param([string]$Msg, [string]$Color = 'Gray')
     Complete-Live
-    Write-Host ('  ' + $Msg) -ForegroundColor $Color
+    Write-Host ('  ' + $Msg) -ForegroundColor (Get-ReadableColor $Color)
     Log $Msg
 }
 # Fortschritt: "Schritt x von 6: <Klartext>" als Meldung und vorne in der Live-Zeile (beide Wege haben 6 Schritte:
@@ -1622,8 +1630,8 @@ if ($StickPkg) {
     elseif ($ppBlocked -and (Test-Path $persist)) {
         Log 'Intune sperrt Bereitstellungspakete (AllowAddProvisioningPackage=0) - vorhandenes WLAN-Paket bleibt, neues wird NICHT installiert'
         Write-Host ''
-        Write-Host '  Hinweis: Intune sperrt neue Pakete auf diesem Gerät.' -ForegroundColor Yellow
-        Write-Host '  Das vorhandene WLAN-Paket bleibt - Änderungen (z. B. lokaler Admin) kommen NICHT mit.' -ForegroundColor Yellow
+        Write-Host '  Hinweis: Intune sperrt neue Pakete auf diesem Gerät.' -ForegroundColor (Get-ReadableColor 'Yellow')
+        Write-Host '  Das vorhandene WLAN-Paket bleibt - Änderungen (z. B. lokaler Admin) kommen NICHT mit.' -ForegroundColor (Get-ReadableColor 'Yellow')
         [void](Read-KeyTimeout 30 'beliebige Taste oder weiter')
     }
     elseif ($ppBlocked) {

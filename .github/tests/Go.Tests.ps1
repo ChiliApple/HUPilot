@@ -343,3 +343,18 @@ Describe 'go: Nachbesserungen (Countdown, Strom, Akku, Wartetext)' {
         (Get-EndText 'ResetWarten').Jetzt | Should -Match 'bis zu 30 Minuten'
     }
 }
+
+Describe 'go: lesbare Farben nach einem Banner' {
+    BeforeAll { . ([scriptblock]::Create((Get-GoFunctionText 'Get-ReadableColor'))) }
+    It 'auf farbigem Grund Weiss, auf Schwarz die gewuenschte Farbe' {
+        foreach ($bg in 'DarkGreen', 'DarkYellow', 'DarkBlue', 'DarkRed') { Get-ReadableColor 'Cyan' $bg | Should -Be 'White' -Because $bg }
+        Get-ReadableColor 'Yellow' 'DarkGreen' | Should -Be 'White'
+        Get-ReadableColor 'Cyan' 'Black' | Should -Be 'Cyan'
+        Get-ReadableColor 'Green' 'Black' | Should -Be 'Green'
+    }
+    It 'Say und Meldungen nach dem gruenen Bild nutzen die lesbare Farbe' {
+        @($script:GoTop | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Say' })[0].Extent.Text | Should -Match '-ForegroundColor \(Get-ReadableColor \$Color\)'
+        $after = $script:GoText.Substring($script:GoText.IndexOf("Banner 'OK  -  STICK ABZIEHEN  -  nächstes Gerät'"))
+        $after | Should -Not -Match '-ForegroundColor (Yellow|Cyan|Green|Red|Gray|DarkGray)\b'
+    }
+}
