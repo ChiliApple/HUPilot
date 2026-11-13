@@ -21,5 +21,6 @@
   "Admin2Password": "",
   "Reset": true,
   "RemoveOtherPackages": false,
+  "EditionKey": "",
   "MinBattery": 50
 }

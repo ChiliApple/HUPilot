@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.12'
+$SetupVer = '2.7.13'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -127,7 +127,7 @@ $script:Extra = @{}
   <Grid Margin="0,0,6,0">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <GroupBox Grid.Row="0" Header="Tenant / App-Registrierung" Padding="6">
       <Grid>
@@ -158,7 +158,14 @@ $script:Extra = @{}
         <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cRmPkg" IsChecked="False" Margin="2,4,0,0" Content="Fremde Bereitstellungspakete beim Zurücksetzen entfernen (Test)" ToolTip="Alte Pakete am Gerät (z. B. ein früheres Schul-MDM-Paket) würden das Zurücksetzen überleben und im Einrichtungsbildschirm erneut angewendet - das kann Autopilot stören.&#x0a;Bleibt nur HUPilot-WLAN.ppkg. Die entfernten Pakete werden vorher nach C:\Recovery\HUPilot-PPKG-Backup\&lt;Datum&gt; gesichert.&#x0a;Noch nicht an einem Gerät bestätigt - erst an einem Testgerät ausprobieren." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
-    <GroupBox Grid.Row="3" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
+    <GroupBox Grid.Row="3" Header="Windows Home auf Pro umstellen (optional - leer lassen = aus)" Padding="6" Margin="0,6,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <TextBlock Grid.Row="0" Text="MAK (Pro)" VerticalAlignment="Center"/>
+        <DockPanel Grid.Row="0" Grid.Column="1"><CheckBox x:Name="cShowEd" ToolTip="MAK im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pEdKey" ToolTip="Volumenlizenz-Schlüssel (MAK) für Windows Pro, Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX.&#x0a;Nur für Geräte mit Windows Home: go.ps1 fragt am Gerät nach, stellt auf Pro um (Neustart) und aktiviert danach mit diesem Schlüssel.&#x0a;Jede Aktivierung zählt beim MAK mit. Geräte mit Pro/Education/Enterprise werden nicht angefasst.&#x0a;Steht im Klartext in config.json - Stick nicht aus der Hand geben. Leer = Funktion aus." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tEdKey" ToolTip="MAK für Windows Pro im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
+      </Grid>
+    </GroupBox>
+    <GroupBox Grid.Row="4" Header="Lokale Admins (optional - leer lassen = keiner)" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
@@ -168,7 +175,7 @@ $script:Extra = @{}
         <TextBlock Grid.Row="3" Text="Admin 2 - Kennwort" VerticalAlignment="Center"/><TextBox Grid.Row="3" Grid.Column="1" x:Name="tAdm2Pw" ToolTip="Kennwort des zweiten lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/>
       </Grid>
     </GroupBox>
-    <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
+    <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Vorbereiten" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
       <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup läuft)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,0,0"/>
       <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Content="1. Verbindung testen" Padding="10,4" Margin="8,0,0,0"/>
@@ -176,19 +183,19 @@ $script:Extra = @{}
       <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Content="3. Speichern" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bPkg" ToolTip="Baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md." ToolTipService.ShowDuration="30000" Content="4. WLAN-Paket bauen" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
-    <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
+    <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
       <ComboBox x:Name="cDrive" ToolTip="Ziel-Stick für 5. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000" Width="180" Margin="0,0,0,0"/>
       <Button x:Name="bReload" ToolTip="USB-Laufwerke neu einlesen." ToolTipService.ShowDuration="30000" Content="Aktualisieren" Padding="8,2" Margin="6,0,0,0"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen." ToolTipService.ShowDuration="30000" Content="5. Auf Stick kopieren" Padding="10,4" Margin="8,0,0,0"/>
       <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,0"/>
     </StackPanel>
-    <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
+    <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="Gray"/>
       <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV oder Excel, Drucken (auch als PDF)." ToolTipService.ShowDuration="30000" Content="6. Status" Padding="10,4" Margin="0,0,0,0"/>
       <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Content="7. Hashes importieren" Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
-    <TextBox Grid.Row="7" x:Name="tLog" Height="160" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+    <TextBox Grid.Row="8" x:Name="tLog" Height="160" ToolTip="Protokoll dieser Sitzung." ToolTipService.ShowDuration="30000" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
   </Grid>
   </ScrollViewer>
   </DockPanel>
@@ -196,7 +203,7 @@ $script:Extra = @{}
 '@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bUpd','bLnk','tLog') { $ui[$n] = $win.FindName($n) }
 
 $win.Title = 'HUPilot-Setup v' + $SetupVer
 # Icon (Titelleiste + Taskleiste) und Logo
@@ -235,6 +242,7 @@ function Get-Cfg {
         WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = $ui.tKey.Text; WlanPackage = 'HUPilot-WLAN.ppkg'
         AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = $ui.tAdmPw.Text
         Admin2Name = $ui.tAdm2Name.Text.Trim(); Admin2Password = $ui.tAdm2Pw.Text; AskUser = [bool]$ui.cAskUser.IsChecked; RemoveOtherPackages = [bool]$ui.cRmPkg.IsChecked
+        EditionKey = (Get-EdKey)
     }
     foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
     return $o
@@ -252,6 +260,7 @@ function Test-Fields([string[]]$Names) {
         if ([string]$a[2] -eq '' -or $a[2].Length -lt 8) { Out-Log ($a[0] + '-Kennwort kürzer als 8 Zeichen'); return $false }
     }
     if ($c.AdminName -and $c.Admin2Name -and $c.AdminName -eq $c.Admin2Name) { Out-Log 'Admin und Admin 2 haben denselben Namen'; return $false }
+    if ($c.EditionKey -and $c.EditionKey -notmatch '^[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}$') { Out-Log 'MAK (Pro) ungültig - Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX, oder Feld leeren'; return $false }
     return $true
 }
 
@@ -259,6 +268,10 @@ function Get-Secret { if ($ui.cShow.IsChecked) { return $ui.tSecret.Text.Trim() 
 function Set-Secret([string]$v) { $ui.pSecret.Password = $v; $ui.tSecret.Text = $v }
 $ui.cShow.Add_Checked({ $ui.tSecret.Text = $ui.pSecret.Password; $ui.pSecret.Visibility = 'Collapsed'; $ui.tSecret.Visibility = 'Visible' })
 $ui.cShow.Add_Unchecked({ $ui.pSecret.Password = $ui.tSecret.Text; $ui.tSecret.Visibility = 'Collapsed'; $ui.pSecret.Visibility = 'Visible' })
+function Get-EdKey { $v = $(if ($ui.cShowEd.IsChecked) { $ui.tEdKey.Text } else { $ui.pEdKey.Password }); return $v.Trim().ToUpper() }
+function Set-EdKey([string]$v) { $ui.pEdKey.Password = $v; $ui.tEdKey.Text = $v }
+$ui.cShowEd.Add_Checked({ $ui.tEdKey.Text = $ui.pEdKey.Password; $ui.pEdKey.Visibility = 'Collapsed'; $ui.tEdKey.Visibility = 'Visible' })
+$ui.cShowEd.Add_Unchecked({ $ui.pEdKey.Password = $ui.tEdKey.Text; $ui.tEdKey.Visibility = 'Collapsed'; $ui.pEdKey.Visibility = 'Visible' })
 $ShowHelp = {
     $f = Join-Path $PSScriptRoot 'Anleitung.html'
     if (Test-Path $f) { Start-Process -FilePath $f } else { Out-Log ('Anleitung fehlt: ' + $f) }
@@ -706,8 +719,9 @@ $ui.bLoad.Add_Click({
         $ui.tSsid.Text = [string]$c.WlanSsid; $ui.tKey.Text = [string]$c.WlanKey
         $ui.tAdmName.Text = [string]$c.AdminName; $ui.tAdmPw.Text = [string]$c.AdminPassword; $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
         $ui.tAdm2Name.Text = [string]$c.Admin2Name; $ui.tAdm2Pw.Text = [string]$c.Admin2Password; $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -eq $true)
+        Set-EdKey ([string]$c.EditionKey)
         $script:Extra = @{}
-        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages') { $script:Extra[$pr.Name] = $pr.Value } }
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages','EditionKey') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log ('Geladen: ' + $p)
     } catch { Out-Log ('Fehler beim Laden: ' + $_.Exception.Message) }
 })

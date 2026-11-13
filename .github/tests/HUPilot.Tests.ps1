@@ -119,3 +119,30 @@ Describe 'HUPilot: Ablage und Versionen' {
         [regex]::Match($g, "(?m)^\`$Ver\s*=\s*'([^']+)'").Groups[1].Value | Should -Be $v
     }
 }
+
+Describe 'Edition Home -> Pro' {
+    BeforeAll {
+        $tk = $null; $er = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Root 'Stick\HUPilot\go.ps1'), [ref]$tk, [ref]$er)
+        $script:EdFns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -in 'Get-KeyTail', 'Hide-Key' } | ForEach-Object { $_.Extent.Text }) -join "`n"
+    }
+    It 'Schluessel kommen nie ins Log, nur die letzten 5 Zeichen' {
+        $script:EdFns | Should -Match 'function Hide-Key'
+        . ([scriptblock]::Create($script:EdFns))
+        $EdKey = 'AAAAA-BBBBB-CCCCC-DDDDD-EEEEE'
+        $o = Hide-Key ('Installed product key AAAAA-BBBBB-CCCCC-DDDDD-EEEEE successfully. Generisch VK7JG-NPHTM-C97JM-9MPGT-3V66T')
+        $o | Should -Not -Match 'AAAAA-BBBBB'
+        $o | Should -Not -Match 'VK7JG'
+        $o | Should -Match '\*\*\*\*\*-EEEEE'
+        $o | Should -Match '\*\*\*\*\*-3V66T'
+        Get-KeyTail 'kurz' | Should -Be ''
+    }
+    It 'Beispiel-Config hat EditionKey leer, Setup speichert und laedt das Feld' {
+        $c = Get-Content (Join-Path $script:Root 'Stick\HUPilot\config.example.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $c.PSObject.Properties.Name | Should -Contain 'EditionKey'
+        [string]$c.EditionKey | Should -Be ''
+        $s = Get-Content (Join-Path $script:Root 'Stick\HUPilot\Setup\HUPilot-Setup.ps1') -Raw -Encoding UTF8
+        $s | Should -Match 'EditionKey = \(Get-EdKey\)'
+        $s | Should -Match 'Set-EdKey \(\[string\]\$c\.EditionKey\)'
+    }
+}
