@@ -526,13 +526,13 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
     <DockPanel>
       <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
         <TextBlock Text="Stick" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource HuMuted}" ToolTip="Ziel-Stick für Stick fertig machen, 5. Auf Stick kopieren und die Stick-Protokolle in Status und Hashes importieren." ToolTipService.ShowDuration="30000"/>
-        <ComboBox x:Name="cDrive" Width="190" VerticalAlignment="Center" ToolTip="Ziel-Stick für Stick fertig machen und 5. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten." ToolTipService.ShowDuration="30000"/>
-        <Button x:Name="bReload" Content="Aktualisieren" Padding="8,3" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="USB-Laufwerke neu einlesen (nach dem Anstecken eines Sticks)." ToolTipService.ShowDuration="30000"/>
+        <ComboBox x:Name="cDrive" Width="190" VerticalAlignment="Center" ToolTip="Ziel-Stick für Stick fertig machen und 5. Auf Stick kopieren. Das Laufwerk der Quelle selbst wird nicht angeboten.&#x0a;Angesteckte und abgezogene Sticks erscheinen von selbst, die Auswahl bleibt dabei erhalten." ToolTipService.ShowDuration="30000"/>
+        <Button x:Name="bReload" Content="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="12" Padding="6,4" Margin="4,0,0,0" VerticalAlignment="Center" ToolTip="Sticks neu einlesen.&#x0a;Angesteckte und abgezogene Sticks erkennt das Setup von selbst, dieser Knopf ist nur der Rückfall." ToolTipService.ShowDuration="30000"/>
       </StackPanel>
       <Button x:Name="bReady" DockPanel.Dock="Left" Style="{StaticResource HuMain}" Padding="18,8" FontSize="15" FontWeight="Bold" ToolTip="Macht den gewählten Stick in einem Durchgang fertig:&#x0a;Felder prüfen, Verbindung und Secret prüfen, Tags prüfen (nur Warnung), speichern,&#x0a;WLAN-Paket bauen, wenn es fehlt oder veraltet ist, auf den Stick kopieren und die kopierten Dateien kontrollieren.&#x0a;Bricht beim ersten echten Fehler ab und sagt, was zu tun ist." ToolTipService.ShowDuration="60000">
         <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="13" Height="13" Margin="0,0,8,0" Stroke="White" StrokeThickness="1.5"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
       </Button>
-      <TextBlock x:Name="tReady" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" Text="Stick anstecken, links auswählen (ggf. &quot;Aktualisieren&quot;), dann &quot;Stick fertig machen&quot; klicken." ToolTip="Ergebnis des letzten Durchgangs. Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
+      <TextBlock x:Name="tReady" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="" ToolTip="Stand für den gewählten Stick: bereit, aktueller Schritt oder Ergebnis des letzten Durchgangs.&#x0a;Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
     </DockPanel>
   </Border>
   <ScrollViewer x:Name="svMain" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -906,25 +906,100 @@ function Get-ReadyDrive {
     $d = Get-Drive
     if (-not $d) { return $null }
     try { if ([System.IO.Directory]::Exists($d + '\')) { return $d } } catch { }
-    Out-Log ('Stick ' + $d + ' ist nicht mehr da. Stick einstecken und bei "Stick" auf "Aktualisieren" klicken.') 'Fehler'
+    Out-Log ('Stick ' + $d + ' ist nicht mehr da. Stick wieder anstecken, er wird von selbst erkannt.') 'Fehler'
     return $null
 }
-function Update-Drives {
-    $ui.cDrive.Items.Clear()
+# ---------- Ziel-Sticks: von selbst erkennen ----------
+#   Ein Timer (alle 2 s) liest nur [System.IO.DriveInfo]::GetDrives() und baut die Liste nur bei einer Aenderung neu auf.
+#   Pause, solange ein Vorgang laeuft, die Auswahlliste offen ist oder ein Unterfenster (Status, Tags, Hashes, Sticks
+#   vorbereiten) offen ist: dort wird der gewaehlte Stick benutzt, er soll sich nicht im Hintergrund aendern.
+#   IsReady steht im try, VolumeLabel nur bei bereitem Laufwerk (leere Kartenleser bremsen nicht).
+function Get-UsbDriveList {
+    $res = @()
     foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
-        try { if ($d.IsReady -and $d.DriveType -eq 'Removable' -and $d.Name.Substring(0, 2).ToUpper() -ne $srcDrive) { [void]$ui.cDrive.Items.Add(('{0} {1} ({2:N1} GB)' -f $d.Name.TrimEnd('\'), $d.VolumeLabel, ($d.TotalSize / 1GB))) } } catch { }
+        try {
+            if ([string]$d.DriveType -ne 'Removable') { continue }
+            $l = $d.Name.Substring(0, 2).ToUpper()
+            if ($l -eq $srcDrive -or -not $d.IsReady) { continue }
+            $res += [pscustomobject]@{ Letter = $l; Label = [string]$d.VolumeLabel; Text = ('{0} {1} ({2:N1} GB)' -f $l, $d.VolumeLabel, ($d.TotalSize / 1GB)) }
+        } catch { }
     }
-    if ($ui.cDrive.Items.Count) {
-        $ui.cDrive.SelectedIndex = 0
-    } else { Out-Log 'Kein Ziel-Stick gefunden. Für "Stick fertig machen" und "5. Auf Stick kopieren" einen Stick anstecken und "Aktualisieren" klicken.' 'Hinweis' }
+    return $res
+}
+# Reine Auswahl-Logik: alte Liste, neue Liste (Laufwerksbuchstaben), bisherige Auswahl -> neue Auswahl und Ereignisse.
+#   Gewaehlter Stick noch da: bleibt. Keiner gewaehlt: der erste neu dazugekommene (sonst der erste vorhandene).
+#   Gewaehlter abgezogen: der naechste vorhandene (Buchstabe danach, sonst der erste), sonst leer.
+function Get-DriveSelection([string[]]$Old, [string[]]$New, [string]$Sel) {
+    $Old = @($Old | Where-Object { $_ }); $New = @($New | Where-Object { $_ })
+    $added = @($New | Where-Object { $Old -notcontains $_ })
+    $removed = @($Old | Where-Object { $New -notcontains $_ })
+    $s = ''
+    if ($Sel -and $New -contains $Sel) { $s = $Sel }
+    elseif ($Sel) { $next = @($New | Where-Object { [string]::Compare($_, $Sel, $true) -gt 0 } | Sort-Object); $s = $(if ($next.Count) { $next[0] } elseif ($New.Count) { $New[0] } else { '' }) }
+    elseif ($added.Count) { $s = $added[0] }
+    elseif ($New.Count) { $s = $New[0] }
+    return [pscustomobject]@{ Sel = $s; Added = $added; Removed = $removed }
+}
+$script:DriveList = @(); $script:DriveSig = $null; $script:DriveRebuild = $false; $script:HintDrive = '?'
+function Update-Drives([switch]$Auto) {
+    $list = @(Get-UsbDriveList)
+    $sig = (@($list | ForEach-Object { $_.Letter + '|' + $_.Label }) -join ';')
+    if ($Auto -and $sig -eq $script:DriveSig) { return }
+    $first = ($null -eq $script:DriveSig)
+    $letters = @($list | ForEach-Object { $_.Letter })
+    $r = Get-DriveSelection @($script:DriveList | ForEach-Object { $_.Letter }) $letters (Get-Drive)
+    $script:DriveRebuild = $true
+    try {
+        $ui.cDrive.Items.Clear()
+        foreach ($x in $list) { [void]$ui.cDrive.Items.Add($x.Text) }
+        $i = [array]::IndexOf($letters, $r.Sel); if ($i -ge 0) { $ui.cDrive.SelectedIndex = $i }
+    } finally { $script:DriveRebuild = $false }
+    $script:DriveList = $list; $script:DriveSig = $sig
+    if (-not $first) {
+        foreach ($a in $r.Added) { $x = @($list | Where-Object { $_.Letter -eq $a })[0]; Out-Log ('Stick ' + $a + $(if ($x.Label) { ' ' + $x.Label } else { '' }) + ' erkannt') }
+        foreach ($a in $r.Removed) { Out-Log ('Stick ' + $a + ' entfernt') }
+    } elseif (-not $list.Count) { Out-Log 'Kein Ziel-Stick erkannt. Für "Stick fertig machen" und "5. Auf Stick kopieren" einen Stick anstecken, er wird von selbst erkannt.' 'Hinweis' }
     Update-ReadyLabel
+    Update-ReadyHint
 }
 # Hauptknopf zeigt den gewaehlten Stick
 function Update-ReadyLabel {
     $d = Get-Drive
     $ui.tReadyBtn.Text = 'Stick fertig machen' + $(if ($d) { '  (' + $d + ')' } else { '' })
 }
-$ui.cDrive.Add_SelectionChanged({ Update-ReadyLabel })
+# Kurzer Text rechts neben dem Hauptknopf (eine Zeile, Rest im Tooltip). $Color: Farbschluessel, $Tip: ganzer Text fuer den Tooltip
+function Set-ReadyText([string]$Text, [string]$Color = 'HuText', [string]$Tip = '') {
+    $ui.tReady.Text = $Text
+    try { $ui.tReady.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $Color) } catch { }
+    $ui.tReady.ToolTip = $(if ($Tip) { $Tip } else { $Text })
+}
+# Ausgangszustand je Stick: kein Stick oder "Bereit fuer ...". Nur bei einem anderen Stick, damit ein Ergebnis stehen bleibt.
+function Update-ReadyHint {
+    $d = Get-Drive
+    if ([string]$d -eq [string]$script:HintDrive) { return }
+    $script:HintDrive = [string]$d
+    if (-not $d) { Set-ReadyText 'Kein Stick erkannt. Stick anstecken.' 'HuWarn'; return }
+    $x = @($script:DriveList | Where-Object { $_.Letter -eq $d })[0]
+    Set-ReadyText ('Bereit für ' + $d + $(if ($x -and $x.Label) { ' ' + $x.Label } else { '' }))
+}
+# Aus einer Fehlermeldung (Problem, Leerzeile, was zu tun ist) der eine Satz, was zu tun ist, ohne Anfuehrungszeichen
+function Get-ReadyTodo([string]$Msg) {
+    $paras = @(($Msg -replace "`r", '') -split "`n\s*`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if (-not $paras.Count) { return '' }
+    $p = $(if ($paras.Count -gt 1) { $paras[-1] } else { $paras[0] })
+    $line = @($p -split "`n" | Where-Object { $_.Trim() })[0]
+    # Satzende: nicht nach einer Ziffer ("4. WLAN-Paket") und nicht bei Abkuerzungen wie z. B., ggf., bzw.
+    $m = [regex]::Match($line, '^.*?(?<!\d)(?<!\bz)(?<!\bB)(?<!ggf)(?<!bzw)(?<!ca)[.!?](?=\s|$)')
+    $s = $(if ($m.Success) { $m.Value } else { $line })
+    return ($s -replace '"', '').Trim()
+}
+$ui.cDrive.Add_SelectionChanged({ if (-not $script:DriveRebuild) { Update-ReadyLabel; Update-ReadyHint } })
+$script:DriveTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:DriveTimer.Interval = [TimeSpan]::FromSeconds(2)
+$script:DriveTimer.Add_Tick({
+    if ($script:Busy -or $ui.cDrive.IsDropDownOpen -or @($win.OwnedWindows).Count) { return }
+    try { Update-Drives -Auto } catch { }
+})
 function Get-Cfg {
     $choices = @($ui.tTagChoices.Text -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $o = [ordered]@{
@@ -1041,6 +1116,13 @@ function Get-UsbSticks {
     return $res
 }
 
+# Reine Logik fuer "Sticks vorbereiten": Markierte Sticks nach neuem Einlesen. Schluessel = Datentraegernummer|Laufwerksbuchstabe,
+# nie die Listenposition. Keep = bleibt markiert, Dropped = Markierung entfernt (Stick weg oder anderer Datentraeger unter dem Buchstaben).
+function Get-PrepKeep([string[]]$SelKeys, [string[]]$NewKeys) {
+    $SelKeys = @($SelKeys | Where-Object { $_ }); $NewKeys = @($NewKeys | Where-Object { $_ })
+    return [pscustomobject]@{ Keep = @($SelKeys | Where-Object { $NewKeys -contains $_ }); Dropped = @($SelKeys | Where-Object { $NewKeys -notcontains $_ }) }
+}
+function Get-PrepKey($Stick) { return ('' + $Stick.Disk + '|' + $Stick.Letter) }
 function Show-PrepSticks {
     [xml]$px = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -1081,7 +1163,7 @@ function Show-PrepSticks {
       <TextBox x:Name="tLabel" Width="120" Margin="6,0,0,0" MaxLength="11" ToolTip="Laufwerksname (max. 11 Zeichen, keine Sonderzeichen)."/>
       <TextBlock Text="Dateisystem:" VerticalAlignment="Center" Margin="16,0,0,0"/>
       <ComboBox x:Name="cFs" Width="90" Margin="6,0,0,0" ToolTip="NTFS empfohlen. FAT32 nur bis 32 GB."/>
-      <Button x:Name="bScan" Content="Neu einlesen" Padding="8,2" Margin="16,0,0,0" ToolTip="Sticks tauschen, dann neu einlesen."/>
+      <Button x:Name="bScan" Content="Neu einlesen" Padding="8,2" Margin="16,0,0,0" ToolTip="Angesteckte und abgezogene Sticks erkennt das Fenster von selbst, Markierungen bleiben dabei erhalten.&#x0a;Dieser Knopf liest die Liste von Hand neu ein (Rückfall)."/>
       <Button x:Name="bAll" Content="Alle wählen" Padding="8,2" Margin="6,0,0,0" ToolTip="Alle angezeigten USB-Sticks auswählen."/>
     </StackPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
@@ -1106,16 +1188,41 @@ function Show-PrepSticks {
     $script:PrepList = @()
     $plog = { param($m, $lv = '', $dt = '') Out-SubLog $g.tPLog $pw 'Sticks vorbereiten' $m $lv $dt }
     $g.tPLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $g.tPLog); $e.Handled = $true } })
+    # Neu einlesen. Markierungen bleiben nur fuer denselben Datentraeger unter demselben Buchstaben, sonst werden sie entfernt
+    # und das steht im Protokoll. $Auto: von selbst erkannt (nur Aenderungen ins Protokoll)
+    $pst = @{ Sig = $null; Busy = $false }
     $scan = {
+        param([bool]$Auto = $false)
+        $selKeys = @(foreach ($i in @($g.lSticks.SelectedItems)) { foreach ($st in @($script:PrepList | Where-Object { $_.Text -eq [string]$i })) { Get-PrepKey $st } })
+        $oldKeys = @($script:PrepList | ForEach-Object { Get-PrepKey $_ })
+        $new = @(Get-UsbSticks)
+        $newKeys = @($new | ForEach-Object { Get-PrepKey $_ })
+        $k = Get-PrepKeep $selKeys $newKeys
         $g.lSticks.Items.Clear()
-        $script:PrepList = @(Get-UsbSticks)
-        foreach ($st in $script:PrepList) { [void]$g.lSticks.Items.Add($st.Text) }
-        & $plog ('' + $script:PrepList.Count + ' USB-Stick(s) gefunden')
+        $script:PrepList = $new
+        foreach ($st in $new) { [void]$g.lSticks.Items.Add($st.Text); if ($k.Keep -contains (Get-PrepKey $st)) { [void]$g.lSticks.SelectedItems.Add($st.Text) } }
+        foreach ($d in $k.Dropped) { & $plog ('Markierung für ' + ($d -split '\|')[1] + ': entfernt, der Stick ist nicht mehr da oder ein anderer.') 'Hinweis' }
+        if ($Auto) {
+            foreach ($st in @($new | Where-Object { $oldKeys -notcontains (Get-PrepKey $_) })) { & $plog ('Stick ' + $st.Letter + ': erkannt') }
+            foreach ($o in @($oldKeys | Where-Object { $newKeys -notcontains $_ })) { & $plog ('Stick ' + ($o -split '\|')[1] + ': entfernt') }
+        } else { & $plog ('' + $script:PrepList.Count + ' USB-Stick(s) gefunden') }
     }
-    $g.bScan.Add_Click($scan)
+    # Von selbst erkennen: alle 2 s nur die Laufwerksbuchstaben lesen, die teure Abfrage nur bei einer Aenderung.
+    # Nie waehrend des Formatierens und Befuellens.
+    $prepSig = { (@([System.IO.DriveInfo]::GetDrives() | ForEach-Object { try { $_.Name + [string]$_.DriveType } catch { } }) -join ';') }
+    $ptm = New-Object System.Windows.Threading.DispatcherTimer
+    $ptm.Interval = [TimeSpan]::FromSeconds(2)
+    $ptm.Add_Tick({
+        if ($pst.Busy -or $script:Busy) { return }
+        try { $s = & $prepSig; if ($s -ne $pst.Sig) { $pst.Sig = $s; & $scan $true } } catch { }
+    })
+    $g.bScan.Add_Click({ if (-not $pst.Busy) { $pst.Sig = & $prepSig; & $scan $false } })
     $g.bAll.Add_Click({ $g.lSticks.SelectAll() })
     $g.bClose.Add_Click({ $pw.Close() })
     $g.bGo.Add_Click({
+      if ($pst.Busy) { return }
+      $pst.Busy = $true; Set-UiBusy $true
+      try {
         $sel = @(); foreach ($i in @($g.lSticks.SelectedItems)) { $sel += @($script:PrepList | Where-Object { $_.Text -eq [string]$i }) }
         if (-not $sel.Count) { & $plog 'Keinen Stick gewählt. Sticks in der Liste anklicken.' 'Hinweis'; return }
         $label = $g.tLabel.Text.Trim(); $fs = [string]$g.cFs.SelectedItem
@@ -1142,11 +1249,14 @@ function Show-PrepSticks {
                 if (Copy-ToStick ($dl + ':') $pre.WithMak) { & $plog ($dl + ': fertig, kopiert und kontrolliert. Stick abziehen.') 'OK'; $ok++ } else { & $plog ($dl + ': Kopieren fehlgeschlagen. Stick neu anstecken und nochmal versuchen.') 'Fehler' $script:CopyErr }
             } catch { & $plog ($dl + ': nicht bearbeitet. ' + $(if ("$($_.Exception.Message)" -match 'FAT32|USB-Stick') { $_.Exception.Message } else { 'Stick neu anstecken und nochmal versuchen.' })) 'Fehler' $_.Exception.Message }
         }
-        & $plog ('Fertig: ' + $ok + ' von ' + $sel.Count + ' Stick(s). Nächste Sticks anstecken, dann "Neu einlesen".') $(if ($ok -eq $sel.Count) { 'OK' } else { 'Hinweis' })
+        & $plog ('Fertig: ' + $ok + ' von ' + $sel.Count + ' Stick(s). Nächste Sticks anstecken, sie erscheinen von selbst.') $(if ($ok -eq $sel.Count) { 'OK' } else { 'Hinweis' })
         Out-Log ('Sticks vorbereitet: ' + $ok + ' von ' + $sel.Count) $(if ($ok -eq $sel.Count) { 'OK' } else { 'Hinweis' })
-        & $scan
+        $pst.Sig = & $prepSig; & $scan $false
+      } finally { $pst.Busy = $false; Set-UiBusy $false }
     })
-    & $scan
+    $pst.Sig = & $prepSig; & $scan $false
+    if (-not $SmokeTest) { $pw.Add_ContentRendered({ $ptm.Start() }) }
+    $pw.Add_Closed({ $ptm.Stop() })
     [void]$pw.ShowDialog()
     Update-Drives
 }
@@ -1947,7 +2057,7 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         if ($bad.Count) { $script:CopyErr = 'Kontrolle nicht bestanden: ' + ($bad -join ', '); Out-Log ('Stick ' + $dr + ': ' + $script:CopyErr + '. Stick neu anstecken und nochmal kopieren.') 'Fehler'; return $false }
         Out-Log ('Stick ' + $dr + ' kontrolliert: alle Dateien stimmen mit der Quelle überein') 'OK' ('SHA256: go.cmd, go.ps1, config.json' + $(if ((Get-Cfg).WlanPackage -and (Test-Path $srcPkg)) { ', WLAN-Paket' } else { '' }))
         return $true
-    } catch { $script:CopyErr = $_.Exception.Message; Out-Log ('Kopieren auf ' + $dr + ' fehlgeschlagen. Stick neu anstecken, "Aktualisieren" klicken und nochmal versuchen.') 'Fehler' $_.Exception.Message; return $false }
+    } catch { $script:CopyErr = $_.Exception.Message; Out-Log ('Kopieren auf ' + $dr + ' fehlgeschlagen. Stick neu anstecken und nochmal versuchen.') 'Fehler' $_.Exception.Message; return $false }
 }
 
 # Vor dem Kopieren: WLAN-Paket fehlt oder veraltet -> nicht still kopieren. Rueckgabe $false = abbrechen
@@ -2007,7 +2117,7 @@ $ui.bCopy.Add_Click({
     if ($script:Busy) { return }
     Set-UiBusy $true
     try {
-        $dr = Get-ReadyDrive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewählt. Stick anstecken, "Aktualisieren" klicken und bei "Stick" auswählen.' 'Fehler'; Set-Step 'Copy' 'err' 'kein Ziel-Stick'; return }
+        $dr = Get-ReadyDrive; if (-not $dr) { Out-Log 'Kein Ziel-Stick gewählt. Stick anstecken, er wird von selbst erkannt.' 'Fehler'; Set-Step 'Copy' 'err' 'kein Ziel-Stick'; return }
         if (-not (Save-Cfg)) { Set-Step 'Copy' 'err' 'nicht gespeichert'; return }
         if (-not (Confirm-PkgForCopy $win)) { Out-Log 'Kopieren abgebrochen.'; Set-Step 'Copy' 'open'; return }
         $pre = Confirm-CopyPrereqs ('Stick ' + $dr) $win
@@ -3419,8 +3529,7 @@ $ui.bHash.Add_Click({ Show-HashImport })
 function Stop-Ready([string]$Step, [string]$Msg, [switch]$Quiet) {
     if ($Step) { Set-Step $Step $(if ($Quiet) { 'open' } else { 'err' }) $Msg }
     Set-Step 'Ready' $(if ($Quiet) { 'open' } else { 'err' }) $Msg
-    $first = @($Msg -split "`r?`n" | Where-Object { $_.Trim() })[0]
-    $ui.tReady.Text = $(if ($Quiet) { 'Abgebrochen: ' } else { 'Nicht fertig: ' }) + $first + '  (' + (Get-Date -Format 'HH:mm') + ')'
+    Set-ReadyText ($(if ($Quiet) { 'Abgebrochen. ' } else { 'Nicht fertig. ' }) + (Get-ReadyTodo $Msg)) $(if ($Quiet) { 'HuMuted' } else { 'HuErr' }) $Msg
     Out-Log ('Stick nicht fertig: ' + ($Msg -replace "`r?`n", ' ')) $(if ($Quiet) { '' } else { 'Fehler' })
     if (-not $Quiet) { Show-Msg $Msg 'HUPilot - Stick nicht fertig' 'Warning' }
 }
@@ -3429,14 +3538,14 @@ function Invoke-StickReadyCore {
     $warn = @()
     foreach ($s in 'Test', 'Tags', 'Write', 'Copy') { Set-Step $s 'open' }
     if (-not $script:PkgBuildErr) { Set-Step 'Pkg' 'open' }
-    Set-Step 'Ready' 'run'; $ui.tReady.Text = 'läuft ...'; Out-Log '=== Stick fertig machen ==='; Step-Ui
+    Set-Step 'Ready' 'run'; Set-ReadyText 'Prüfe Eingaben ...'; Out-Log '=== Stick fertig machen ==='; Step-Ui
     # 1. Ziel-Stick
     $dr = Get-ReadyDrive
-    if (-not $dr) { Stop-Ready 'Copy' ('Kein Ziel-Stick gewählt.' + $nl + $nl + 'Stick anstecken, bei "Stick" auf "Aktualisieren" klicken, den Stick auswählen und nochmal "Stick fertig machen" klicken.'); return }
+    if (-not $dr) { Stop-Ready 'Copy' ('Kein Ziel-Stick gewählt.' + $nl + $nl + 'Stick anstecken, er wird von selbst erkannt, dann nochmal Stick fertig machen.'); return }
     # 2. Felder (wie beim Speichern, inklusive lokale Admins, MAK und Tags)
     if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey') -Admin)) { Stop-Ready 'Write' ('Eine Eingabe fehlt oder ist ungültig:' + $nl + $script:FieldErr + $nl + $nl + 'Feld korrigieren und nochmal "Stick fertig machen" klicken.'); return }
     # 3. Verbindung, Secret, Autopilot-Zugriff
-    Set-Step 'Test' 'run'; Step-Ui
+    Set-Step 'Test' 'run'; Set-ReadyText 'Prüfe Verbindung ...'; Step-Ui
     $tok = Get-ApiToken
     if (-not $tok) {
         if ($script:TokenErr -eq 'net') {
@@ -3453,7 +3562,7 @@ function Invoke-StickReadyCore {
         Show-SecretExpiry -Token $tok
         Set-Step 'Test' 'ok'
         # 4. Tags: nur warnen
-        Set-Step 'Tags' 'run'; Step-Ui
+        Set-Step 'Tags' 'run'; Set-ReadyText 'Prüfe Tags ...'; Step-Ui
         try { $tr = Get-TagReport @{ Authorization = 'Bearer ' + $tok } }
         catch { $tr = @{ Rows = @(); Bad = @(); GErr = $false; Info = ''; Error = ('Tags nicht prüfbar: ' + $_.Exception.Message) } }
         if ($tr.Error) { Set-Step 'Tags' 'warn' $tr.Error; $warn += ('Tags nicht geprüft: ' + $tr.Error) }
@@ -3462,12 +3571,13 @@ function Invoke-StickReadyCore {
         else { Set-Step 'Tags' 'ok' }
     }
     # 5. Speichern
+    Set-ReadyText 'Speichere ...'; Step-Ui
     if (-not (Save-Cfg)) { Stop-Ready 'Write' ('Speichern fehlgeschlagen:' + $nl + $script:FieldErr); return }
     # 6. WLAN-Paket nur bauen, wenn es fehlt oder veraltet ist
     $ps = Update-PkgState
     if ($ps -in 'fehlt', 'veraltet', 'unbekannt') {
         if (Test-IcdHere) {
-            Out-Log ('WLAN-Paket ' + $ps + ', wird jetzt gebaut')
+            Out-Log ('WLAN-Paket ' + $ps + ', wird jetzt gebaut'); Set-ReadyText 'Baue WLAN-Paket ...'; Step-Ui
             if (-not (Build-Package -NoSave)) { Stop-Ready 'Pkg' ('Das WLAN-Paket konnte nicht gebaut werden. Details stehen im Protokoll.' + $nl + $nl + 'Das bisherige Paket (falls vorhanden) ist unverändert, nichts wurde auf den Stick kopiert.'); return }
         } elseif ($ps -eq 'fehlt') { Stop-Ready 'Pkg' ('Es gibt noch kein WLAN-Paket, und ICD.exe fehlt auf diesem PC.' + $nl + $nl + 'Windows ADK mit "Imaging and Configuration Designer" installieren, das Paket auf einem PC mit ADK bauen (4. WLAN-Paket bauen), oder an einem PC mit ADK "Paketbau mitnehmen" klicken (Test).'); return }
         elseif ($ps -eq 'veraltet') { Stop-Ready 'Pkg' ('WLAN oder lokale Admins wurden geändert, das WLAN-Paket ist veraltet.' + $nl + 'ICD.exe fehlt auf diesem PC, deshalb kann es hier nicht neu gebaut werden.' + $nl + $nl + 'Auf einem PC mit Windows ADK "4. WLAN-Paket bauen" klicken, oder die alten Werte wieder eintragen.'); return }
@@ -3480,11 +3590,11 @@ function Invoke-StickReadyCore {
     # 7. Kopieren mit Kontrolle
     $pre = Confirm-CopyPrereqs ('Stick ' + $dr) $win
     if (-not $pre) { Stop-Ready 'Copy' 'vor dem Kopieren abgebrochen' -Quiet; return }
-    Set-Step 'Copy' 'run'; Step-Ui
-    if (-not (Copy-ToStick $dr $pre.WithMak)) { Stop-Ready 'Copy' ('Kopieren auf ' + $dr + ' fehlgeschlagen:' + $nl + $script:CopyErr + $nl + $nl + 'Stick neu anstecken, bei "Stick" auf "Aktualisieren" klicken und nochmal versuchen. Hilft das nicht: anderen Stick nehmen oder "Sticks vorbereiten" (formatiert).'); return }
+    Set-Step 'Copy' 'run'; Set-ReadyText ('Kopiere auf ' + $dr + ' ...'); Step-Ui
+    if (-not (Copy-ToStick $dr $pre.WithMak)) { Stop-Ready 'Copy' ('Kopieren auf ' + $dr + ' fehlgeschlagen:' + $nl + $script:CopyErr + $nl + $nl + 'Stick neu anstecken und nochmal versuchen. Hilft das nicht: anderen Stick nehmen oder "Sticks vorbereiten" (formatiert).'); return }
     Set-Step 'Copy' 'ok' ('Stick ' + $dr)
     Set-Step 'Ready' $(if ($warn.Count) { 'warn' } else { 'ok' }) $(if ($warn.Count) { $warn -join '; ' } else { 'Stick ' + $dr + ' fertig' })
-    $ui.tReady.Text = 'Stick ' + $dr + ' ist fertig und kontrolliert (' + (Get-Date -Format 'HH:mm') + ')' + $(if ($warn.Count) { ' - mit Hinweisen, siehe Protokoll' } else { '' })
+    Set-ReadyText ('Stick ' + $dr + ' ist fertig und kontrolliert (' + (Get-Date -Format 'HH:mm') + ')' + $(if ($warn.Count) { ', mit Hinweisen im Protokoll' } else { '' })) $(if ($warn.Count) { 'HuWarn' } else { 'HuText' }) $(if ($warn.Count) { 'Hinweise:' + "`n" + ($warn -join "`n") } else { '' })
     Out-Log ('Stick ' + $dr + ' ist fertig und kontrolliert' + $(if ($warn.Count) { ', mit Hinweisen' } else { '' })) $(if ($warn.Count) { 'Hinweis' } else { 'OK' })
     Show-Msg ('Stick ' + $dr + ' ist fertig und kontrolliert.' + $(if ($warn.Count) { $nl + $nl + 'Hinweise:' + $nl + (($warn | ForEach-Object { '- ' + $_ }) -join $nl) } else { '' }) + $nl + $nl + 'Der Stick kann jetzt abgezogen werden.') 'HUPilot - Stick fertig' $(if ($warn.Count) { 'Warning' } else { 'Information' })
 }
@@ -3527,7 +3637,7 @@ function Show-UpdateStickHint {
     $t = 'HUPilot ist jetzt auf ' + $ver + '.' + $nl + $nl
     if ($srcDrive) { $t += 'Dieser Stick (' + $srcDrive + ') ist schon aktualisiert. Alle ANDEREN Sticks haben noch die alte Version.' + $nl + $nl }
     else { $t += 'Die USB-Sticks haben noch die alte Version.' + $nl + $nl }
-    $t += 'Jeden Stick neu bespielen:' + $nl + '   1. Stick anstecken' + $nl + '   2. bei "Stick" auswählen (ggf. "Aktualisieren")' + $nl + '   3. "Stick fertig machen" (oder "5. Auf Stick kopieren") klicken' + $nl + $nl + 'config.json und WLAN-Paket kommen dabei mit.'
+    $t += 'Jeden Stick neu bespielen:' + $nl + '   1. Stick anstecken' + $nl + '   2. bei "Stick" auswählen (er erscheint von selbst)' + $nl + '   3. "Stick fertig machen" (oder "5. Auf Stick kopieren") klicken' + $nl + $nl + 'config.json und WLAN-Paket kommen dabei mit.'
     Out-Log ('Update auf ' + $ver + ' fertig. Jetzt jeden Stick mit "Stick fertig machen" neu bespielen.') 'Hinweis'
     Show-Msg $t 'HUPilot - Update fertig: auf Stick kopieren'
 }
@@ -3547,7 +3657,10 @@ if ($SmokeTest) {
     $win.Add_ContentRendered({ $tm.Start() })
 } else {
     $win.Add_ContentRendered({ Show-UpdateStickHint; Invoke-UpdateCheck -Quiet })
+    # Sticks von selbst erkennen (nicht im Starttest)
+    $win.Add_ContentRendered({ $script:DriveTimer.Start() })
 }
+$win.Add_Closed({ try { $script:DriveTimer.Stop() } catch { } })
 [void]$win.ShowDialog()
 if ($SmokeTest) { try { Set-Content -LiteralPath $SmokeTest -Value $(if ($script:SmokeOk) { 'OK v' + $SetupVer } else { 'FEHLER: Fenster nicht geladen' }) -Encoding UTF8 } catch { } }
 Start-Log 'Fenster geschlossen'

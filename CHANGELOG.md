@@ -8,6 +8,12 @@
 - **Ampel je Schritt:** Die Knöpfe 1 bis 7 haben einen Punkt: grau offen, blau läuft, grün OK, gelb Warnung, rot Fehler. Die Maus darüber zeigt den Grund.
 - **Kontrolle auch beim Einzelknopf:** "5. Auf Stick kopieren" und "Sticks vorbereiten" vergleichen die kopierten Dateien ebenfalls.
 - **Stick-Auswahl direkt beim Hauptknopf:** Stick wählen und "Stick fertig machen" klicken geht ohne Scrollen, auch auf kleinen Bildschirmen. "5. Auf Stick kopieren" nutzt dieselbe Auswahl.
+- **Sticks werden von selbst erkannt:** Angesteckte und abgezogene Sticks erscheinen bzw. verschwinden ohne Klick, im Hauptfenster und in "Sticks vorbereiten". Das Protokoll nennt "Stick E: HUPILOT erkannt" und "Stick E: entfernt".
+  - Der gewählte Stick bleibt gewählt, auch wenn ein zweiter dazukommt. Wird er abgezogen, wechselt die Auswahl auf den nächsten.
+  - Während eines Vorgangs und solange ein anderes Fenster wie Status offen ist, ändert sich die Auswahl nicht.
+  - In "Sticks vorbereiten" bleibt eine Markierung nur beim selben Stick. Verschwindet er, wird die Markierung entfernt und im Protokoll genannt.
+  - Der Knopf zum Neu-Einlesen bleibt als kleiner Rückfall.
+- **Kurzer Stand neben dem Hauptknopf:** eine Zeile je Zustand, zum Beispiel "Bereit für E: HUPILOT", "Kein Stick erkannt. Stick anstecken.", während des Durchgangs der aktuelle Schritt, danach das Ergebnis. Bei einem Fehler steht dort der eine Satz, was zu tun ist, die ganze Meldung im Tooltip.
 
 ### 🎨 Oberfläche
 - **Dunkle oder helle Oberfläche:** Standard ist dunkel. Der Knopf neben dem Fragezeichen schaltet sofort um, in allen offenen Fenstern, die Wahl wird gemerkt. Tooltips an allen Steuerelementen.
@@ -85,11 +91,12 @@
 - Testversion: am echten Gerät und mit echtem Tenant noch nicht geprüft.
 - "Autopilot-Sync anstoßen" wirkt laut Microsoft immer für den ganzen Tenant, nicht für einzelne Geräte.
 - Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
+- Erkennung der Sticks: mit echten USB-Sticks noch nicht geprüft.
 - Paketbau mitnehmen: geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK. Mit einem echten Stick an einem fremden PC, mit lokalen Admins im Paket und mit älteren ADK-Versionen noch nicht.
 - Ein Teil der Programmdateien des ADK ist schon im Original nicht signiert, diese Dateien schützt nur die Prüfsumme.
 
 ### ✅ Qualität
-- 126 automatische Tests.
+- 134 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung

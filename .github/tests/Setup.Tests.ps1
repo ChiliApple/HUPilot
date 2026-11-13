@@ -13,7 +13,8 @@ BeforeAll {
     $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
         'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FitWidth', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick',
-        'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion'
+        'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion',
+        'Get-DriveSelection', 'Get-PrepKeep', 'Get-PrepKey', 'Get-ReadyTodo'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
     . ([scriptblock]::Create($script:FnText))
@@ -790,5 +791,80 @@ Describe 'Setup: Paketbau mitnehmen (Test)' {
         # die Kopie laedt nie selbst etwas aus dem Internet
         $fns = [regex]::Match($script:SetupText, '(?s)# ---------- Paketbau mitnehmen \(Test\).*?function Copy-IcdToStick').Value
         $fns | Should -Not -Match 'Invoke-WebRequest|Invoke-RestMethod|DownloadFile'
+    }
+}
+
+Describe 'Setup: Sticks von selbst erkennen, kurzer Hinweis beim Hauptknopf' {
+    It 'Auswahl: gewaehlter Stick bleibt, auch wenn ein zweiter dazukommt' {
+        $r = Get-DriveSelection @('E:') @('E:', 'F:') 'E:'
+        $r.Sel | Should -Be 'E:'
+        @($r.Added) | Should -Be @('F:')
+        @($r.Removed).Count | Should -Be 0
+    }
+    It 'Auswahl: erster Stick kommt dazu und keiner war gewaehlt -> er wird gewaehlt' {
+        $r = Get-DriveSelection @() @('G:') ''
+        $r.Sel | Should -Be 'G:'
+        @($r.Added) | Should -Be @('G:')
+    }
+    It 'Auswahl: gewaehlter Stick abgezogen -> naechster vorhandener, sonst leer' {
+        $r = Get-DriveSelection @('E:', 'F:', 'H:') @('E:', 'H:') 'F:'
+        $r.Sel | Should -Be 'H:'
+        @($r.Removed) | Should -Be @('F:')
+        (Get-DriveSelection @('E:', 'F:') @('E:') 'F:').Sel | Should -Be 'E:'
+        $r = Get-DriveSelection @('E:') @() 'E:'
+        $r.Sel | Should -Be ''
+        @($r.Removed) | Should -Be @('E:')
+    }
+    It 'Auswahl: keine Aenderung ergibt keine Ereignisse' {
+        $r = Get-DriveSelection @('E:', 'F:') @('E:', 'F:') 'F:'
+        $r.Sel | Should -Be 'F:'
+        @($r.Added).Count + @($r.Removed).Count | Should -Be 0
+    }
+    It 'Sticks vorbereiten: Markierung geht nie auf ein anderes Laufwerk ueber' {
+        # gleicher Datentraeger, gleicher Buchstabe: bleibt; Stick weg: entfernt
+        $k = Get-PrepKeep @('3|E', '4|F') @('3|E', '5|G')
+        @($k.Keep) | Should -Be @('3|E')
+        @($k.Dropped) | Should -Be @('4|F')
+        # anderer Datentraeger unter demselben Buchstaben (Stick getauscht): Markierung entfernt
+        $k = Get-PrepKeep @('3|E') @('6|E')
+        @($k.Keep).Count | Should -Be 0
+        @($k.Dropped) | Should -Be @('3|E')
+        # Listenposition spielt keine Rolle
+        $k = Get-PrepKeep @('4|F') @('9|D', '4|F')
+        @($k.Keep) | Should -Be @('4|F')
+        Get-PrepKey ([pscustomobject]@{ Disk = 3; Letter = 'E' }) | Should -Be '3|E'
+    }
+    It 'Hinweis nach einem Fehler: der eine Satz, was zu tun ist, ohne Anfuehrungszeichen' {
+        Get-ReadyTodo ("Das Secret ist falsch.`r`n`r`nHäufiger Fehler: die Geheimnis-ID statt des WERTS kopiert. Den Wert bei `"Secret`" eintragen.") | Should -Be 'Häufiger Fehler: die Geheimnis-ID statt des WERTS kopiert.'
+        Get-ReadyTodo ("Kein Ziel-Stick gewählt.`r`n`r`nStick anstecken, er wird von selbst erkannt, dann nochmal Stick fertig machen.") | Should -Be 'Stick anstecken, er wird von selbst erkannt, dann nochmal Stick fertig machen.'
+        Get-ReadyTodo 'keine Verbindung zu Microsoft' | Should -Be 'keine Verbindung zu Microsoft'
+        Get-ReadyTodo ('Bitte "4. WLAN-Paket bauen" klicken.') | Should -Be 'Bitte 4. WLAN-Paket bauen klicken.'
+    }
+    It 'Hinweistext: kurz, eine Zeile, je Zustand; kein alter Langtext mehr' {
+        $script:SetupText | Should -Not -Match 'links auswählen \(ggf\.'
+        $script:SetupText | Should -Match 'x:Name="tReady"[^>]*TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"'
+        $script:SetupText | Should -Match "Set-ReadyText 'Kein Stick erkannt\. Stick anstecken\.' 'HuWarn'"
+        $script:SetupText | Should -Match "Set-ReadyText \('Bereit für ' \+ \`$d"
+        $script:SetupText | Should -Match "Set-ReadyText 'Prüfe Verbindung \.\.\.'"
+        $script:SetupText | Should -Match "Set-ReadyText \('Kopiere auf ' \+ \`$dr \+ ' \.\.\.'\)"
+        # Ergebnis bleibt stehen, bis ein anderer Stick gewaehlt wird
+        $script:SetupText | Should -Match 'if \(\[string\]\$d -eq \[string\]\$script:HintDrive\) \{ return \}'
+    }
+    It 'Erkennung: Timer nur bei Aenderung, Pause bei Vorgang, offener Liste und Unterfenster, nicht im Starttest' {
+        $script:SetupText | Should -Match '\$script:DriveTimer\.Interval = \[TimeSpan\]::FromSeconds\(2\)'
+        $script:SetupText | Should -Match 'if \(\$script:Busy -or \$ui\.cDrive\.IsDropDownOpen -or @\(\$win\.OwnedWindows\)\.Count\) \{ return \}'
+        $script:SetupText | Should -Match 'if \(\$Auto -and \$sig -eq \$script:DriveSig\) \{ return \}'
+        $script:SetupText | Should -Match "if \(\[string\]\`$d\.DriveType -ne 'Removable'\) \{ continue \}"
+        $script:SetupText | Should -Match '\$win\.Add_Closed\(\{ try \{ \$script:DriveTimer\.Stop\(\) \} catch \{ \} \}\)'
+        # Start nur im else-Zweig des Starttests
+        $sm = [regex]::Match($script:SetupText, '(?s)if \(\$SmokeTest\) \{\r?\n    # Starttest.*?\r?\n\} else \{(.*?)\r?\n\}').Groups[1].Value
+        $sm | Should -Match '\$script:DriveTimer\.Start\(\)'
+        # Sticks vorbereiten: nie waehrend des Formatierens, Timer stoppt beim Schliessen, nicht im Starttest
+        $script:SetupText | Should -Match 'if \(\$pst\.Busy -or \$script:Busy\) \{ return \}'
+        $script:SetupText | Should -Match '\$pst\.Busy = \$true; Set-UiBusy \$true'
+        $script:SetupText | Should -Match 'if \(-not \$SmokeTest\) \{ \$pw\.Add_ContentRendered\(\{ \$ptm\.Start\(\) \}\) \}'
+        $script:SetupText | Should -Match '\$pw\.Add_Closed\(\{ \$ptm\.Stop\(\) \}\)'
+        # Sicherheitspruefung direkt vor dem Formatieren unveraendert
+        $script:SetupText | Should -Match "if \(\[string\]\`$disk\.BusType -ne 'USB' -or \`$disk\.IsBoot -or \`$disk\.IsSystem -or \[int\]\`$disk\.Number -eq \`$script:SrcDisk\) \{ throw 'kein reiner USB-Stick mehr - übersprungen' \}"
     }
 }
