@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.7.14 - 2026-11-13
+### 🪟 Windows-Edition
+- **Klarere Texte zu Windows Home:** Setup, Meldungen am Gerät und Anleitung sagen jetzt, worum es geht: Windows Home lässt keine Intune-Verwaltung zu, nötig ist Pro oder Pro Education (auch Education, Enterprise).
+  - Die Funktion ist unverändert: go stellt Home auf Pro um.
+
+### ✅ Qualität
+- 13 automatische Tests.
+
 ## v2.7.13 - 2026-11-13
 ### 🪟 Windows-Edition
 - **Neu: Windows Home auf Pro umstellen (Test):** Geräte mit Windows Home bleiben nicht mehr nur rot stehen.

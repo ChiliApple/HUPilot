@@ -19,7 +19,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.13'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.7.14'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -438,7 +438,7 @@ function Start-EdService([string]$Name) {
 }
 $IsHome = $EdId -match '^Core' -or ($os.Caption -notmatch 'Pro|Education|Enterprise')
 if ($IsHome) {
-    $homeMsg = 'Edition "' + $os.Caption + '" - Zurücksetzen per RemoteWipe nur mit Pro/Education/Enterprise'
+    $homeMsg = 'Edition "' + $os.Caption + '" lässt keine Intune-Verwaltung zu - nötig ist Pro oder Pro Education (auch Education, Enterprise)'
     if (-not $EdKey) { Fail ($homeMsg + '. Umstellen auf Pro: im Setup den MAK (Pro) eintragen') }
     $edRetry = $false
     if ($EdMark) {
@@ -465,7 +465,7 @@ if ($IsHome) {
     if (-not (Test-Path -LiteralPath $cpk)) { Fail ($homeMsg + '. changepk.exe fehlt auf diesem Gerät: ' + $cpk) }
     if (-not $edRetry) {
         Write-Host ''
-        Write-Host '  Windows Home erkannt - Autopilot braucht Pro.' -ForegroundColor Yellow
+        Write-Host '  Windows Home erkannt - Intune-Verwaltung braucht Pro oder Pro Education.' -ForegroundColor Yellow
         Write-Host '  Auf Windows Pro umstellen? Gerät startet dabei neu, danach D:\go erneut starten.' -ForegroundColor Yellow
         Write-Host '    [J]      ja, auf Pro umstellen' -ForegroundColor White
         Write-Host '    [Enter]  nein, abbrechen   (Standard)'
