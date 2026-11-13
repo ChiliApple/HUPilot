@@ -152,4 +152,11 @@ Describe 'Edition Home -> Pro' {
         $g | Should -Match 'VK7JG-NPHTM-C97JM-9MPGT-3V66T'
         $s | Should -Be $g
     }
+    It 'MAK wird nur beim Speichern geprueft, nicht bei Verbindungstest und Secret-Pruefung' {
+        $s = Get-Content (Join-Path $script:Root 'Stick\HUPilot\Setup\HUPilot-Setup.ps1') -Raw -Encoding UTF8
+        $s | Should -Match "\`$chkEd = \`$Names -contains 'GroupTag'"
+        @([regex]::Matches($s, '(?m)^\s*if \(\$c\.EditionKey -and')).Count | Should -Be 0
+        @([regex]::Matches($s, '(?m)^\s*if \(\$chkEd -and \$c\.EditionKey -and')).Count | Should -Be 2
+        $s | Should -Match "function Get-ApiToken \{\s+if \(-not \(Test-Fields @\('TenantId', 'ClientId', 'ClientSecret'\)\)\)"
+    }
 }

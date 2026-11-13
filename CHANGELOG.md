@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.7.17 - 2026-11-13
+### 🔐 Verbindung
+- **Behoben: "Secret UNGÜLTIG" bei falschem MAK:** Stand im Feld "MAK (Pro)" ein abgelehnter oder falsch geformter Schlüssel, meldete das Setup beim Start "Secret UNGÜLTIG" und "1. Verbindung testen", "2. Tags prüfen" und "6. Status" liefen nicht. Das Secret war dabei in Ordnung.
+  - Der MAK wird jetzt nur noch beim Speichern geprüft.
+
+### ✅ Qualität
+- 15 automatische Tests.
+
 ## v2.7.16 - 2026-11-13
 ### 🎨 Oberfläche
 - **Setup passt auf kleine Bildschirme:** Das Fenster ist nie größer als der Bildschirm ohne Taskleiste und liegt ganz im sichtbaren Bereich. Auf Notebooks mit kleiner Auflösung ragte es bisher unter die Taskleiste.

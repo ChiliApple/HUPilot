@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.16'
+$SetupVer = '2.7.17'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -293,9 +293,11 @@ function Test-Fields([string[]]$Names) {
         if ([string]$a[2] -eq '' -or $a[2].Length -lt 8) { Out-Log ($a[0] + '-Kennwort kürzer als 8 Zeichen'); return $false }
     }
     if ($c.AdminName -and $c.Admin2Name -and $c.AdminName -eq $c.Admin2Name) { Out-Log 'Admin und Admin 2 haben denselben Namen'; return $false }
-    if ($c.EditionKey -and $c.EditionKey -notmatch '^[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}$') { Out-Log 'MAK (Pro) ungültig - Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX, oder Feld leeren'; return $false }
+    # MAK nur beim Speichern pruefen (dort ist GroupTag Pflicht): sonst scheitern Verbindungstest und Secret-Pruefung an einem falschen MAK
+    $chkEd = $Names -contains 'GroupTag'
+    if ($chkEd -and $c.EditionKey -and $c.EditionKey -notmatch '^[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}$') { Out-Log 'MAK (Pro) ungültig - Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX, oder Feld leeren'; return $false }
     # Allgemeine Schluessel von Microsoft (Installation/KMS-Client) aktivieren nicht - gleiche Liste wie in go.ps1
-    if ($c.EditionKey -and @('VK7JG-NPHTM-C97JM-9MPGT-3V66T', '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT', 'YTMG3-N6DKC-DKB77-7M9GH-8HVX7', 'W269N-WFGWX-YVC9B-4J6C9-T83GX', 'MH37W-N47XK-V7XM9-C7227-GCQG9') -contains $c.EditionKey) { Out-Log 'MAK (Pro): das ist der allgemeine Schlüssel von Microsoft, der aktiviert nicht. Den MAK der Schule eintragen (Volumenlizenz), oder Feld leeren'; return $false }
+    if ($chkEd -and $c.EditionKey -and @('VK7JG-NPHTM-C97JM-9MPGT-3V66T', '2B87N-8KFHP-DKV6R-Y2C8J-PKCKT', 'YTMG3-N6DKC-DKB77-7M9GH-8HVX7', 'W269N-WFGWX-YVC9B-4J6C9-T83GX', 'MH37W-N47XK-V7XM9-C7227-GCQG9') -contains $c.EditionKey) { Out-Log 'MAK (Pro): das ist der allgemeine Schlüssel von Microsoft, der aktiviert nicht. Den MAK der Schule eintragen (Volumenlizenz), oder Feld leeren'; return $false }
     return $true
 }
 
