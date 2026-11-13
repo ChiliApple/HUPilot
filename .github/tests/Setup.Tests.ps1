@@ -1073,7 +1073,7 @@ Describe 'Setup: Info-Fenster' {
     }
     It 'Info-Fenster nach dem Vorbild (Rechtsklick auf Update), ohne Tenant, IDs und Secret' {
         $script:SetupText | Should -Match "& \`$addU 'Info \.\.\.' \{ Show-Info \}"
-        $b = [regex]::Match($script:SetupText, '(?s)function Get-InfoValues.*?\r?\n\}\r?\n.*?function Show-Info.*?\r?\n\}\r?\n').Value
+        $b = [regex]::Match($script:SetupText, '(?s)function Get-InfoValues.*?\r?\n\}\r?\n.*?function Show-InfoCore.*?\r?\n\}\r?\n').Value
         $b | Should -Match 'Set-WinFit \$iw'
         $b | Should -Match 'ResizeMode="CanResizeWithGrip"'
         $b | Should -Not -Match 'TenantId|ClientId|ClientSecret|Get-Secret|\.Tenant\b'
@@ -1152,5 +1152,15 @@ Describe 'Setup: Druck der Status-Liste' {
         # Sticks vorbereiten: nach dem Einlesen nichts markiert, Fokus nicht auf der Liste
         $script:SetupText | Should -Match 'if \(-not @\(\$k\.Keep\)\.Count\) \{ \$g\.lSticks\.SelectedIndex = -1 \}'
         $script:SetupText | Should -Match '\[void\]\$g\.tLabel\.Focus\(\)'
+    }
+}
+
+Describe 'Setup: Info per Klick auf das Logo' {
+    It 'Logo oeffnet die Info (Maus und Tastatur), nicht waehrend eines Vorgangs, nie doppelt' {
+        $script:SetupText | Should -Match '<Image x:Name="iLogo" Width="44" Height="44" Cursor="Hand" Focusable="True" FocusVisualStyle="\{x:Null\}" ToolTip="Info zu HUPilot \(Version, Quelle, Links\)"'
+        $script:SetupText | Should -Match '\$ui\.iLogo\.Add_MouseLeftButtonUp\(\{ Show-Info \}\)'
+        $script:SetupText | Should -Match "\`$ui\.iLogo\.Add_KeyDown\(\{ param\(\`$s, \`$e\) if \(\`$e\.Key -eq 'Return' -or \`$e\.Key -eq 'Space'\)"
+        $script:SetupText | Should -Match 'if \(\$script:Busy -or \$script:InfoOpen\) \{ return \}'
+        $script:SetupText | Should -Match "& \`$addU 'Info \.\.\.' \{ Show-Info \}"
     }
 }

@@ -18,7 +18,7 @@
 
 ### 🎨 Oberfläche
 - **Dunkle oder helle Oberfläche:** Standard ist dunkel. Der Knopf neben dem Fragezeichen schaltet sofort um, in allen offenen Fenstern, die Wahl wird gemerkt. Tooltips an allen Steuerelementen.
-- **Info-Fenster:** Rechtsklick auf "Update", dann "Info ...". Zeigt Version und Stand, Update-Kanal, die Quelle, aus der das Setup läuft, PowerShell- und Windows-Version, den Stand des Paketbaus und die Protokolldatei der Sitzung, dazu Links zu Repo, Anleitung, Änderungen und Lizenz.
+- **Info-Fenster:** Klick auf das Logo oben links oder Rechtsklick auf "Update", dann "Info ...". Zeigt Version und Stand, Update-Kanal, die Quelle, aus der das Setup läuft, PowerShell- und Windows-Version, den Stand des Paketbaus und die Protokolldatei der Sitzung, dazu Links zu Repo, Anleitung, Änderungen und Lizenz.
   - "Kopieren" legt die Angaben als Text in die Zwischenablage, für Rückfragen beim Admin. Tenant, Tenant-ID, App-ID und Secret stehen nicht darin.
   - Im selben Menü öffnet "Anleitung (F1)" die Anleitung.
 - **Ruhige Gruppenrahmen:** eine dünne graue Linie mit der Überschrift in der Linie statt des doppelten weißen Rahmens.
@@ -114,7 +114,7 @@
 - Paketbau mit auf den Stick: Das Setup kennt nur ICD 10.0.28000.1. Eine neuere ICD-Version wird abgelehnt, bis HUPilot sie kennt, weil ein Teil ihrer Programmdateien schon im Original nicht signiert ist.
 
 ### ✅ Qualität
-- 153 automatische Tests.
+- 154 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung

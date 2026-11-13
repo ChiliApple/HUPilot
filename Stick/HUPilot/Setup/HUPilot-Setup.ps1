@@ -501,7 +501,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Button VerticalAlignment="Center" x:Name="bTheme" FontFamily="Segoe MDL2 Assets" Content="&#xE793;" Width="32" Padding="0,5" Margin="8,0,0,0" ToolTip="Helle / dunkle Oberfläche umschalten (wirkt sofort in allen Fenstern und wird gemerkt)." ToolTipService.ShowDuration="30000"/>
       <Button VerticalAlignment="Center" x:Name="bUpd" ToolTip="Prüft auf GitHub, ob es eine neuere HUPilot-Version gibt.&#x0a;Gold = Update verfügbar - Klick aktualisiert die Programmdateien in der Quelle (Stick oder Ordner).&#x0a;config.json, WLAN-Paket und logs bleiben unverändert.&#x0a;Rechtsklick: andere Version, Kanal, Info, Anleitung, GitHub-Token." ToolTipService.ShowDuration="30000" Content="Update ..." Padding="10,4" Margin="8,0,0,0"/>
     </StackPanel>
-    <Image x:Name="iLogo" Width="44" Height="44"/>
+    <Image x:Name="iLogo" Width="44" Height="44" Cursor="Hand" Focusable="True" FocusVisualStyle="{x:Null}" ToolTip="Info zu HUPilot (Version, Quelle, Links)" ToolTipService.ShowDuration="30000"/>
     <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
       <TextBlock Text="HUPilot" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource HuTitle}"/>
       <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="{DynamicResource HuMuted}"/>
@@ -1696,7 +1696,14 @@ function Get-InfoValues {
     }
 }
 function Open-InfoLink([string]$Target) { try { Start-Process -FilePath $Target } catch { Out-Log 'Link konnte nicht geöffnet werden.' 'Hinweis' ($Target + ': ' + $_.Exception.Message) } }
+$script:InfoOpen = $false
 function Show-Info {
+    # nicht waehrend eines Vorgangs, nie ein zweites Info-Fenster
+    if ($script:Busy -or $script:InfoOpen) { return }
+    $script:InfoOpen = $true
+    try { Show-InfoCore } finally { $script:InfoOpen = $false }
+}
+function Show-InfoCore {
     [xml]$ix = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HUPilot - Info" Width="540" MinWidth="460" SizeToContent="Height" WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False" FontSize="13">
@@ -1748,6 +1755,9 @@ $addU = { param($h, $sb) $mi = New-Object System.Windows.Controls.MenuItem; $mi.
 [void](& $addU 'Andere Version / Vorversion installieren ...' { Show-VersionPicker })
 [void](& $addU 'Jetzt nach Updates suchen' { Invoke-UpdateCheck })
 [void](& $addU 'Info ...' { Show-Info })
+# Klick auf das Logo oben links oeffnet ebenfalls die Info (Tastatur: Logo mit Tab erreichen, dann Enter oder Leertaste)
+$ui.iLogo.Add_MouseLeftButtonUp({ Show-Info })
+$ui.iLogo.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Return' -or $e.Key -eq 'Space') { $e.Handled = $true; Show-Info } })
 [void](& $addU 'Anleitung (F1)' { & $ShowHelp })
 [void]$cmU.Items.Add((New-Object System.Windows.Controls.Separator))
 $script:miStable = & $addU 'Kanal Stabil (nur freigegebene Versionen)' { Set-UpdSetting 'Channel' 'Stable'; Out-Log 'Update-Kanal: Stabil'; Invoke-UpdateCheck }
