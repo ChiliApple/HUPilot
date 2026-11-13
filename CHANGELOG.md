@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen
@@ -17,6 +17,8 @@
 - **Kennwörter verdeckt:** WLAN-Kennwort und beide Admin-Kennwörter mit "anzeigen", wie Secret und MAK.
 - **Alle Fenster passen auf den Bildschirm:** Status, Hashes importieren, Sticks vorbereiten, Tags und Versionsauswahl stehen immer ganz im Bild, die Knopfleiste unten ist nie abgeschnitten.
 - **Tabellen ganz sichtbar:** Die Fenster sind so breit wie die Spalten, mit Luft in Zellen und Zeilen. Ein Querbalken erscheint nur, wenn der Bildschirm zu schmal ist.
+  - Im Status richtet sich jede Spalte nach den gerade angezeigten Geräten und passt sich bei jedem Filter, jeder Suche und jedem Aktualisieren an.
+  - Eine von Hand gezogene Spalte und ein selbst vergrößertes Fenster bleiben bis zum Schließen so.
 
 ### 📝 Protokoll
 - **Drei Stufen:** jede Zeile ist OK (grün), Hinweis (gelb) oder Fehler (rot).
@@ -46,7 +48,7 @@
 ### 📊 Status
 - **Kacheln oben:** Geräte gesamt, Fertig, Wartet auf Profil, Profil da und noch nicht angemeldet, Problem. Ein Klick filtert die Liste, ein zweiter hebt den Filter auf.
 - **Stand und Was tun:** zwei neue Spalten in Klartext. Der Stand steht als grünes, gelbes oder rotes Schild da, die Zeile ist nur leicht getönt.
-- **Deutsche Spalten:** Reihenfolge und Breite werden gemerkt. CSV, Excel und Ausdruck haben dieselben Spalten, eingefärbt nach Stand.
+- **Deutsche Spalten:** Die Reihenfolge wird gemerkt. CSV, Excel und Ausdruck haben dieselben Spalten, eingefärbt nach Stand.
 - **Neue Filter:** "nur Probleme" und "heute", auch im Zeitfilter.
 - **Aktualisiert sich selbst:** alle 60 Sekunden (abschaltbar), Auswahl, Sortierung und Filter bleiben. Das Protokoll wiederholt dabei keine gleichen Zeilen, ohne Verbindung pausiert das Aktualisieren nach zwei Versuchen.
 - **Öffnet sofort:** Fortschritt beim Laden mit grünem Punkt.
@@ -78,7 +80,7 @@
 - Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
 
 ### ✅ Qualität
-- 114 automatische Tests.
+- 118 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung

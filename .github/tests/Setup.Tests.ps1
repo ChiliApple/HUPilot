@@ -552,7 +552,8 @@ Describe 'Setup: Tabellen ganz anzeigen, nichts klebt zusammen' {
         $script:SetupText | Should -Match '\$vw\.Add_ContentRendered\(\{[^\r\n]*Set-GridWindowWidth \$vw'
         $script:SetupText | Should -Match '\$gw\.Add_ContentRendered\(\{[^\r\n]*Set-GridWindowWidth \$gw'
         $script:SetupText | Should -Match '\$hw\.Add_ContentRendered\(\{[^\r\n]*Set-GridWindowWidth \$hw'
-        $script:SetupText | Should -Match 'Set-GridColumnsFit \$g\.dGrid \$script:SRows'
+        $script:SetupText | Should -Match 'Set-GridColumnsFit \$g\.dGrid @\(\$script:StatusView\)'
+        $script:SetupText | Should -Not -Match 'Set-GridColumnsFit \$g\.dGrid \$script:SRows'
         $script:SetupText | Should -Not -Match 'MaxWidth = 460'
         $script:SetupText | Should -Not -Match 'Header="Datei" Binding="\{Binding Datei\}" Width="\*"'
     }
@@ -563,6 +564,67 @@ Describe 'Setup: Tabellen ganz anzeigen, nichts klebt zusammen' {
         Get-FitWidth 900 30 18 320 | Should -Be 320
         # Luft im Aufruf: 16 Zellabstand + 2 Rahmen + 4 fester Textrand der Textspalte
         $script:SetupText | Should -Match 'Get-FitWidth \(\$m \+ \$ex\) \$h 22 \$mx'
+    }
+    It 'Status: Breiten nach der angezeigten Liste, bei jeder Aenderung; von Hand Gezogenes und Fenstergroesse des Anwenders bleiben' {
+        # $refresh (Filter, Suche, Kachel, Laden, automatisches Aktualisieren) passt danach Spalten und Fenster an
+        $ref = [regex]::Match($script:SetupText, '(?s)\n    \$refresh = \{\r?\n(.*?)\r?\n    \}\r?\n').Groups[1].Value
+        $ref | Should -Match '\$script:StatusView = \$v'
+        $ref | Should -Match 'try \{ & \$fitCols \} catch \{ \}'
+        $ref | Should -Match 'if \(\$sst\.FromSearch\) \{ \$wtm\.Stop\(\); \$wtm\.Start\(\) \} else \{ try \{ & \$fitWin \} catch \{ \} \}'
+        $script:SetupText | Should -Match '\$g\.tFind\.Add_TextChanged\(\{ \$sst\.FromSearch = \$true;'
+        $script:SetupText | Should -Match '\$wtm\.Interval = \[TimeSpan\]::FromMilliseconds\(400\)'
+        # von Hand gezogene Spalten werden uebersprungen
+        $script:SetupText | Should -Match "@\('Stand'\) @\(\`$sst\.ManualCols\.Keys\)"
+        $script:SetupText | Should -Match 'Thumb\]::DragCompletedEvent'
+        # Fenster nur anpassen, solange der Anwender es nicht selbst veraendert oder maximiert hat
+        $script:SetupText | Should -Match "if \(\`$sst\.UserSized -or \[string\]\`$sw\.WindowState -ne 'Normal'\) \{ return \}"
+        $script:SetupText | Should -Match '\$sw\.Add_StateChanged\('
+    }
+    It 'Breite je Spalte = breitester Text der uebergebenen (angezeigten) Zeilen, leere Spalte = Ueberschrift' {
+        $fn = @($script:SetupAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -in 'Get-FitWidth', 'Measure-TextWidth', 'Get-TrimStyle', 'Set-GridColumnsFit' } | ForEach-Object { $_.Extent.Text }) -join "`n"
+        $fn | Should -Match 'function Set-GridColumnsFit'
+        $calc = {
+            param($fnText)
+            Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            $script:TrimStyles = @{}
+            . ([scriptblock]::Create($fnText))
+            $g = New-Object System.Windows.Controls.DataGrid
+            foreach ($k in 'Seriennr', 'Modell', 'Benutzer') {
+                $c = New-Object System.Windows.Controls.DataGridTextColumn; $c.Header = $k; $c.Binding = New-Object System.Windows.Data.Binding($k); $g.Columns.Add($c)
+            }
+            # 289 geladen: 21 kurze fertige Geraete, der Rest mit langen Werten
+            $kurz = @(1..21 | ForEach-Object { [pscustomobject]@{ Seriennr = 'PF' + $_; Modell = '82YT'; Benutzer = '' } })
+            $lang = @(1..268 | ForEach-Object { [pscustomobject]@{ Seriennr = 'SN26-PF21W4LQA-SEHR-LANG-' + $_; Modell = 'HP ProBook 440 14 inch G10 Notebook PC'; Benutzer = 'mustermann.maximilian@example.org' } })
+            $w = { param($rows, $skip) Set-GridColumnsFit $g $rows @{} @{} @() $skip; @($g.Columns | ForEach-Object { [double]$_.Width.Value }) }
+            $nurKurz = & $w $kurz @()
+            $alle = & $w @($kurz + $lang) @()
+            $gefiltert = & $w $kurz @()
+            $hs = @('Seriennr', 'Modell', 'Benutzer' | ForEach-Object { [double](Get-FitWidth 0 (Measure-TextWidth $_ (New-Object System.Windows.Media.Typeface($g.FontFamily, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)) $g.FontSize) 22 320) })
+            # von Hand gezogene Spalte bleibt
+            $g.Columns[1].Width = New-Object System.Windows.Controls.DataGridLength(250)
+            $skip = & $w $kurz @('Modell')
+            ($nurKurz -join ';') + '|' + ($alle -join ';') + '|' + ($gefiltert -join ';') + '|' + ($hs -join ';') + '|' + ($skip -join ';')
+        }
+        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') { $res = "$(& $calc $fn)" }
+        else {
+            $rs = [runspacefactory]::CreateRunspace(); $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
+            try { $ps = [powershell]::Create(); $ps.Runspace = $rs; [void]$ps.AddScript($calc).AddArgument($fn); $res = "$(@($ps.Invoke())[-1])" } finally { $rs.Close() }
+        }
+        $p = $res -split '\|'
+        $p.Count | Should -Be 5
+        $kurz = @($p[0] -split ';' | ForEach-Object { [double]$_ }); $alle = @($p[1] -split ';' | ForEach-Object { [double]$_ })
+        $gef = @($p[2] -split ';' | ForEach-Object { [double]$_ }); $hs = @($p[3] -split ';' | ForEach-Object { [double]$_ }); $skip = @($p[4] -split ';' | ForEach-Object { [double]$_ })
+        # nach dem Filtern genau so breit wie mit nur den kurzen Zeilen, nicht wie mit allen geladenen
+        ($gef -join ';') | Should -Be ($kurz -join ';')
+        $gef[0] | Should -BeLessThan $alle[0]
+        $gef[1] | Should -BeLessThan $alle[1]
+        # Modell "82YT" ist kuerzer als die Ueberschrift: Spalte so breit wie die Ueberschrift; leere Spalte Benutzer ebenso
+        $gef[1] | Should -Be $hs[1]
+        $gef[2] | Should -Be $hs[2]
+        $alle[1] | Should -BeGreaterThan $hs[1]
+        # uebersprungene Spalte behaelt die gezogene Breite, die anderen werden berechnet
+        $skip[1] | Should -Be 250
+        $skip[0] | Should -Be $kurz[0]
     }
     It 'Luft in den Zellen, Stand nur als farbiges Schild' {
         $script:SetupText | Should -Match '<Setter Property="Padding" Value="8,3,8,3"/>'

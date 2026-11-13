@@ -662,8 +662,9 @@ function Get-TrimStyle([string]$Path) {
     return $script:TrimStyles[$Path]
 }
 # Alle Spalten einer Tabelle setzen. $Max: Obergrenze je Bindungspfad (Standard 320), $Extra: Zusatz je Pfad (z. B. Schild),
-# $Bold: Pfade, deren Inhalt halbfett steht.
-function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Extra = @{}, [string[]]$Bold = @()) {
+# $Bold: Pfade, deren Inhalt halbfett steht. $Skip: Pfade, die unveraendert bleiben (von Hand gezogen).
+# $rows: genau die ANGEZEIGTEN Zeilen (nach allen Filtern). Ist eine Spalte darin leer, ist sie so breit wie ihre Ueberschrift.
+function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Extra = @{}, [string[]]$Bold = @(), [string[]]$Skip = @()) {
     try {
         $ff = $grid.FontFamily; $fs = $grid.FontSize
         $tfN = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
@@ -671,7 +672,7 @@ function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Ext
         $rows = @($rows)
         foreach ($c in @($grid.Columns)) {
             $path = ''; try { $path = [string]$c.Binding.Path.Path } catch { }
-            if (-not $path) { continue }
+            if (-not $path -or $Skip -contains $path) { continue }
             $tf = $(if ($Bold -contains $path) { $tfB } else { $tfN })
             $m = 0.0; $seen = @{}
             foreach ($r in $rows) {
@@ -2362,7 +2363,7 @@ function Show-Status {
     if ($win.Icon) { $sw.Icon = $win.Icon }
     Set-WinFit $sw
     $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
-    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false }
+    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; FitW = @{}; ManualCols = @{}; UserSized = $false; SizingByCode = $false; FromSearch = $false }
     $script:SRows = @(); $script:StatusView = @()
     # Spalten fest (deutsche Ueberschriften), Breite nach Inhalt (Set-GridColumnsFit), Reihenfolge aus ui.json
     $standStyle = $null
@@ -2381,6 +2382,23 @@ function Show-Status {
         if ($col.Key -eq 'Stand') { try { $dc.ElementStyle = $standStyle } catch { } }
         $g.dGrid.Columns.Add($dc)
     }
+    # Spaltenbreite von Hand gezogen (Griff im Spaltenkopf): diese Spalte bis zum Schliessen nicht mehr anpassen.
+    # Verglichen wird mit der zuletzt berechneten Breite, Scrollbalken zaehlen nicht (kein Spaltenkopf darueber).
+    $g.dGrid.AddHandler([System.Windows.Controls.Primitives.Thumb]::DragCompletedEvent, [System.Windows.Controls.Primitives.DragCompletedEventHandler]{
+        param($s, $e)
+        try {
+            $o = $e.OriginalSource; $inHead = $false
+            while ($o -and $o -ne $g.dGrid) {
+                if ($o -is [System.Windows.Controls.Primitives.DataGridColumnHeader]) { $inHead = $true; break }
+                $o = [System.Windows.Media.VisualTreeHelper]::GetParent($o)
+            }
+            if (-not $inHead) { return }
+            foreach ($dc in $g.dGrid.Columns) {
+                $p = [string]$dc.Binding.Path.Path
+                if ($sst.FitW.ContainsKey($p) -and [math]::Abs($dc.Width.Value - $sst.FitW[$p]) -gt 0.5) { $sst.ManualCols[$p] = $true }
+            }
+        } catch { }
+    }, $true)
     try {
         $saved = @(Get-UiSetting 'StatusCols' @())
         $byKey = @{}; foreach ($dc in $g.dGrid.Columns) { $byKey[[string]$dc.Binding.Path.Path] = $dc }
@@ -2444,6 +2462,10 @@ function Show-Status {
         foreach ($sd in $sorts) { $g.dGrid.Items.SortDescriptions.Add($sd); foreach ($dc in $g.dGrid.Columns) { if ($dc.SortMemberPath -eq $sd.PropertyName) { $dc.SortDirection = $sd.Direction } } }
         if ($selSn.Count) { foreach ($it in @($g.dGrid.Items)) { if ($selSn -contains [string]$it.Seriennr) { [void]$g.dGrid.SelectedItems.Add($it) } } }
         $g.tCount.Text = ('' + $v.Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' }))
+        # Spaltenbreiten nach der ANGEZEIGTEN Liste, bei jeder Aenderung (Filter, Suche, Kachel, Aktualisieren)
+        try { & $fitCols } catch { }
+        # Fensterbreite: bei der Suche erst nach einer kurzen Pause, sonst sofort
+        if ($sst.FromSearch) { $wtm.Stop(); $wtm.Start() } else { try { & $fitWin } catch { } }
     }
     $pulse = New-Object System.Windows.Media.Animation.DoubleAnimation(1.0, 0.2, (New-Object System.Windows.Duration([TimeSpan]::FromMilliseconds(600))))
     $pulse.AutoReverse = $true; $pulse.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
@@ -2482,14 +2504,17 @@ function Show-Status {
             $sst.Loading = $false; $g.bReload.IsEnabled = $true
             $g.ePulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null); $g.ePulse.Visibility = 'Collapsed'
         }
-        # Auffrischen der Liste abgesichert: ein Fehler darf das Fenster (und den Timer-Aufruf) nicht abstuerzen lassen
+        # Auffrischen der Liste abgesichert (passt auch Spalten und Fenster an): ein Fehler darf das Fenster nicht abstuerzen lassen
         try { & $refresh } catch { Out-Log 'Die Liste im Status-Fenster konnte nicht aufgefrischt werden.' 'Fehler' $_.Exception.Message }
-        # Nach jedem Laden: Spaltenbreiten neu ueber alle Zeilen, Fenster so breit wie die Spalten
-        try { & $fitStatus } catch { }
     }
-    $fitStatus = {
-        if (-not @($script:SRows).Count) { return }
-        Set-GridColumnsFit $g.dGrid $script:SRows @{ WasTun = 420 } @{ Stand = 16 } @('Stand')
+    # Breite je Spalte = breitester Text der angezeigten Zeilen plus Luft; von Hand gezogene Spalten bleiben bis zum Schliessen
+    $fitCols = {
+        Set-GridColumnsFit $g.dGrid @($script:StatusView) @{ WasTun = 420 } @{ Stand = 16 } @('Stand') @($sst.ManualCols.Keys)
+        foreach ($dc in $g.dGrid.Columns) { $sst.FitW[[string]$dc.Binding.Path.Path] = $dc.Width.Value }
+    }
+    # Fensterbreite an die Spalten anpassen (breiter und schmaler), solange der Anwender das Fenster nicht selbst veraendert hat
+    $fitWin = {
+        if ($sst.UserSized -or [string]$sw.WindowState -ne 'Normal') { return }
         $sw.UpdateLayout()
         # Fensterbreite = Spalten plus Raender und Scrollbalken, mindestens so breit, dass Kopfzeile und Knopfleiste ganz sichtbar sind
         $cols = 0.0; foreach ($dc in $g.dGrid.Columns) { $cols += $dc.Width.Value }
@@ -2498,15 +2523,25 @@ function Show-Status {
         $minW = [math]::Max($g.spBotL.DesiredSize.Width + $g.spBotR.DesiredSize.Width + 24, $g.spTopR.DesiredSize.Width + 260) + $chrome
         $wa = [System.Windows.SystemParameters]::WorkArea
         $target = [math]::Ceiling([math]::Min($wa.Width, [math]::Max($cols + $chrome + 20, $minW)))
-        # beim ersten Laden immer, danach nur groesser (das 60-s-Aktualisieren laesst das Fenster sonst springen)
-        if (-not $sst.Fitted -or $target -gt $sw.ActualWidth + 1) { $sst.Fitted = $true; $sw.Width = $target; Set-WinFit $sw }
+        if (-not $sst.Fitted -or [math]::Abs($target - $sw.ActualWidth) -gt 1) {
+            $sst.Fitted = $true; $sst.SizingByCode = $true
+            $sw.Width = $target; Set-WinFit $sw
+            [void]$sw.Dispatcher.BeginInvoke([action]{ $sst.SizingByCode = $false }, [System.Windows.Threading.DispatcherPriority]::ContextIdle)
+        }
     }
+    # Pause nach dem Tippen in der Suche, bevor das Fenster seine Breite aendert
+    $wtm = New-Object System.Windows.Threading.DispatcherTimer
+    $wtm.Interval = [TimeSpan]::FromMilliseconds(400)
+    $wtm.Add_Tick({ $wtm.Stop(); try { & $fitWin } catch { } })
+    # Der Anwender hat das Fenster selbst in der Groesse geaendert oder maximiert: Breite nicht mehr anfassen
+    $sw.Add_SizeChanged({ param($s, $e) if ($sst.Fitted -and -not $sst.SizingByCode -and $e.PreviousSize.Width -gt 0) { $sst.UserSized = $true } })
+    $sw.Add_StateChanged({ if ([string]$sw.WindowState -ne 'Normal') { $sst.UserSized = $true } })
     foreach ($k in @($tiles.Keys)) { $tiles[$k].Add_Click({ $t = [string]$this.Tag; if (-not $t -or $sst.Tile -eq $t) { $sst.Tile = '' } else { $sst.Tile = $t }; & $refresh }) }
     $g.cTag.Add_SelectionChanged({ if (-not $sst.Loading) { & $refresh } })
     foreach ($cb in 'cProto', 'cToday', 'cProblem', 'cZeit') { $g[$cb].Add_Click({ & $refresh }) }
     $g.cZeitSpan.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
     $g.cZeitBasis.Add_SelectionChanged({ if ($g.cZeit.IsChecked) { & $refresh } })
-    $g.tFind.Add_TextChanged({ & $refresh })
+    $g.tFind.Add_TextChanged({ $sst.FromSearch = $true; try { & $refresh } finally { $sst.FromSearch = $false } })
     $g.dGrid.Add_SelectionChanged({ $g.tCount.Text = ('' + @($script:StatusView).Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' })) })
     $g.bReload.Add_Click({ & $load $false; if ($g.cAuto.IsChecked -and -not $sst.Paused) { $tm.Start() } })
     $g.bClose.Add_Click({ $sw.Close() })
@@ -2631,7 +2666,7 @@ function Show-Status {
     })
     $sw.Add_ContentRendered({ & $load $false; $tm.Start() })
     [void]$sw.ShowDialog()
-    $tm.Stop()
+    $tm.Stop(); $wtm.Stop()
 }
 
 # Autopilot- und Intune-Geraete laden. -Progress: Skriptblock mit einem Text (Fortschritt), haelt das Fenster zwischen den Seiten bedienbar
