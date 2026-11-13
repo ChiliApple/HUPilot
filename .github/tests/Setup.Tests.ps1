@@ -561,6 +561,8 @@ Describe 'Setup: Tabellen ganz anzeigen, nichts klebt zusammen' {
         Get-FitWidth 50 30 18 320 | Should -Be 68
         Get-FitWidth 20 60 18 320 | Should -Be 90
         Get-FitWidth 900 30 18 320 | Should -Be 320
+        # Luft im Aufruf: 16 Zellabstand + 2 Rahmen + 4 fester Textrand der Textspalte
+        $script:SetupText | Should -Match 'Get-FitWidth \(\$m \+ \$ex\) \$h 22 \$mx'
     }
     It 'Luft in den Zellen, Stand nur als farbiges Schild' {
         $script:SetupText | Should -Match '<Setter Property="Padding" Value="8,3,8,3"/>'

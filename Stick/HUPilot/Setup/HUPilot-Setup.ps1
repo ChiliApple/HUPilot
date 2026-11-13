@@ -644,10 +644,14 @@ function Get-FitWidth([double]$Content, [double]$Header, [double]$Air = 18, [dou
     $w = [math]::Max($Content, $Header + 12) + $Air
     return [math]::Ceiling([math]::Min($w, $Max))
 }
+# Gemessen wird im selben Modus wie die Anzeige: Add-HuTheme stellt TextFormattingMode=Display ein (Zeichen auf ganze
+# Pixel gerundet, breiter als die ideale Messung). Dazu 2 px Reserve fuer Rundung, sonst wird der letzte Buchstabe angeschnitten.
 function Measure-TextWidth([string]$Text, $Typeface, [double]$Size) {
     if (-not $Text) { return 0.0 }
-    $ft = New-Object System.Windows.Media.FormattedText($Text, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $Typeface, $Size, [System.Windows.Media.Brushes]::Black)
-    return $ft.WidthIncludingTrailingWhitespace
+    $ft = $null
+    try { $ft = New-Object System.Windows.Media.FormattedText($Text, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $Typeface, $Size, [System.Windows.Media.Brushes]::Black, $null, [System.Windows.Media.TextFormattingMode]::Display, 1.0) } catch { $ft = $null }
+    if (-not $ft) { $ft = New-Object System.Windows.Media.FormattedText($Text, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $Typeface, $Size, [System.Windows.Media.Brushes]::Black); return [math]::Ceiling($ft.WidthIncludingTrailingWhitespace * 1.06) + 2 }
+    return [math]::Ceiling($ft.WidthIncludingTrailingWhitespace) + 2
 }
 # Zellen kuerzen mit "..." und den vollen Text als Tooltip zeigen (nur sichtbar, wenn gekuerzt wurde, sonst ist er gleich)
 $script:TrimStyles = @{}
@@ -680,7 +684,8 @@ function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Ext
             $h = Measure-TextWidth ([string]$c.Header) $tfN $fs
             $mx = $(if ($Max.ContainsKey($path)) { [double]$Max[$path] } else { 320 })
             $ex = $(if ($Extra.ContainsKey($path)) { [double]$Extra[$path] } else { 0 })
-            $c.Width = New-Object System.Windows.Controls.DataGridLength((Get-FitWidth ($m + $ex) $h 18 $mx))
+            # Luft: Zellabstand 8 + 8, Rahmen 1 + 1 und der feste Textrand der Textspalte 2 + 2 (gilt auch mit eigenem Stil)
+            $c.Width = New-Object System.Windows.Controls.DataGridLength((Get-FitWidth ($m + $ex) $h 22 $mx))
             if ($c -is [System.Windows.Controls.DataGridTextColumn] -and $null -eq $c.ElementStyle) { $c.ElementStyle = Get-TrimStyle $path }
         }
     } catch { }
