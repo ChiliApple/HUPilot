@@ -1,5 +1,81 @@
 # Changelog
 
+## v2.7.18 - 2026-11-13
+### 🚀 Stick fertig machen
+- **Neuer Hauptknopf "Stick fertig machen":** erledigt alles in einem Durchgang und sagt bei einem Fehler in Klartext, was zu tun ist.
+  - Prüft die Eingaben, die Verbindung und das Secret, warnt bei Tags ohne Autopilot-Profil, speichert, baut das WLAN-Paket nur wenn nötig und kopiert auf den gewählten Stick.
+  - Danach werden die Dateien auf dem Stick mit der Quelle verglichen. Erst dann heißt es "fertig und kontrolliert".
+- **Ampel je Schritt:** Die Knöpfe 1 bis 7 haben einen Punkt: grau offen, blau läuft, grün OK, gelb Warnung, rot Fehler. Die Maus darüber zeigt den Grund.
+- **Kontrolle auch beim Einzelknopf:** "5. Auf Stick kopieren" und "Sticks vorbereiten" vergleichen die kopierten Dateien ebenfalls.
+
+### 🎨 Oberfläche
+- **Dunkle Oberfläche** in allen Fenstern, Tooltips an allen Steuerelementen.
+- **Protokoll fest unten:** nicht mehr abgeschnitten, Höhe mit dem Ziehgriff einstellbar und gemerkt, neueste Zeile oben, Knöpfe "Umkehren" und "Löschen".
+- **Ungespeicherte Änderungen sichtbar:** "* ungespeichert" neben "3. Speichern" und im Fenstertitel. Rückfrage bei "Neu laden", beim Schließen und vor einem Update.
+- **Kennwörter verdeckt:** WLAN-Kennwort und beide Admin-Kennwörter mit "anzeigen", wie Secret und MAK.
+- **Alle Fenster passen auf kleine Bildschirme:** Status, Hashes importieren, Sticks vorbereiten, Tags und Versionsauswahl.
+
+### 📝 Protokoll
+- **Drei Stufen:** jede Zeile ist OK (grün), Hinweis (gelb) oder Fehler (rot).
+- **Klartext mit nächstem Schritt:** Felder heißen wie im Fenster, z. B. "WLAN-Kennwort fehlt. Bitte oben eintragen."
+  - Technische Meldungen von Microsoft oder dem Paketbau stehen im Tooltip der Zeile und per Doppelklick.
+- **Kopieren:** markierte Zeilen oder das ganze Protokoll mit Strg+C oder "Protokoll kopieren".
+- **Protokolldatei je Sitzung:** in `HUPilot\logs`, ohne Secret, Kennwörter und Schlüssel. Die letzten 20 Dateien bleiben, sie kommen nicht auf die Sticks.
+
+### ✅ Prüfungen
+- **Group Tag und Auswahl werden beim Speichern geprüft:** mit denselben Regeln wie am Gerät. Bisher brach go erst am Gerät rot ab.
+  - Mehr als 9 Einträge in der Auswahl werden mit Meldung abgelehnt.
+- **Behoben: lokaler Admin blockierte andere Knöpfe:** Ein halb ausgefüllter Admin verhinderte "1. Verbindung testen", "2. Tags prüfen", "6. Status" und "7. Hashes importieren". Die Admins werden jetzt nur beim Speichern und beim Paketbau geprüft.
+- **Behoben: "Secret UNGÜLTIG" ohne Internet:** Ohne Verbindung steht jetzt grau "Keine Verbindung - Secret nicht geprüft". Rot nur noch, wenn das Secret wirklich abgelaufen oder falsch ist.
+
+### 📶 WLAN-Paket
+- **Stand sichtbar:** neben "4. WLAN-Paket bauen" steht "Paket: aktuell", "veraltet", "fehlt" oder "unbekannt".
+- **Behoben: altes Paket auf dem Stick:** Wurden WLAN oder lokale Admins geändert, kam bisher still das alte Paket auf den Stick. Jetzt fragt das Setup nach: neu bauen, trotzdem kopieren oder abbrechen.
+- **"4. WLAN-Paket bauen" speichert vorher:** braucht deshalb alle Pflichtfelder.
+
+### 🔐 Secret und MAK
+- **Ablauf des Secrets:** Das Setup merkt sich das Ablaufdatum, wenn es lesbar ist (optional Application.Read.All).
+  - Beim Kopieren Rückfrage, wenn das Secret abgelaufen ist, Hinweis mit Datum, wenn es in weniger als 3 Tagen abläuft.
+  - Am Gerät zeigt go das Datum ebenfalls an.
+- **MAK nur auf gewünschte Sticks:** Ist das Feld "MAK (Pro)" gefüllt, fragt das Setup beim Kopieren "MAK mit auf diesen Stick?". Nein = dieser Stick ohne MAK, die Einstellungen bleiben. Bei "Sticks vorbereiten" einmal für alle.
+
+### 📊 Status
+- **Kacheln oben:** Geräte gesamt, Fertig, Wartet auf Profil, Profil da und noch nicht angemeldet, Problem. Ein Klick filtert die Liste, ein zweiter hebt den Filter auf.
+- **Stand und Was tun:** zwei neue Spalten in Klartext, die Zeile ist grün, gelb oder rot hinterlegt.
+- **Deutsche Spalten:** Reihenfolge und Breite werden gemerkt. CSV, Excel und Ausdruck haben dieselben Spalten, eingefärbt nach Stand.
+- **Neue Filter:** "nur Probleme" und "heute", auch im Zeitfilter.
+- **Aktualisiert sich selbst:** alle 60 Sekunden (abschaltbar), Auswahl, Sortierung und Filter bleiben.
+- **Öffnet sofort:** Fortschritt beim Laden mit grünem Punkt.
+- **Details als Fenster:** alle Angaben zum Gerät, der ganze Verlauf vom Stick und ein Knopf "Kopieren".
+- **Neue Aktionen mit Rückfrage:** "Tag ändern" für markierte Geräte und "Autopilot-Sync anstoßen". Läuft der Sync schon, kommt ein Hinweis statt eines Fehlers.
+
+### 💾 Hashes importieren
+- **Schließen während des Imports:** fragt nach und bricht sauber ab. Schon importierte Geräte bleiben, erledigte Zeilen werden noch verschoben.
+
+### 💻 Am Gerät
+- **Erst prüfen, dann fragen:** go prüft zuerst Einstellungen, Seriennummer, Windows, WLAN-Paket und Hash. Fehlt etwas, kommt Rot sofort und nicht erst nach den Fragen.
+- **Fragen gebündelt, dann Zusammenfassung:** nach Tag, Benutzer und Zurücksetzen zeigt go eine Zusammenfassung, danach läuft alles ohne weitere Fragen.
+- **Schritt x von 6:** Prüfen, Internet, Anmelden, Hochladen, Profil, Zurücksetzen.
+- **Countdown hält bei falscher Taste an:** dann gilt nur eine gültige Taste oder Enter. Nach 60 Sekunden ohne Taste läuft er von vorn. Ein doppeltes Enter beantwortet nicht mehr die nächste Frage mit.
+- **Abschlussbild mit drei Sätzen:** "Was ist passiert", "Was passiert jetzt", "Was musst du tun", auch bei großer Schrift lesbar.
+- **Noch kein Profil = weiter warten:** go wartet von selbst bis zu 4 Runden zu je 20 Minuten. Ohne Profil zurückgesetzt wird nur mit der Taste `J`.
+- **Leere Auswahl im Setup:** am Gerät keine Tag-Frage, es gilt der Standard-Tag. Ungültige Einträge blendet go mit Hinweis aus.
+- **Windows Home auf Pro:** Die Frage kommt zuerst. Tag, Benutzer und Zurücksetzen werden gemerkt und nach dem Neustart angeboten (Enter übernimmt).
+- **Mindest-Akku aus dem Setup:** gilt jetzt auch beim Umstellen auf Pro.
+
+### ⚠️ Nach dem Update
+- Sticks neu bespielen, am einfachsten mit "Stick fertig machen".
+- Ein vorhandenes WLAN-Paket zeigt zuerst "Paket: unbekannt". Einmal "4. WLAN-Paket bauen", danach wird der Stand angezeigt. Ohne Windows ADK fragt das Setup, ob das vorhandene Paket weiter verwendet werden soll.
+- Keine neuen Rechte für die App-Registrierung nötig.
+
+### 🚧 Grenzen
+- Testversion: am echten Gerät und mit echtem Tenant noch nicht geprüft.
+- "Autopilot-Sync anstoßen" wirkt laut Microsoft immer für den ganzen Tenant, nicht für einzelne Geräte.
+- Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
+
+### ✅ Qualität
+- 98 automatische Tests.
+
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung
 - **Behoben: "Secret UNGÜLTIG" bei falschem MAK:** Stand im Feld "MAK (Pro)" ein abgelehnter oder falsch geformter Schlüssel, meldete das Setup beim Start "Secret UNGÜLTIG" und "1. Verbindung testen", "2. Tags prüfen" und "6. Status" liefen nicht. Das Secret war dabei in Ordnung.

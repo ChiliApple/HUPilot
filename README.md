@@ -1,7 +1,7 @@
 <h1 align="center"><img src="Assets/logo64.png" width="44" alt="" align="absmiddle"/> HUPilot</h1>
 
 <p align="center"><b>Windows Autopilot per USB-Stick</b><br>
-Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen – <code>Shift+F10</code> → <code>D:\go</code>.</p>
+Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen: <code>Shift+F10</code>, dann <code>D:\go</code>.</p>
 
 <p align="center">
   <a href="https://github.com/ChiliApple/HUPilot/releases/latest"><img src="https://img.shields.io/github/v/release/ChiliApple/HUPilot?label=Version&color=b9a88a" alt="Version"></a>
@@ -10,7 +10,7 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen –
   <a href="LICENSE"><img src="https://img.shields.io/badge/Lizenz-Nutzung%20frei-orange" alt="Lizenz"></a>
 </p>
 
-<p align="center"><a href="https://chiliapple.github.io/HUPilot/Stick/HUPilot/Setup/Anleitung.html"><b>Anleitung</b></a> · <a href="INSTALL.md">Installation</a> · <a href="CHANGELOG.md">Änderungen</a> · <a href="LICENSE">Lizenz</a></p>
+<p align="center"><a href="https://chiliapple.github.io/HUPilot/Stick/HUPilot/Setup/Anleitung.html"><b>Anleitung</b></a> | <a href="INSTALL.md">Installation</a> | <a href="CHANGELOG.md">Änderungen</a> | <a href="LICENSE">Lizenz</a></p>
 
 <p align="center"><img src="Assets/screenshot-setup.png" width="640" alt="HUPilot-Setup"/></p>
 
@@ -18,36 +18,41 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen –
 
 ## Ablauf am Gerät
 
-1. Neues Gerät im ersten Einrichtungsbildschirm, Stick anstecken, **Shift+F10** → `D:\go`
-2. Tag wählen (optional Benutzer) und „zurücksetzen ja/nein“ (je 10 s, sonst Standard)
-3. Upload → **grün „STICK ABZIEHEN“** → nächstes Gerät
-4. Gerät wartet auf das Autopilot-Profil und setzt sich selbst zurück → Autopilot-Anmeldung
+1. Neues Gerät im ersten Einrichtungsbildschirm, Stick anstecken, **Shift+F10**, dann `D:\go`
+2. go prüft zuerst Einstellungen, Seriennummer, Windows, WLAN-Paket und Hash, dann kommen die Fragen: Tag (optional Benutzer) und "zurücksetzen ja/nein" (je 10 s, sonst Standard)
+3. Zusammenfassung, danach läuft alles ohne weitere Fragen, mit "Schritt x von 6"
+4. Upload, dann **grün "STICK ABZIEHEN"**, nächstes Gerät
+5. Gerät wartet auf das Autopilot-Profil (ohne Profil weiter warten, höchstens 80 Minuten) und setzt sich selbst zurück, danach Autopilot-Anmeldung
+
+Jedes Ende zeigt drei Sätze: was passiert ist, was jetzt passiert und was zu tun ist.
 
 | Farbe | Bedeutung |
 |---|---|
 | Grün | Upload fertig, Stick abziehen |
-| Gelb | Netzteil fehlt · kein Profil für den Tag · **Hash gespeichert** (offline, später am PC hochladen) |
+| Gelb | Netzteil fehlt, kein Profil für den Tag, noch kein Profil (weiter warten), **Hash gespeichert** (offline, später am PC hochladen) |
 | Blau | Zurücksetzen startet |
-| Rot | Fehler – **nichts** zurückgesetzt. Nochmal: `D:\go` · Diagnose zum Abfotografieren: `D:\diag` |
+| Rot | Fehler, **nichts** zurückgesetzt. Ursache und nächster Schritt stehen am Bildschirm. Diagnose zum Abfotografieren: `D:\diag` |
 
 ## Vorbereitung
 
-1. App-Registrierung `HUPilot-Upload` – [INSTALL.md](INSTALL.md)
-2. `Stick\` auf Stick oder in einen Ordner kopieren, **`HUPilot-Setup.cmd`** starten:
-   *Verbindung testen* → *Tags prüfen* → *Speichern* → *WLAN-Paket bauen* → *Auf Stick kopieren* (oder *Sticks vorbereiten* für mehrere) · danach *Status* und ggf. *Hashes importieren*
+1. App-Registrierung `HUPilot-Upload`, siehe [INSTALL.md](INSTALL.md)
+2. `Stick\` auf Stick oder in einen Ordner kopieren, **`HUPilot-Setup.cmd`** starten, Felder ausfüllen
+3. Stick anstecken, auswählen und **Stick fertig machen** klicken: prüft Eingaben, Verbindung, Secret und Tags, speichert, baut das WLAN-Paket wenn nötig, kopiert und kontrolliert den Stick. Die Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit Ampel.
+4. Danach *6. Status* (Stand jedes Geräts in Klartext, mit "Was tun") und ggf. *7. Hashes importieren*
 
 > **Status:** in Erprobung. Upload, Tag-Wechsel, Tag-Prüfung, Offline-Hashes, Zurücksetzen (auch im Akkubetrieb), WLAN-Paket und Autopilot laufen. **Noch nicht auf einem unberührten Neugerät bestätigt:** dass nach dem Zurücksetzen keine Hersteller-Programme zurückkommen.
 
 ## Gut zu wissen
 
 - Zurücksetzen ohne Hersteller-Programme: `C:\Recovery\Customizations` wird weggeschoben, dann *Alles entfernen* (RemoteWipe `doWipePersistProvisionedData`). Hersteller-Store-Apps kann Windows trotzdem wiederherstellen.
-- **Kein CleanPC-Paket verwenden** – Windows wendet gespeicherte Pakete nach jedem Zurücksetzen erneut an (Endlosschleife).
-- Optional bis zu zwei lokale Admins, z. B. Kustode und Elternverein (Kennwort/Konto laufen nie ab) – kommt mit dem WLAN-Paket. Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage`), bleibt am eingerichteten Gerät das vorhandene Paket.
-- Kein Internet / Secret abgelaufen → Hash wird am Stick gespeichert und später im Setup hochgeladen. Die Uhrzeit stellt go selbst.
-- Setup prüft beim Start online auf neue Versionen (Knopf *Update*, gold = neu). Updates kommen als GitHub-Release mit Prüfsumme und Signatur des Herausgebers und werden erst nach Freigabe angeboten (Kanal *Stabil*; *Test* per Rechtsklick).
-- Schutz: Gerät mit Benutzerprofil → rote Rückfrage; ohne Netzteil und unter 50 % Akku → wartet.
+- **Kein CleanPC-Paket verwenden:** Windows wendet gespeicherte Pakete nach jedem Zurücksetzen erneut an (Endlosschleife).
+- Optional bis zu zwei lokale Admins, z. B. Kustode und Elternverein (Kennwort und Konto laufen nie ab), kommen mit dem WLAN-Paket. Das Setup zeigt, ob das Paket noch zu WLAN und Admins passt. Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage`), bleibt am eingerichteten Gerät das vorhandene Paket.
+- Kein Internet oder Secret abgelaufen: der Hash wird am Stick gespeichert und später im Setup hochgeladen. Die Uhrzeit stellt go selbst. Das Setup warnt beim Kopieren, wenn das Secret abgelaufen ist oder bald abläuft.
+- Das Setup schreibt ein Protokoll je Sitzung nach `HUPilot\logs` (ohne Secret, Kennwörter und Schlüssel).
+- Setup prüft beim Start online auf neue Versionen (Knopf *Update*, gold = neu). Updates kommen als GitHub-Release mit Prüfsumme und Signatur des Herausgebers und werden erst nach Freigabe angeboten (Kanal *Stabil*, *Test* per Rechtsklick).
+- Schutz: Gerät mit Benutzerprofil: rote Rückfrage. Ohne Netzteil und unter 50 % Akku: wartet.
 - Secret kurz gültig halten, Stick nicht aus der Hand geben (`DeviceManagementServiceConfig.ReadWrite.All` gibt es nur mit Schreibrecht).
 
 ---
 
-**Lizenz:** kostenlose Nutzung erlaubt, Veränderung und Weitergabe veränderter Fassungen nicht – [LICENSE](LICENSE).
+**Lizenz:** kostenlose Nutzung erlaubt, Veränderung und Weitergabe veränderter Fassungen nicht, siehe [LICENSE](LICENSE).
