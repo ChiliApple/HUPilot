@@ -14,7 +14,7 @@ BeforeAll {
         'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
         'Test-StickCopy', 'Get-CfgBytesNoMak', 'Split-LogLevel', 'Hide-LogSecrets', 'Get-DeviceStand', 'Get-DeviceTodo', 'Export-StatusXlsx', 'Get-FitWidth', 'Get-FileShaCached', 'Get-StaleStickPkg', 'Read-CfgFile', 'Hide-IcdText', 'Copy-ToStick',
         'Test-SkipForStick', 'Copy-IcdToStick', 'Get-IcdVersion', 'Compare-IcdVersion', 'Find-Icd', 'Get-IcdText', 'Get-IcdFileList', 'New-IcdManifest', 'Test-IcdCopy', 'Get-IcdCopyVersion',
-        'Get-DriveSelection', 'Get-PrepKeep', 'Get-PrepKey', 'Get-ReadyTodo'
+        'Get-DriveSelection', 'Get-PrepKeep', 'Get-PrepKey', 'Get-ReadyTodo', 'New-StickId', 'Compare-StickId', 'Get-StickKey'
     $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
     $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
     . ([scriptblock]::Create($script:FnText))
@@ -832,7 +832,52 @@ Describe 'Setup: Sticks von selbst erkennen, kurzer Hinweis beim Hauptknopf' {
         # Listenposition spielt keine Rolle
         $k = Get-PrepKeep @('4|F') @('9|D', '4|F')
         @($k.Keep) | Should -Be @('4|F')
-        Get-PrepKey ([pscustomobject]@{ Disk = 3; Letter = 'E' }) | Should -Be '3|E'
+    }
+    It 'Formatieren: Identitaet erkennt Tausch bei gleichem Buchstaben, Namen und gleicher Groesse' {
+        $script:StickIdFields = @('Letter', 'DiskUid', 'DiskSerial', 'DiskSize', 'DiskSig', 'PartOffset', 'VolUid', 'VolSerial', 'VolSize')
+        function Get-VolSerial([string]$Letter) { return $script:FakeVolSerial }
+        $disk = [pscustomobject]@{ UniqueId = 'USBSTOR\DISK&VEN_X&PROD_Y\AAAA1111&0:PC'; SerialNumber = '0000000005 '; Size = 30995907072; Signature = 20847240; Guid = $null }
+        $part = [pscustomobject]@{ Offset = 32768 }
+        $vol = [pscustomobject]@{ UniqueId = '\\?\Volume{1}\'; Size = 30995869696 }
+        $script:FakeVolSerial = '22D22CFA'
+        $a = New-StickId $disk $part $vol 'e'
+        $a.Letter | Should -Be 'E'
+        $a.DiskSerial | Should -Be '0000000005'
+        @(Compare-StickId $a (New-StickId $disk $part $vol 'E')).Count | Should -Be 0
+        # gleiches Modell, gleiche Groesse, gleicher Name HUPILOT, gleicher Buchstabe, nur ein anderes Geraet: erkannt
+        $disk2 = [pscustomobject]@{ UniqueId = 'USBSTOR\DISK&VEN_X&PROD_Y\BBBB2222&0:PC'; SerialNumber = '0000000005'; Size = 30995907072; Signature = 11111111; Guid = $null }
+        $vol2 = [pscustomobject]@{ UniqueId = '\\?\Volume{2}\'; Size = 30995869696 }
+        $script:FakeVolSerial = '9A0B1C2D'
+        $b = New-StickId $disk2 $part $vol2 'E'
+        $d = @(Compare-StickId $a $b)
+        $d | Should -Contain 'DiskUid'
+        $d | Should -Contain 'VolSerial'
+        $d | Should -Not -Contain 'Letter'
+        $d | Should -Not -Contain 'DiskSize'
+        # Seriennummer des Datentraegers gleich und unbrauchbar, Volume neu formatiert: Volume-Seriennummer allein reicht
+        $script:FakeVolSerial = 'FFFF0000'
+        @(Compare-StickId $a (New-StickId $disk $part $vol 'E')) | Should -Be @('VolSerial')
+        # anderer Buchstabe oder nicht lesbar
+        $script:FakeVolSerial = '22D22CFA'
+        @(Compare-StickId $a (New-StickId $disk $part $vol 'F')) | Should -Be @('Letter')
+        @(Compare-StickId $a $null) | Should -Be @('Stick nicht lesbar')
+        # Schluessel fuer die Markierung aus der Identitaet: getauschter Stick erbt keine Markierung
+        $k = Get-PrepKeep @((Get-StickKey $a)) @((Get-StickKey $b))
+        @($k.Keep).Count | Should -Be 0
+        @($k.Dropped).Count | Should -Be 1
+        (Get-PrepKey ([pscustomobject]@{ Id = $a })) | Should -Be (Get-StickKey $a)
+        (Get-StickKey $a).StartsWith('E|') | Should -BeTrue
+    }
+    It 'Formatieren: Pruefung direkt davor, ueber die Partition, keine geerbten Markierungen, Fenster nicht schliessbar' {
+        $b = [regex]::Match($script:SetupText, '(?s)\$g\.bGo\.Add_Click\(\{.*?\r?\n    \}\)\r?\n').Value
+        $b | Should -Match '\$diff = @\(Compare-StickId \$st\.Id \(New-StickId \$disk \$part \$vol \$dl\)\)'
+        $b | Should -Match "Stick wurde getauscht, nicht formatiert\. Bitte neu markieren\.'\) 'Fehler'"
+        $b | Should -Match 'Format-Volume -Partition \$part '
+        $b | Should -Not -Match 'Format-Volume -DriveLetter'
+        ($b.IndexOf('Compare-StickId') -lt $b.IndexOf('Format-Volume')) | Should -BeTrue
+        $b | Should -Match '\$g\.lSticks\.UnselectAll\(\)'
+        $script:SetupText | Should -Match '\$prepSig = \{ Get-DriveSig \}'
+        $script:SetupText | Should -Match "if \(\`$pst\.Busy\) \{ \`$e\.Cancel = \`$true;"
     }
     It 'Hinweis nach einem Fehler: der eine Satz, was zu tun ist, ohne Anfuehrungszeichen' {
         Get-ReadyTodo ("Das Secret ist falsch.`r`n`r`nHäufiger Fehler: die Geheimnis-ID statt des WERTS kopiert. Den Wert bei `"Secret`" eintragen.") | Should -Be 'Häufiger Fehler: die Geheimnis-ID statt des WERTS kopiert.'

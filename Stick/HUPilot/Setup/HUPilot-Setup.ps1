@@ -1100,15 +1100,55 @@ try {
 if ($srcDrive -and ([System.IO.DriveInfo]::new($srcDrive)).DriveType -eq 'Removable') { $script:SrcOnUsb = $true }
 if ($script:SrcOnUsb) { $ui.bPrep.Visibility = 'Collapsed' }
 
+# Volume-Seriennummer guenstig ueber GetVolumeInformationW (kein WMI). Nur fuer bereite Laufwerke aufrufen. '' = unbekannt
+try { Add-Type -Name Vol -Namespace HUPilot -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool GetVolumeInformationW(string root, System.Text.StringBuilder name, int nameSize, out uint serial, out uint maxComp, out uint flags, System.Text.StringBuilder fs, int fsSize);' -ErrorAction Stop } catch { }
+function Get-VolSerial([string]$Letter) {
+    try {
+        $sn = [uint32]0; $mc = [uint32]0; $fl = [uint32]0
+        if ([HUPilot.Vol]::GetVolumeInformationW(($Letter.Substring(0, 2) + '\'), $null, 0, [ref]$sn, [ref]$mc, [ref]$fl, $null, 0)) { return ('{0:X8}' -f $sn) }
+    } catch { }
+    return ''
+}
+# Signatur der Laufwerke fuer die Erkennung: Buchstabe, Typ, bei bereiten Wechsel- und festen Laufwerken Groesse und
+# Volume-Seriennummer. Netzlaufwerke und CD-Laufwerke bleiben aussen vor (koennen langsam sein).
+function Get-DriveSig {
+    return (@([System.IO.DriveInfo]::GetDrives() | ForEach-Object {
+        try {
+            $ty = [string]$_.DriveType
+            if ($ty -ne 'Removable' -and $ty -ne 'Fixed') { return }
+            $r = $_.Name + $ty
+            if ($_.IsReady) { $r += '|' + $_.TotalSize + '|' + (Get-VolSerial $_.Name) }
+            $r
+        } catch { }
+    }) -join ';')
+}
+# Identitaet eines Sticks. USB-Sticks liefern als SerialNumber oft Unsinn (z. B. 0000000005), die UniqueId des Datentraegers
+# enthaelt dagegen die Seriennummer des Geraets. Deshalb eine Kombination: UniqueId, SerialNumber, Groesse und Signatur bzw.
+# GUID des Datentraegers, Lage der Partition, UniqueId, Seriennummer und Groesse des Volumes, Laufwerksbuchstabe.
+function New-StickId($Disk, $Part, $Vol, [string]$Letter) {
+    return [pscustomobject][ordered]@{
+        Letter = $Letter.Substring(0, 1).ToUpper(); DiskUid = [string]$Disk.UniqueId; DiskSerial = ([string]$Disk.SerialNumber).Trim()
+        DiskSize = [int64]$Disk.Size; DiskSig = ('' + $Disk.Signature + '|' + $Disk.Guid); PartOffset = [int64]$Part.Offset
+        VolUid = [string]$Vol.UniqueId; VolSerial = (Get-VolSerial ($Letter.Substring(0, 1) + ':')); VolSize = [int64]$Vol.Size
+    }
+}
+$script:StickIdFields = @('Letter', 'DiskUid', 'DiskSerial', 'DiskSize', 'DiskSig', 'PartOffset', 'VolUid', 'VolSerial', 'VolSize')
+# Vergleich zweier Identitaeten. Rueckgabe: Namen der abweichenden Merkmale (leer = derselbe Stick)
+function Compare-StickId($Old, $New) {
+    if (-not $Old -or -not $New) { return @('Stick nicht lesbar') }
+    return @($script:StickIdFields | Where-Object { [string]$Old.$_ -ne [string]$New.$_ })
+}
+function Get-StickKey($Id) { return (@($script:StickIdFields | ForEach-Object { [string]$Id.$_ }) -join '|') }
 function Get-UsbSticks {
     $res = @()
     foreach ($v in @(Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter })) {
         try {
             $dl = ([string]$v.DriveLetter).ToUpper()
-            $disk = Get-Partition -DriveLetter $dl -ErrorAction Stop | Get-Disk -ErrorAction Stop
+            $part = Get-Partition -DriveLetter $dl -ErrorAction Stop
+            $disk = $part | Get-Disk -ErrorAction Stop
             if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { continue }
             $res += [pscustomobject]@{
-                Letter = $dl; Disk = [int]$disk.Number
+                Letter = $dl; Disk = [int]$disk.Number; Id = (New-StickId $disk $part $v $dl)
                 Text   = ('{0}:  {1,-12} {2,-6} {3,6:N1} GB   {4}' -f $dl, $(if ($v.FileSystemLabel) { $v.FileSystemLabel } else { '(ohne Name)' }), $v.FileSystem, ($v.Size / 1GB), $disk.FriendlyName)
             }
         } catch { }
@@ -1116,13 +1156,13 @@ function Get-UsbSticks {
     return $res
 }
 
-# Reine Logik fuer "Sticks vorbereiten": Markierte Sticks nach neuem Einlesen. Schluessel = Datentraegernummer|Laufwerksbuchstabe,
-# nie die Listenposition. Keep = bleibt markiert, Dropped = Markierung entfernt (Stick weg oder anderer Datentraeger unter dem Buchstaben).
+# Reine Logik fuer "Sticks vorbereiten": Markierte Sticks nach neuem Einlesen. Schluessel = Identitaet des Sticks (Get-StickKey),
+# nie die Listenposition. Keep = bleibt markiert, Dropped = Markierung entfernt (Stick weg, getauscht oder veraendert).
 function Get-PrepKeep([string[]]$SelKeys, [string[]]$NewKeys) {
     $SelKeys = @($SelKeys | Where-Object { $_ }); $NewKeys = @($NewKeys | Where-Object { $_ })
     return [pscustomobject]@{ Keep = @($SelKeys | Where-Object { $NewKeys -contains $_ }); Dropped = @($SelKeys | Where-Object { $NewKeys -notcontains $_ }) }
 }
-function Get-PrepKey($Stick) { return ('' + $Stick.Disk + '|' + $Stick.Letter) }
+function Get-PrepKey($Stick) { return (Get-StickKey $Stick.Id) }
 function Show-PrepSticks {
     [xml]$px = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -1188,8 +1228,8 @@ function Show-PrepSticks {
     $script:PrepList = @()
     $plog = { param($m, $lv = '', $dt = '') Out-SubLog $g.tPLog $pw 'Sticks vorbereiten' $m $lv $dt }
     $g.tPLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $g.tPLog); $e.Handled = $true } })
-    # Neu einlesen. Markierungen bleiben nur fuer denselben Datentraeger unter demselben Buchstaben, sonst werden sie entfernt
-    # und das steht im Protokoll. $Auto: von selbst erkannt (nur Aenderungen ins Protokoll)
+    # Neu einlesen. Markierungen bleiben nur fuer genau denselben Stick (Identitaet aus Datentraeger, Partition und Volume,
+    # siehe New-StickId), sonst werden sie entfernt und das steht im Protokoll. $Auto: von selbst erkannt (nur Aenderungen ins Protokoll)
     $pst = @{ Sig = $null; Busy = $false }
     $scan = {
         param([bool]$Auto = $false)
@@ -1201,15 +1241,15 @@ function Show-PrepSticks {
         $g.lSticks.Items.Clear()
         $script:PrepList = $new
         foreach ($st in $new) { [void]$g.lSticks.Items.Add($st.Text); if ($k.Keep -contains (Get-PrepKey $st)) { [void]$g.lSticks.SelectedItems.Add($st.Text) } }
-        foreach ($d in $k.Dropped) { & $plog ('Markierung für ' + ($d -split '\|')[1] + ': entfernt, der Stick ist nicht mehr da oder ein anderer.') 'Hinweis' }
+        foreach ($d in $k.Dropped) { & $plog ('Markierung für ' + ($d -split '\|')[0] + ': entfernt, der Stick ist nicht mehr da oder ein anderer.') 'Hinweis' }
         if ($Auto) {
             foreach ($st in @($new | Where-Object { $oldKeys -notcontains (Get-PrepKey $_) })) { & $plog ('Stick ' + $st.Letter + ': erkannt') }
-            foreach ($o in @($oldKeys | Where-Object { $newKeys -notcontains $_ })) { & $plog ('Stick ' + ($o -split '\|')[1] + ': entfernt') }
+            foreach ($o in @($oldKeys | Where-Object { $newKeys -notcontains $_ })) { & $plog ('Stick ' + ($o -split '\|')[0] + ': entfernt oder getauscht') }
         } else { & $plog ('' + $script:PrepList.Count + ' USB-Stick(s) gefunden') }
     }
-    # Von selbst erkennen: alle 2 s nur die Laufwerksbuchstaben lesen, die teure Abfrage nur bei einer Aenderung.
-    # Nie waehrend des Formatierens und Befuellens.
-    $prepSig = { (@([System.IO.DriveInfo]::GetDrives() | ForEach-Object { try { $_.Name + [string]$_.DriveType } catch { } }) -join ';') }
+    # Von selbst erkennen: alle 2 s Buchstabe, Typ, Groesse und Volume-Seriennummer lesen (guenstig, erkennt auch einen
+    # Tausch unter demselben Buchstaben), die teure Abfrage nur bei einer Aenderung. Nie waehrend des Formatierens und Befuellens.
+    $prepSig = { Get-DriveSig }
     $ptm = New-Object System.Windows.Threading.DispatcherTimer
     $ptm.Interval = [TimeSpan]::FromSeconds(2)
     $ptm.Add_Tick({
@@ -1232,6 +1272,7 @@ function Show-PrepSticks {
         # Secret und MAK einmal fuer den ganzen Durchgang
         $pre = Confirm-CopyPrereqs ('die gewählten Sticks (' + $sel.Count + ')') $pw
         if (-not $pre) { & $plog 'Abgebrochen.'; return }
+        # Rueckfrage nennt je Stick Buchstabe, Name, Dateisystem, Groesse und Modell
         $list = ($sel | ForEach-Object { '   ' + $_.Text }) -join "`r`n"
         $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning')
         if ($q -ne 'Yes') { return }
@@ -1239,23 +1280,34 @@ function Show-PrepSticks {
         foreach ($st in $sel) {
             $dl = $st.Letter
             try {
+                # Direkt vor dem Formatieren: Datentraeger neu lesen und mit dem markierten Stick vergleichen (Tausch erkennen)
+                $part = Get-Partition -DriveLetter $dl -ErrorAction Stop
+                $disk = $part | Get-Disk -ErrorAction Stop
+                $vol = $part | Get-Volume -ErrorAction Stop
+                $diff = @(Compare-StickId $st.Id (New-StickId $disk $part $vol $dl))
+                if ($diff.Count) { & $plog ($dl + ': Stick wurde getauscht, nicht formatiert. Bitte neu markieren.') 'Fehler' ('abweichend: ' + ($diff -join ', ')); continue }
                 # Sicherheitscheck direkt vor dem Formatieren erneut
-                $disk = Get-Partition -DriveLetter $dl -ErrorAction Stop | Get-Disk -ErrorAction Stop
                 if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { throw 'kein reiner USB-Stick mehr - übersprungen' }
-                if ($fs -eq 'FAT32' -and (Get-Volume -DriveLetter $dl).Size -gt 32GB) { throw 'FAT32 nur bis 32 GB - NTFS wählen' }
+                if ($fs -eq 'FAT32' -and $vol.Size -gt 32GB) { throw 'FAT32 nur bis 32 GB - NTFS wählen' }
                 & $plog ($dl + ': formatiere ...')
-                Format-Volume -DriveLetter $dl -FileSystem $fs -NewFileSystemLabel $label -Force -Confirm:$false -ErrorAction Stop | Out-Null
+                # ueber die gepruefte Partition, nicht ueber den Buchstaben
+                Format-Volume -Partition $part -FileSystem $fs -NewFileSystemLabel $label -Force -Confirm:$false -ErrorAction Stop | Out-Null
                 & $plog ($dl + ': kopiere HUPilot ...')
                 if (Copy-ToStick ($dl + ':') $pre.WithMak) { & $plog ($dl + ': fertig, kopiert und kontrolliert. Stick abziehen.') 'OK'; $ok++ } else { & $plog ($dl + ': Kopieren fehlgeschlagen. Stick neu anstecken und nochmal versuchen.') 'Fehler' $script:CopyErr }
             } catch { & $plog ($dl + ': nicht bearbeitet. ' + $(if ("$($_.Exception.Message)" -match 'FAT32|USB-Stick') { $_.Exception.Message } else { 'Stick neu anstecken und nochmal versuchen.' })) 'Fehler' $_.Exception.Message }
         }
         & $plog ('Fertig: ' + $ok + ' von ' + $sel.Count + ' Stick(s). Nächste Sticks anstecken, sie erscheinen von selbst.') $(if ($ok -eq $sel.Count) { 'OK' } else { 'Hinweis' })
         Out-Log ('Sticks vorbereitet: ' + $ok + ' von ' + $sel.Count) $(if ($ok -eq $sel.Count) { 'OK' } else { 'Hinweis' })
+        $g.lSticks.UnselectAll()
         $pst.Sig = & $prepSig; & $scan $false
-      } finally { $pst.Busy = $false; Set-UiBusy $false }
+      } finally { $pst.Busy = $false; Set-UiBusy $false; try { $g.lSticks.UnselectAll() } catch { } }
     })
     $pst.Sig = & $prepSig; & $scan $false
     if (-not $SmokeTest) { $pw.Add_ContentRendered({ $ptm.Start() }) }
+    $pw.Add_Closing({
+        param($s, $e)
+        if ($pst.Busy) { $e.Cancel = $true; [void][System.Windows.MessageBox]::Show($pw, 'Der Durchgang läuft noch. Bitte warten, bis alle gewählten Sticks fertig sind.', 'HUPilot - Sticks vorbereiten', 'OK', 'Information') }
+    })
     $pw.Add_Closed({ $ptm.Stop() })
     [void]$pw.ShowDialog()
     Update-Drives
