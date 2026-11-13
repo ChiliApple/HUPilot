@@ -9,9 +9,10 @@
 - **Kontrolle auch beim Einzelknopf:** "5. Auf Stick kopieren" und "Sticks vorbereiten" vergleichen die kopierten Dateien ebenfalls.
 - **Stick-Auswahl direkt beim Hauptknopf:** Stick wählen und "Stick fertig machen" klicken geht ohne Scrollen, auch auf kleinen Bildschirmen. "5. Auf Stick kopieren" nutzt dieselbe Auswahl.
 - **Sticks werden von selbst erkannt:** Angesteckte und abgezogene Sticks erscheinen bzw. verschwinden ohne Klick, im Hauptfenster und in "Sticks vorbereiten". Das Protokoll nennt "Stick E: HUPILOT erkannt" und "Stick E: entfernt".
-  - Der gewählte Stick bleibt gewählt, auch wenn ein zweiter dazukommt. Wird er abgezogen, wechselt die Auswahl auf den nächsten.
+  - Der gewählte Stick bleibt gewählt, auch wenn ein zweiter dazukommt. Von selbst gewählt wird nur, wenn genau ein Stick neu dazukommt und vorher keiner da war. Wird der gewählte abgezogen, ist die Auswahl leer, bis ein Stick gewählt wird. So landet config.json nie auf einem Stick, den man nicht gewählt hat.
   - Während eines Vorgangs und solange ein anderes Fenster wie Status offen ist, ändert sich die Auswahl nicht.
-  - In "Sticks vorbereiten" bleibt eine Markierung nur beim selben Stick. Verschwindet er, wird die Markierung entfernt und im Protokoll genannt.
+  - In "Sticks vorbereiten" bleibt eine Markierung nur beim selben Stick, erkannt an Seriennummer, Größe und Kennung von Datenträger und Laufwerk. Verschwindet er oder wird er getauscht, wird die Markierung entfernt und im Protokoll genannt. Nach jedem Durchgang ist kein Stick mehr markiert.
+- **Formatieren nur den markierten Stick:** Direkt vor dem Formatieren liest "Sticks vorbereiten" den Stick neu ein und vergleicht ihn mit dem markierten. Wurde er inzwischen getauscht, wird er nicht formatiert. Während eines Durchgangs lässt sich das Fenster nicht schließen.
   - Der Knopf zum Neu-Einlesen bleibt als kleiner Rückfall.
 - **Kurzer Stand neben dem Hauptknopf:** eine Zeile je Zustand, zum Beispiel "Bereit für E: HUPILOT", "Kein Stick erkannt. Stick anstecken.", während des Durchgangs der aktuelle Schritt, danach das Ergebnis. Bei einem Fehler steht dort der eine Satz, was zu tun ist, die ganze Meldung im Tooltip.
 
@@ -24,7 +25,10 @@
 - **Alle Fenster passen auf den Bildschirm:** Status, Hashes importieren, Sticks vorbereiten, Tags und Versionsauswahl stehen immer ganz im Bild, die Knopfleiste unten ist nie abgeschnitten.
 - **Tabellen ganz sichtbar:** Die Fenster sind so breit wie die Spalten, mit Luft in Zellen und Zeilen. Ein Querbalken erscheint nur, wenn der Bildschirm zu schmal ist.
   - Im Status richtet sich jede Spalte nach den gerade angezeigten Geräten und passt sich bei jedem Filter, jeder Suche und jedem Aktualisieren an.
-  - Eine von Hand gezogene Spalte und ein selbst vergrößertes Fenster bleiben bis zum Schließen so.
+  - Eine von Hand gezogene Spalte und ein maximiertes oder selbst vergrößertes Fenster bleiben bis zum Schließen so.
+  - Ändert sich die Breite, bleibt das Status-Fenster an seinem Platz, auch auf einem zweiten Bildschirm. Es rückt nur so weit, dass es ganz zu sehen ist.
+  - Die Suche wird nach einer kurzen Tipp-Pause ausgewertet, das Fenster reagiert dabei flüssiger.
+- **Behoben: Absturz beim schnellen Schließen:** Wurde das Status-Fenster während des Ladens oder direkt nach einem Filterklick geschlossen, konnte sich das ganze Setup beenden.
 
 ### 📝 Protokoll
 - **Drei Stufen:** jede Zeile ist OK (grün), Hinweis (gelb) oder Fehler (rot).
@@ -47,7 +51,8 @@
 - **Paketbau mitnehmen (Test):** Der neue Knopf neben "4. WLAN-Paket bauen" kopiert den Paketbau (ICD.exe aus dem Windows ADK, rund 80 MB) vom eigenen PC in die Quelle. Damit baut das Setup auch an einem PC ohne ADK WLAN-Pakete.
   - Läuft das Setup vom Stick, landet die Kopie direkt auf diesem Stick. Läuft es vom PC-Ordner, nehmen "Stick fertig machen", "5. Auf Stick kopieren" und "Sticks vorbereiten" sie mit, wenn das Häkchen "Paketbau mit auf den Stick" gesetzt ist (gemerkt, Standard aus).
   - Vor dem Kopieren wird der freie Platz geprüft, danach jede Datei per SHA256. Daneben liegt eine Prüfliste mit Version, Datum und Prüfsummen.
-  - Vor jedem Bau mit der Kopie prüft das Setup die Prüfsummen, sucht nach fremden Dateien und kontrolliert die Signatur von Microsoft. Stimmt etwas nicht, wird nicht gebaut.
+  - Vor jedem Bau mit der Kopie prüft das Setup Prüfsummen, fremde Dateien und die Signaturen. Jede Programmdatei braucht eine gültige Signatur von Microsoft. Ausnahme sind nur die Dateien, die schon im Original unsigniert sind; für sie steht die Prüfsumme fest im Setup. Stimmt etwas nicht, wird nicht gebaut.
+  - Das schützt vor beschädigten oder zufällig veränderten Dateien und vor fremden Programmdateien. Wer den Stick gezielt verändern kann, kann auch das Setup selbst ändern: Stick nicht aus der Hand geben.
   - Gesucht wird zuerst das installierte ADK, dann die Kopie. Welche benutzt wird und in welcher Version, steht im Protokoll und im Tooltip der Ampel.
   - Ist am PC eine neuere Version installiert, heißt der Knopf "Kopie aktualisieren". "Kopie entfernen" löscht die Kopie wieder. Die Kopie lädt nie selbst etwas aus dem Internet.
   - Das ADK gehört Microsoft und wird nicht mit HUPilot ausgeliefert, auch nicht per Update. Die Kopie ist nur für den eigenen Gebrauch.
@@ -93,10 +98,10 @@
 - Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
 - Erkennung der Sticks: mit echten USB-Sticks noch nicht geprüft.
 - Paketbau mitnehmen: geprüft mit ICD 10.0.28000.1 unter Windows 11 ohne ADK. Mit einem echten Stick an einem fremden PC, mit lokalen Admins im Paket und mit älteren ADK-Versionen noch nicht.
-- Ein Teil der Programmdateien des ADK ist schon im Original nicht signiert, diese Dateien schützt nur die Prüfsumme.
+- Paketbau mitnehmen: Das Setup kennt nur ICD 10.0.28000.1. Eine neuere ICD-Version wird abgelehnt, bis HUPilot sie kennt, weil ein Teil ihrer Programmdateien schon im Original nicht signiert ist.
 
 ### ✅ Qualität
-- 134 automatische Tests.
+- 141 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung
