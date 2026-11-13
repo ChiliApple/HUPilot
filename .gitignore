@@ -11,5 +11,8 @@ Stick/HUPilot/Config/update.json
 Stick/HUPilot/Config/installed.json
 Stick/HUPilot/Config/pull-journal.json
 GitHubToken_*.xml
+# Setup: Fingerabdruck des WLAN-Pakets und Fenster-Einstellungen (lokal)
+HUPilot-WLAN.fingerprint.json
+Stick/HUPilot/Config/ui.json
 *.pullold
 *.pulltmp
