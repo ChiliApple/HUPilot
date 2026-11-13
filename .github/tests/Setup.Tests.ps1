@@ -1,0 +1,303 @@
+﻿#Requires -Version 5.1
+# Pester-Tests (Pester 5) fuer HUPilot-Setup.ps1: Fenster (XAML), Feldpruefung, Fingerabdruck des WLAN-Pakets,
+# Secret-Ablauf, Kontrolle der kopierten Dateien. Das Setup selbst wird dabei NICHT gestartet (es hebt sich per UAC hoch).
+
+BeforeAll {
+    $script:Root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    $script:SetupPath = Join-Path $script:Root 'Stick\HUPilot\Setup\HUPilot-Setup.ps1'
+    $script:SetupText = Get-Content -LiteralPath $script:SetupPath -Raw -Encoding UTF8
+    # Funktionen aus dem Setup holen (AST), ohne das Skript auszufuehren
+    $tk = $null; $er = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:SetupPath, [ref]$tk, [ref]$er)
+    $want = 'Get-TagPattern', 'Stop-Field', 'Test-Fields', 'Get-BytesSha', 'Get-StrHash', 'Get-FileSha', 'ConvertTo-UtcDate', 'Format-UtcText',
+        'Get-SecretWarnLevel', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-PkgInputHash', 'Write-PkgFingerprint', 'Get-PkgState',
+        'Test-StickCopy', 'Get-CfgBytesNoMak'
+    $script:Fns = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $_.Name })
+    $script:FnText = ($script:Fns | ForEach-Object { $_.Extent.Text }) -join "`n"
+    . ([scriptblock]::Create($script:FnText))
+    # Umgebung, die das Setup sonst selbst anlegt
+    $script:enc = New-Object System.Text.UTF8Encoding($false)
+    $enc = $script:enc
+    $script:Logs = New-Object System.Collections.Generic.List[string]
+    function Out-Log([string]$m) { $script:Logs.Add($m) }
+    $script:TestCfg = $null
+    function Get-Cfg { return $script:TestCfg }
+    function New-TestCfg {
+        $o = [ordered]@{
+            Tenant = 'Testschule'; TenantId = '11111111-2222-3333-4444-555555555555'; ClientId = '66666666-7777-8888-9999-000000000000'
+            ClientSecret = 'abc~geheim'; GroupTag = 'SN-2026'; TagChoices = @('SN-2025', 'SN-2026')
+            WlanSsid = 'Konfig'; WlanKey = 'wlanpasswort'; WlanPackage = 'HUPilot-WLAN.ppkg'
+            AdminName = ''; AdminPassword = ''; Admin2Name = ''; Admin2Password = ''; AskUser = $false; RemoveOtherPackages = $false; EditionKey = ''
+        }
+        return $o
+    }
+    $script:SaveNames = @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey')
+    $script:TokenNames = @('TenantId', 'ClientId', 'ClientSecret')
+    # XAML-Bloecke ([xml]$name = @' ... '@)
+    $script:XamlBlocks = @([regex]::Matches($script:SetupText, "(?s)\[xml\]\`$(\w+) = @'\r?\n(.*?)\r?\n'@") | ForEach-Object { [pscustomobject]@{ Name = $_.Groups[1].Value; Xaml = $_.Groups[2].Value } })
+}
+
+Describe 'Setup: Fenster (XAML)' {
+    It 'alle Fenster-Bloecke werden gefunden' {
+        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'sx', 'gx', 'hx')
+    }
+    It 'jedes Fenster laedt mit XamlReader (STA)' {
+        $res = @()
+        $load = {
+            param($blocks)
+            Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            foreach ($b in $blocks) {
+                try { [void][System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader ([xml]$b.Xaml))); "$($b.Name): OK" }
+                catch { "$($b.Name): $($_.Exception.Message)" }
+            }
+        }
+        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') { $res = @(& $load $script:XamlBlocks) }
+        else {
+            $rs = [runspacefactory]::CreateRunspace(); $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
+            try { $ps = [powershell]::Create(); $ps.Runspace = $rs; [void]$ps.AddScript($load).AddArgument($script:XamlBlocks); $res = @($ps.Invoke() | ForEach-Object { "$_" }) } finally { $rs.Close() }
+        }
+        @($res | Where-Object { $_ -notmatch ': OK$' }) | Should -BeNullOrEmpty
+        $res.Count | Should -Be $script:XamlBlocks.Count
+    }
+    It 'Protokoll liegt nicht mehr im Scrollbereich, Hauptknopf und Ampeln vorhanden' {
+        $x = [xml]$script:XamlBlocks[0].Xaml
+        $ns = New-Object System.Xml.XmlNamespaceManager($x.NameTable)
+        $ns.AddNamespace('w', 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'); $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
+        $x.SelectSingleNode("//w:ScrollViewer[@x:Name='svMain']//w:TextBox[@x:Name='tLog']", $ns) | Should -BeNullOrEmpty
+        $x.SelectSingleNode("//w:TextBox[@x:Name='tLog']", $ns) | Should -Not -BeNullOrEmpty
+        foreach ($n in 'bReady', 'thLog', 'bLogRev', 'bLogClear', 'eTest', 'eTags', 'eWrite', 'ePkg', 'eCopy', 'eStatus', 'eHash', 'tDirty', 'tPkg', 'pKey', 'pAdmPw', 'pAdm2Pw') {
+            $x.SelectSingleNode("//*[@x:Name='$n']", $ns) | Should -Not -BeNullOrEmpty -Because $n
+        }
+    }
+    It 'jedes bedienbare Steuerelement in allen Fenstern hat einen Tooltip' {
+        $bad = @()
+        foreach ($b in $script:XamlBlocks) {
+            $x = [xml]$b.Xaml
+            foreach ($el in $x.SelectNodes('//*')) {
+                if ($el.LocalName -notin 'Button', 'TextBox', 'PasswordBox', 'CheckBox', 'ComboBox', 'ListBox', 'DataGrid', 'Thumb') { continue }
+                if ($el.SelectSingleNode('ancestor::*[local-name()="Style" or local-name()="ControlTemplate"]')) { continue }   # Teil einer Vorlage (Bildlaufleiste)
+                if (-not $el.GetAttribute('ToolTip')) { $bad += ($b.Name + ': ' + $el.LocalName + ' ' + $el.GetAttribute('Name', 'http://schemas.microsoft.com/winfx/2006/xaml')) }
+            }
+        }
+        $bad | Should -BeNullOrEmpty
+    }
+    It 'Unterfenster passen sich an kleine Bildschirme an (Set-WinFit)' {
+        foreach ($w in '$pw', '$vw', '$sw', '$gw', '$hw') { $script:SetupText | Should -Match ('Set-WinFit \' + $w + '\b') }
+    }
+}
+
+Describe 'Setup: Feldpruefung an den Aufrufer gebunden' {
+    BeforeEach { $script:TestCfg = New-TestCfg; $script:Logs.Clear() }
+    It 'vollstaendige Daten: Speichern und Anmeldung ok' {
+        Test-Fields $script:SaveNames -Admin | Should -BeTrue
+        Test-Fields $script:TokenNames | Should -BeTrue
+    }
+    It 'halb ausgefuellter Admin blockiert die Anmeldung nicht, aber das Speichern' {
+        $script:TestCfg.AdminName = 'kustode'; $script:TestCfg.AdminPassword = 'kurz'
+        Test-Fields $script:TokenNames | Should -BeTrue
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Match 'Admin-Kennwort'
+    }
+    It 'Admin-Kennwort ohne Namen und gleiche Namen nur mit -Admin' {
+        $script:TestCfg.Admin2Password = 'langesKennwort'
+        Test-Fields $script:TokenNames | Should -BeTrue
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:TestCfg = New-TestCfg
+        $script:TestCfg.AdminName = 'admin'; $script:TestCfg.AdminPassword = 'langesKennwort'; $script:TestCfg.Admin2Name = 'admin'; $script:TestCfg.Admin2Password = 'langesKennwort'
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Match 'denselben Namen'
+    }
+    It 'falscher MAK und allgemeiner Schluessel nur beim Speichern' {
+        $script:TestCfg.EditionKey = 'ABC'
+        Test-Fields $script:TokenNames | Should -BeTrue
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:TestCfg.EditionKey = 'VK7JG-NPHTM-C97JM-9MPGT-3V66T'
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Match 'allgemeine'
+    }
+    It 'Group Tag mit Leerzeichen wird beim Speichern abgelehnt, bei der Anmeldung nicht' {
+        $script:TestCfg.GroupTag = 'SN 2026'
+        Test-Fields $script:TokenNames | Should -BeTrue
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Match 'Group Tag'
+    }
+    It 'ungueltiger Eintrag in der Auswahl wird abgelehnt' {
+        $script:TestCfg.TagChoices = @('SN-2025', '-falsch')
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Match 'Auswahl'
+        $script:FieldErr | Should -Match '-falsch'
+    }
+    It 'mehr als 9 Eintraege in der Auswahl: klare Meldung' {
+        $script:TestCfg.TagChoices = @(1..10 | ForEach-Object { 'SN-20' + (10 + $_) })
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Match '9'
+        $script:TestCfg.TagChoices = @(1..9 | ForEach-Object { 'SN-20' + (10 + $_) })
+        Test-Fields $script:SaveNames -Admin | Should -BeTrue
+    }
+    It 'TagPattern aus den Zusatzfeldern gilt wie in go.ps1' {
+        $script:TestCfg['TagPattern'] = '^SN-\d{4}$'
+        Test-Fields $script:SaveNames -Admin | Should -BeTrue
+        $script:TestCfg.GroupTag = 'Lehrer'
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Match 'TagPattern'
+        $script:TestCfg['TagPattern'] = '^[unvollstaendig'
+        Test-Fields $script:SaveNames -Admin | Should -BeFalse
+        $script:FieldErr | Should -Match 'kein gültiges Muster'
+    }
+    It 'Standardmuster ist dasselbe wie in go.ps1' {
+        $g = Get-Content (Join-Path $script:Root 'Stick\HUPilot\go.ps1') -Raw -Encoding UTF8
+        $gp = [regex]::Match($g, "(?m)^\`$TagPattern = '([^']+)'").Groups[1].Value
+        Get-TagPattern @{} | Should -Be $gp
+    }
+    It 'Admin wird nur beim Speichern und beim Paketbau geprueft' {
+        $script:SetupText | Should -Match "function Save-Cfg \{\s+if \(-not \(Test-Fields @\('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey'\) -Admin\)\)"
+        $script:SetupText | Should -Match "Test-Fields @\('WlanSsid', 'WlanKey'\) -Admin"
+        @([regex]::Matches($script:SetupText, 'Test-Fields [^\r\n]*-Admin')).Count | Should -Be 3
+    }
+}
+
+Describe 'Setup: Anmeldung und Secret-Ablauf' {
+    It 'unterscheidet kein Netz, abgelaufen, falsch, sonstige Anmeldefehler' {
+        Get-TokenErrorKind 'AADSTS7000222: The provided client secret keys are expired' $true | Should -Be 'expired'
+        Get-TokenErrorKind 'AADSTS7000215: Invalid client secret provided' $true | Should -Be 'wrong'
+        Get-TokenErrorKind 'AADSTS90002: Tenant not found' $true | Should -Be 'config'
+        Get-TokenErrorKind 'Der Remotename konnte nicht aufgelöst werden: login.microsoftonline.com' $false | Should -Be 'net'
+        Get-TokenErrorKind 'The operation has timed out.' $false | Should -Be 'net'
+        Get-TokenErrorKind 'Der Vorgang hat das Zeitlimit überschritten' $true | Should -Be 'net'
+        Get-TokenErrorKind 'Bad Gateway' $true | Should -Be 'other'
+    }
+    It 'Startpruefung: kein Netz wird neutral gemeldet, nicht als ungueltiges Secret' {
+        $script:SetupText | Should -Match "TokenErr -eq 'net'\) \{ Set-SubSecret 'Keine Verbindung - Secret nicht geprüft' \`$false"
+    }
+    It 'SecretExpires: UTC im Format yyyy-MM-ddTHH:mm:ssZ, auch aus Text oder DateTime' {
+        $u = ConvertTo-UtcDate '2026-11-20T08:30:00Z'
+        $u.Kind | Should -Be 'Utc'
+        Format-UtcText $u | Should -Be '2026-11-20T08:30:00Z'
+        Format-UtcText (ConvertTo-UtcDate ([datetime]::new(2026, 11, 20, 8, 30, 0, [DateTimeKind]::Utc))) | Should -Be '2026-11-20T08:30:00Z'
+        $loc = [datetime]::new(2026, 11, 20, 9, 30, 0, [DateTimeKind]::Local)
+        Format-UtcText (ConvertTo-UtcDate $loc) | Should -Be ($loc.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss') + 'Z')
+        Format-UtcText (ConvertTo-UtcDate '2026-11-20T08:30:00.1234567Z') | Should -Match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$'
+        ConvertTo-UtcDate '' | Should -BeNullOrEmpty
+        ConvertTo-UtcDate 'kein Datum' | Should -BeNullOrEmpty
+        Format-UtcText $null | Should -Be ''
+    }
+    It 'Warnstufe: abgelaufen, unter 3 Tagen, ok, unbekannt' {
+        $now = [datetime]::new(2026, 11, 13, 12, 0, 0, [DateTimeKind]::Utc)
+        Get-SecretWarnLevel $now.AddMinutes(-1) $now | Should -Be 'expired'
+        Get-SecretWarnLevel $now.AddDays(2.9) $now | Should -Be 'soon'
+        Get-SecretWarnLevel $now.AddDays(3.1) $now | Should -Be 'ok'
+        Get-SecretWarnLevel $null $now | Should -Be 'unknown'
+    }
+    It 'Ablaufdatum gilt nur fuer genau das Secret, zu dem es gelesen wurde' {
+        $script:SecretEnd = [datetime]::new(2026, 12, 1, 0, 0, 0, [DateTimeKind]::Utc); $script:SecretEndFor = Get-StrHash 'alt'
+        $script:SecretExpLoaded = ''; $script:SecretExpLoadedFor = ''
+        Get-SecretExpiresValue 'alt' | Should -Be '2026-12-01T00:00:00Z'
+        Get-SecretExpiresValue 'neu' | Should -Be ''
+        $script:SecretEnd = $null; $script:SecretExpLoaded = '2026-12-24T10:00:00Z'; $script:SecretExpLoadedFor = Get-StrHash 'neu'
+        Get-SecretExpiresValue 'neu' | Should -Be '2026-12-24T10:00:00Z'
+    }
+    It 'SecretExpires bleibt aus den Zusatzfeldern heraus und wird gespeichert' {
+        $script:SetupText | Should -Match "'EditionKey','SecretExpires'\) \{ \`$script:Extra"
+        $script:SetupText | Should -Match "\`$o\['SecretExpires'\] = Get-SecretExpiresValue"
+    }
+}
+
+Describe 'Setup: WLAN-Paket aktuell / veraltet / fehlt' {
+    BeforeEach {
+        $script:TestCfg = New-TestCfg
+        $script:Pkg = Join-Path $TestDrive 'HUPilot-WLAN.ppkg'
+        $script:Fp = Join-Path $TestDrive 'HUPilot-WLAN.fingerprint.json'
+        Remove-Item -LiteralPath $script:Pkg, $script:Fp -Force -ErrorAction SilentlyContinue
+    }
+    It 'fehlt, aus, fremd' {
+        Get-PkgState $script:TestCfg $script:Pkg $script:Fp | Should -Be 'fehlt'
+        $script:TestCfg.WlanPackage = ''
+        Get-PkgState $script:TestCfg $script:Pkg $script:Fp | Should -Be 'aus'
+        $script:TestCfg.WlanPackage = 'Eigenes.ppkg'
+        Get-PkgState $script:TestCfg $script:Pkg $script:Fp | Should -Be 'fremd'
+    }
+    It 'ohne Fingerabdruck: unbekannt; nach dem Bau: aktuell' {
+        [System.IO.File]::WriteAllBytes($script:Pkg, [byte[]](1..50))
+        Get-PkgState $script:TestCfg $script:Pkg $script:Fp | Should -Be 'unbekannt'
+        Write-PkgFingerprint $script:TestCfg $script:Pkg $script:Fp
+        Get-PkgState $script:TestCfg $script:Pkg $script:Fp | Should -Be 'aktuell'
+    }
+    It 'veraltet nach Aenderung von WLAN, Admin oder Paketdatei' {
+        [System.IO.File]::WriteAllBytes($script:Pkg, [byte[]](1..50))
+        Write-PkgFingerprint $script:TestCfg $script:Pkg $script:Fp
+        foreach ($k in 'WlanSsid', 'WlanKey', 'AdminName', 'AdminPassword', 'Admin2Name', 'Admin2Password') {
+            $c = New-TestCfg; $c[$k] = 'geaendert1'
+            Get-PkgState $c $script:Pkg $script:Fp | Should -Be 'veraltet' -Because $k
+        }
+        $c = New-TestCfg; $c.Tenant = 'anders'; $c.ClientSecret = 'anders'; $c.GroupTag = 'SN-2030'
+        Get-PkgState $c $script:Pkg $script:Fp | Should -Be 'aktuell'
+        [System.IO.File]::WriteAllBytes($script:Pkg, [byte[]](1..51))
+        Get-PkgState $script:TestCfg $script:Pkg $script:Fp | Should -Be 'veraltet'
+    }
+    It 'Fingerabdruck enthaelt kein Kennwort im Klartext und ist bei jedem Bau anders' {
+        $script:TestCfg.AdminName = 'kustode'; $script:TestCfg.AdminPassword = 'AdminKennwort1'
+        [System.IO.File]::WriteAllBytes($script:Pkg, [byte[]](1..50))
+        Write-PkgFingerprint $script:TestCfg $script:Pkg $script:Fp
+        $t1 = Get-Content -LiteralPath $script:Fp -Raw -Encoding UTF8
+        foreach ($s in 'wlanpasswort', 'AdminKennwort1', 'Konfig', 'kustode') { $t1 | Should -Not -Match $s }
+        Write-PkgFingerprint $script:TestCfg $script:Pkg $script:Fp
+        $t2 = Get-Content -LiteralPath $script:Fp -Raw -Encoding UTF8
+        ($t1 | ConvertFrom-Json).Input | Should -Not -Be ($t2 | ConvertFrom-Json).Input
+    }
+    It 'kaputter Fingerabdruck gilt als unbekannt' {
+        [System.IO.File]::WriteAllBytes($script:Pkg, [byte[]](1..50))
+        Set-Content -LiteralPath $script:Fp -Value '{kaputt' -Encoding UTF8
+        Get-PkgState $script:TestCfg $script:Pkg $script:Fp | Should -Be 'unbekannt'
+    }
+    It 'Fingerabdruck und ui.json ueberstehen ein Update (Pull.ps1 schont sie) und kommen nie ins Repo' {
+        $p = Get-Content (Join-Path $script:Root 'Stick\HUPilot\Setup\Pull.ps1') -Raw -Encoding UTF8
+        $keep = [regex]::Match($p, "\`$keepDirs = '([^']+)'").Groups[1].Value
+        'HUPilot/HUPilot-WLAN.fingerprint.json' | Should -Match $keep
+        'HUPilot/Config/ui.json' | Should -Match $keep
+        $gi = Get-Content (Join-Path $script:Root '.gitignore') -Raw -Encoding UTF8
+        $gi | Should -Match 'HUPilot-WLAN\.fingerprint\.json'
+        $gi | Should -Match 'Config/ui\.json'
+    }
+}
+
+Describe 'Setup: Kopieren auf den Stick' {
+    BeforeEach {
+        $script:srcStick = Join-Path $TestDrive 'Quelle'; $script:srcHU = Join-Path $script:srcStick 'HUPilot'
+        $srcStick = $script:srcStick; $srcHU = $script:srcHU
+        $script:Dst = Join-Path $TestDrive 'Ziel'
+        Remove-Item -LiteralPath $script:srcStick, $script:Dst -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Path $script:srcHU, (Join-Path $script:Dst 'HUPilot') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:srcStick 'go.cmd') -Value '@echo go' -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $script:srcHU 'go.ps1') -Value '# go' -Encoding UTF8
+        [System.IO.File]::WriteAllBytes((Join-Path $script:srcHU 'HUPilot-WLAN.ppkg'), [byte[]](1..80))
+        $cfg = New-TestCfg; $cfg.EditionKey = 'AAAAA-BBBBB-CCCCC-DDDDD-EEEEE'; $cfg.TagChoices = @('SN-2026')
+        [System.IO.File]::WriteAllText((Join-Path $script:srcHU 'config.json'), ($cfg | ConvertTo-Json -Depth 3), $script:enc)
+        Copy-Item (Join-Path $script:srcStick 'go.cmd') $script:Dst
+        Copy-Item (Join-Path $script:srcHU '*') (Join-Path $script:Dst 'HUPilot')
+    }
+    It 'Kontrolle per SHA256: gleich = keine Abweichung, veraendert oder fehlend = gemeldet' {
+        $srcStick = $script:srcStick; $srcHU = $script:srcHU
+        $cb = [System.IO.File]::ReadAllBytes((Join-Path $script:srcHU 'config.json'))
+        @(Test-StickCopy $script:Dst $cb 'HUPilot-WLAN.ppkg') | Should -BeNullOrEmpty
+        [System.IO.File]::WriteAllBytes((Join-Path $script:Dst 'HUPilot\HUPilot-WLAN.ppkg'), [byte[]](1..10))
+        Remove-Item -LiteralPath (Join-Path $script:Dst 'go.cmd')
+        $r = @(Test-StickCopy $script:Dst $cb 'HUPilot-WLAN.ppkg')
+        ($r -join ';') | Should -Match 'go.cmd fehlt'
+        ($r -join ';') | Should -Match 'HUPilot-WLAN.ppkg weicht ab'
+    }
+    It 'ohne MAK: nur EditionKey leer, alles andere gleich, Auswahl bleibt Liste' {
+        $b = Get-CfgBytesNoMak (Join-Path $script:srcHU 'config.json')
+        $o = $script:enc.GetString($b) | ConvertFrom-Json
+        $o.EditionKey | Should -Be ''
+        $o.GroupTag | Should -Be 'SN-2026'
+        $o.ClientSecret | Should -Be 'abc~geheim'
+        $script:enc.GetString($b) | Should -Match '"TagChoices":\s*\[\s*"SN-2026"\s*\]'
+        (Get-Content (Join-Path $script:srcHU 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json).EditionKey | Should -Be 'AAAAA-BBBBB-CCCCC-DDDDD-EEEEE'
+    }
+    It 'Hash-Import: Seriennummer im OData-Filter mit verdoppeltem Hochkomma' {
+        $script:SetupText | Should -Match "contains\(serialNumber,'`" \+ \(\[string\]\`$r\.Seriennr\)\.Replace\(`"'`", `"''`"\)"
+    }
+    It 'Starttest bekommt nie eine Rueckfrage beim Schliessen' {
+        $script:SetupText | Should -Match "\`$win\.Add_Closing\(\{\s+param\(\`$s, \`$e\)\s+if \(\`$SmokeTest -or \`$script:NoClosePrompt\) \{ return \}"
+    }
+}
