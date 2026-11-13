@@ -129,7 +129,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <div class="step"><b class="k">3</b><div>Zertifikate &amp; Geheimnisse &gt; neues Secret, <b>kurz gültig</b> (wenige Tage) &gt; den <b>Wert</b> kopieren, nicht die ID.</div></div>
 
 <h3 id="setup">Setup-Oberfläche</h3>
-<p><code>HUPilot-Setup.cmd</code> arbeitet immer mit dem Ordner, aus dem es gestartet wird (Stick oder Vorbereitungsordner am PC, z. B. je Schule einer). Oben die Felder, darunter die Einzelschritte in drei Zeilen (<b>Vorbereiten</b> 1 bis 4, <b>Stick</b> 5 und Sticks vorbereiten, <b>Danach</b> 6 und 7), ganz unten der grüne Hauptknopf und das Protokoll. Oben rechts: Desktop-Verknüpfung (nur am PC), Anleitung (<kbd>F1</kbd>), Update.</p>
+<p><code>HUPilot-Setup.cmd</code> arbeitet immer mit dem Ordner, aus dem es gestartet wird (Stick oder Vorbereitungsordner am PC, z. B. je Schule einer). Oben die Felder, darunter die Einzelschritte in drei Zeilen (<b>Vorbereiten</b> 1 bis 4, <b>Stick</b> 5 und Sticks vorbereiten, <b>Danach</b> 6 und 7), ganz unten die Stick-Auswahl mit dem grünen Hauptknopf und das Protokoll. Oben rechts: Desktop-Verknüpfung (nur am PC), Anleitung (<kbd>F1</kbd>), helle oder dunkle Oberfläche, Update.</p>
 <ul>
 <li><b>Kennwörter</b> (Secret, WLAN-Kennwort, Admin-Kennwörter, MAK) sind verdeckt, das Häkchen <i>anzeigen</i> zeigt sie.</li>
 <li><b>"* ungespeichert"</b> neben <span class="ui">3. Speichern</span> und ein Stern im Fenstertitel: es gibt Änderungen, die noch nicht gespeichert sind. Bei <i>Neu laden</i>, beim Schließen und vor einem Update fragt das Setup nach.</li>
@@ -139,7 +139,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 </ul>
 
 <h3 id="fertig">Stick fertig machen</h3>
-<p>Der grüne Knopf <span class="ui g">Stick fertig machen</span> ist der normale Weg: Stick anstecken, bei <b>Stick</b> auswählen (ggf. <i>Aktualisieren</i>), Knopf klicken. Das Setup erledigt dann alles in einem Durchgang:</p>
+<p>Der grüne Knopf <span class="ui g">Stick fertig machen</span> ist der normale Weg: Stick anstecken, unten links neben dem grünen Knopf bei <b>Stick</b> auswählen (ggf. <i>Aktualisieren</i>), Knopf klicken. Das geht ohne Scrollen, auch auf kleinen Bildschirmen. Das Setup erledigt dann alles in einem Durchgang:</p>
 <ol class="steps">
 <li>Eingaben prüfen (wie beim Speichern).</li>
 <li>Verbindung und Secret prüfen, Zugriff auf Autopilot. Ohne Internet fragt das Setup, ob der Stick trotzdem fertig gemacht werden soll.</li>
@@ -259,7 +259,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <ul>
 <li><b>Filter:</b> Tag, <i>nur Geräte aus dem Stick-Protokoll</i> (voreingestellt, wenn ein Stick-Protokoll da ist), <i>heute</i>, <i>nur Probleme</i>, <i>nur letzte</i> 4, 24 oder 48 Stunden oder heute (nach Registrierung oder Autopilot-Import), Suche nach Seriennummer, Gerätename oder Benutzer.</li>
 <li><b>Aktualisieren:</b> mit dem Knopf oder alle 60 Sekunden von selbst (Häkchen, wird gemerkt). Neben dem Häkchen steht "Stand: Uhrzeit". Auswahl, Sortierung und Filter bleiben.</li>
-<li><b>Spalten:</b> lassen sich verschieben und breiter ziehen, das wird gemerkt. Profil und Intune stehen weiter hinten.</li>
+<li><b>Spalten:</b> Das Fenster ist so breit wie die Spalten, auf einem zu schmalen Bildschirm bricht "Was tun" um. Spalten lassen sich verschieben und breiter ziehen, das wird gemerkt. Profil und Intune stehen weiter hinten. Der Stand steht als farbiges Schild in der ersten Spalte.</li>
 <li><b>Details:</b> Doppelklick auf eine Zeile oder <span class="ui">Details ...</span>: alle Angaben zum Gerät mit dem Autopilot-Profil und dem ganzen Verlauf vom Stick. <span class="ui">Kopieren</span> legt den Text in die Zwischenablage.</li>
 <li><b>Tag ändern ...</b>: Geräte markieren (<kbd>Strg</kbd>+Klick, <kbd>Umschalt</kbd>+Klick), Tag aus Standard- und Auswahl-Tags wählen. Die Rückfrage nennt die Seriennummern. Die Geräte wechseln danach in die Gruppe des neuen Tags und bekommen dessen Profil, bereits eingerichtete Geräte erst beim nächsten Zurücksetzen.</li>
 <li><b>Autopilot-Sync anstoßen</b>: Microsoft gleicht Autopilot neu ab, laut Microsoft immer für den ganzen Tenant. Geht höchstens alle 10 Minuten, sonst kommt ein Hinweis "läuft bereits".</li>

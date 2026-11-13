@@ -7,13 +7,16 @@
   - Danach werden die Dateien auf dem Stick mit der Quelle verglichen. Erst dann heißt es "fertig und kontrolliert".
 - **Ampel je Schritt:** Die Knöpfe 1 bis 7 haben einen Punkt: grau offen, blau läuft, grün OK, gelb Warnung, rot Fehler. Die Maus darüber zeigt den Grund.
 - **Kontrolle auch beim Einzelknopf:** "5. Auf Stick kopieren" und "Sticks vorbereiten" vergleichen die kopierten Dateien ebenfalls.
+- **Stick-Auswahl direkt beim Hauptknopf:** Stick wählen und "Stick fertig machen" klicken geht ohne Scrollen, auch auf kleinen Bildschirmen. "5. Auf Stick kopieren" nutzt dieselbe Auswahl.
 
 ### 🎨 Oberfläche
-- **Dunkle Oberfläche** in allen Fenstern, Tooltips an allen Steuerelementen.
-- **Protokoll fest unten:** nicht mehr abgeschnitten, Höhe mit dem Ziehgriff einstellbar und gemerkt, neueste Zeile oben, Knöpfe "Umkehren" und "Löschen".
+- **Dunkle oder helle Oberfläche:** Standard ist dunkel. Der Knopf neben dem Fragezeichen schaltet sofort um, in allen offenen Fenstern, die Wahl wird gemerkt. Tooltips an allen Steuerelementen.
+- **Ruhige Gruppenrahmen:** eine dünne graue Linie mit der Überschrift in der Linie statt des doppelten weißen Rahmens.
+- **Protokoll fest unten:** nicht mehr abgeschnitten, Höhe mit dem Ziehgriff einstellbar und gemerkt, neueste Zeile oben, Knöpfe "Umkehren" und "Löschen". Es lässt dem Formular immer genug Platz und wird bei kleinem Fenster von selbst kleiner.
 - **Ungespeicherte Änderungen sichtbar:** "* ungespeichert" neben "3. Speichern" und im Fenstertitel. Rückfrage bei "Neu laden", beim Schließen und vor einem Update.
 - **Kennwörter verdeckt:** WLAN-Kennwort und beide Admin-Kennwörter mit "anzeigen", wie Secret und MAK.
-- **Alle Fenster passen auf kleine Bildschirme:** Status, Hashes importieren, Sticks vorbereiten, Tags und Versionsauswahl.
+- **Alle Fenster passen auf den Bildschirm:** Status, Hashes importieren, Sticks vorbereiten, Tags und Versionsauswahl stehen immer ganz im Bild, die Knopfleiste unten ist nie abgeschnitten.
+- **Tabellen ganz sichtbar:** Die Fenster sind so breit wie die Spalten, mit Luft in Zellen und Zeilen. Ein Querbalken erscheint nur, wenn der Bildschirm zu schmal ist.
 
 ### 📝 Protokoll
 - **Drei Stufen:** jede Zeile ist OK (grün), Hinweis (gelb) oder Fehler (rot).
@@ -42,7 +45,7 @@
 
 ### 📊 Status
 - **Kacheln oben:** Geräte gesamt, Fertig, Wartet auf Profil, Profil da und noch nicht angemeldet, Problem. Ein Klick filtert die Liste, ein zweiter hebt den Filter auf.
-- **Stand und Was tun:** zwei neue Spalten in Klartext, die Zeile ist grün, gelb oder rot hinterlegt.
+- **Stand und Was tun:** zwei neue Spalten in Klartext. Der Stand steht als grünes, gelbes oder rotes Schild da, die Zeile ist nur leicht getönt.
 - **Deutsche Spalten:** Reihenfolge und Breite werden gemerkt. CSV, Excel und Ausdruck haben dieselben Spalten, eingefärbt nach Stand.
 - **Neue Filter:** "nur Probleme" und "heute", auch im Zeitfilter.
 - **Aktualisiert sich selbst:** alle 60 Sekunden (abschaltbar), Auswahl, Sortierung und Filter bleiben. Das Protokoll wiederholt dabei keine gleichen Zeilen, ohne Verbindung pausiert das Aktualisieren nach zwei Versuchen.
@@ -75,7 +78,7 @@
 - Während einer einzelnen Abfrage an Microsoft reagiert das Status-Fenster kurz nicht.
 
 ### ✅ Qualität
-- 107 automatische Tests.
+- 114 automatische Tests.
 
 ## v2.7.17 - 2026-11-13
 ### 🔐 Verbindung
