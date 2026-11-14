@@ -170,7 +170,7 @@ Describe 'v2.7.19 Zusatz: Importfehler 806 und 808 in Klartext' {
         $script:SetupText | Should -Match '\$ie = Get-ImportErrorText \(\[string\]\$st\.state\.deviceErrorCode\) \(\[string\]\$st\.state\.deviceErrorName\)'
     }
     It 'Texte ohne typografische Zeichen' {
-        foreach ($c in '806', '808') { $e = Get-ImportErrorText $c ''; ($e.Was + $e.Tun) | Should -Not -Match '[–—→„“…]' }
+        foreach ($c in '806', '808') { $e = Get-ImportErrorText $c ''; ($e.Was + $e.Tun) | Should -Not -Match '[\u2013\u2014\u2192\u201E\u201C\u2026]' }
     }
 }
 
@@ -485,7 +485,7 @@ Describe 'v2.7.19 Paket 5: Autopilot-Eintrag loeschen mit doppelter Abfrage' {
         $t2 = Get-DeletePlanText @($a) $false (Get-Date)
         $t2 | Should -Match 'Nicht gelöscht wird der Intune-Eintrag.*DeviceManagementManagedDevices\.ReadWrite\.All'
         $t2 | Should -Match 'Eintrag bleibt stehen \(Recht fehlt\)'
-        $t2 | Should -Not -Match '[–—→„“…]'
+        $t2 | Should -Not -Match '[\u2013\u2014\u2192\u201E\u201C\u2026]'
     }
     It 'Reihenfolge wie in go.ps1: Intune, Benutzer-Zuweisung, Autopilot, vor jedem Loeschen neu gelesen' {
         $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
