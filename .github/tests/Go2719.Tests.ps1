@@ -119,14 +119,15 @@ Describe 'go 2.7.19: Einbau im Import' {
 }
 
 # ---------- Bericht an den Admin (Teams-Workflow-Webhook) ----------
-# Nie ein echter Webhook: alle Adressen sind kuenstlich (example.invalid), Invoke-WebRequest ist immer ersetzt.
+# Nie ein echter Webhook: alle Adressen sind kuenstlich (example.invalid), das Senden (Invoke-ReportPost) ist immer ersetzt.
 Describe 'go 2.7.19: Bericht an den Admin' {
     BeforeAll {
-        . ([scriptblock]::Create((Get-GoFunctionText 'Get-ReadableColor', 'Get-EndText', 'Test-WebhookUrl', 'Get-ReportSecrets', 'Protect-ReportText', 'Get-SafeFileName', 'New-ReportCard', 'Send-TeamsCard', 'Get-OutboxDir', 'Limit-Outbox', 'Save-OutboxReport', 'Get-ReportFooter', 'Send-Outbox', 'Get-DeviceReportLines', 'New-GoReport', 'Send-GoReport', 'Write-ReportLine')))
+        . ([scriptblock]::Create((Get-GoFunctionText 'Get-ReadableColor', 'Get-EndText', 'Test-WebhookUrl', 'Get-ReportSecrets', 'Protect-ReportText', 'Get-SafeFileName', 'Get-CutText', 'New-ReportCard', 'Invoke-ReportPost', 'Send-TeamsCard', 'Get-OutboxDir', 'Limit-Outbox', 'Save-OutboxReport', 'Read-OutboxFile', 'Get-ReportFooter', 'Send-Outbox', 'Get-DeviceReportLines', 'New-GoReport', 'Send-GoReport', 'Write-ReportLine')))
         function Log([string]$Msg) { $script:LogLines.Add($Msg) }
         $script:Ver = '2.7.19'; $script:StepTotal = 6
         $script:ReportTimeoutSec = 8; $script:ReportMaxBytes = 24000; $script:ReportLogLines = 50; $script:ReportLogSep = "`n`n"
-        $script:OutboxKeepDays = 30; $script:OutboxMaxFiles = 50; $script:OutboxSendMax = 5
+        $script:ReportTitleMax = 200; $script:ReportLinesMax = 30; $script:ReportLineLen = 600; $script:ReportLogLen = 400
+        $script:OutboxKeepDays = 30; $script:OutboxMaxFiles = 50; $script:OutboxSendMax = 5; $script:OutboxFileMaxBytes = 262144
         $script:OldHook = 'https://firma.' + 'webhook' + '.office.com/webhookb2/x'   # alte Connector-Adresse, kuenstlich, zur Laufzeit zusammengesetzt
         # kuenstliche Adresse, zur Laufzeit zusammengesetzt (keine vollstaendige Webhook-Adresse als Literal im Repo)
         $script:Url = 'https://example.invalid/workflows/abc/triggers/manual/paths/invoke?api-version=1&sp=x&' + 'sig' + '=KUENSTLICHESIGNATUR0123456789'
@@ -136,7 +137,20 @@ Describe 'go 2.7.19: Bericht an den Admin' {
                 ClientSecret = 'GeheimesSecret~123456'; WlanSsid = 'TestNetz'; WlanKey = 'WlanKennwort987'; AdminPassword = 'AdminKennwort1'; Admin2Password = 'AdminKennwort2'
                 EditionKey = $script:Mak; GroupTag = 'SN-2026'; TeamsWebhook = $Hook }
         }
-        $script:SecretValues = @('GeheimesSecret~123456', 'WlanKennwort987', 'AdminKennwort1', 'AdminKennwort2', '11111111-2222-3333-4444-555555555555', '66666666-7777-8888-9999-000000000000', 'KUENSTLICHESIGNATUR0123456789', 'example.invalid', $script:Mak, 'eyJhbGciOiJSUzI1NiJ9')
+        $script:SecretValues = @('GeheimesSecret~123456', 'WlanKennwort987', 'AdminKennwort1', 'AdminKennwort2', '11111111-2222-3333-4444-555555555555', '11111111222233334444555555555555', '66666666-7777-8888-9999-000000000000', 'KUENSTLICHESIGNATUR0123456789', 'example.invalid', $script:Mak, 'eyJhbGciOiJSUzI1NiJ9')
+        function New-Box([int]$Count, [string]$Prefix = 'B', [int]$MinutesApart = 1) {
+            # $Count lesbare Berichte, der erste ist der aelteste
+            $base = [datetime]::UtcNow.AddHours(-20)
+            # direkt schreiben, nicht ueber Save-OutboxReport (das raeumt nach jedem Speichern auf)
+            $d = Get-OutboxDir; New-Item -ItemType Directory -Path $d -Force | Out-Null
+            for ($i = 0; $i -lt $Count; $i++) {
+                $w = $base.AddMinutes($i * $MinutesApart)
+                $p = Join-Path $d ($w.ToString('yyyyMMdd-HHmmss') + '_S' + $i + '.json')
+                [IO.File]::WriteAllText($p, ('{"v":1,"created":"' + $w.ToString('yyyy-MM-ddTHH:mm:ssZ') + '","source":"go","level":"Error","title":"' + ('{0} {1:00}' -f $Prefix, $i) + '","lines":["z"],"log":["l"]}'))
+                (Get-Item $p).LastWriteTimeUtc = $w
+            }
+        }
+        function Get-SentTitles { @($script:Bodies | ForEach-Object { ($_ | ConvertFrom-Json).attachments[0].content.body[0].text }) }
     }
     BeforeEach {
         $script:LogLines = New-Object System.Collections.Generic.List[string]
@@ -146,15 +160,18 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         $script:LocalLog = Join-Path $script:CfgDir 'HUPilot.log'
         $logLines = @(1..80 | ForEach-Object { '2026-11-14 10:00:00  [    1s]  Zeile ' + $_ }) + @(
             'Token: eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXI', 'client_secret=GeheimesSecret~123456', 'WLAN WlanKennwort987', 'Admin AdminKennwort1 / AdminKennwort2',
-            ('Tenant 11111111-2222-3333-4444-555555555555 App 66666666-7777-8888-9999-000000000000'), ('MAK ' + $script:Mak), ('Adresse ' + $script:Url), 'letzte Zeile')
+            ('Tenant 11111111-2222-3333-4444-555555555555 App 66666666-7777-8888-9999-000000000000'), 'Host 11111111222233334444555555555555.environment.example', ('MAK ' + $script:Mak), ('Adresse ' + $script:Url),
+            "Der Remotename konnte nicht aufgelöst werden: 'example.invalid'", 'letzte Zeile')
         Set-Content -LiteralPath $script:LocalLog -Value $logLines -Encoding UTF8
         $script:cfg = New-TestCfg $script:Url
         $script:Serial = 'SN/123 45'
         $script:tok = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXI'
-        $script:ReportDone = $false; $script:NetOk = $true; $script:ReportLevels = @('Error')
+        $script:ReportDone = $false; $script:ReportNetOk = $true
+        $script:ReportAnlaesse = @{ Fehler = 'Error'; FehlerReset = 'Error'; ResetNichtGestartet = 'Error'; SecretAbgelaufen = 'Warning'; SecretFalsch = 'Warning'; KeinProfilEnde = 'Warning' }
         $script:StepNo = 3; $script:StepName = 'Anmelden'
         $script:Bodies = New-Object System.Collections.Generic.List[string]
         Mock Get-DeviceReportLines { @{ Hw = 'Testhersteller Testmodell'; Win = 'Core Build 26100.1' } }
+        Mock Invoke-ReportPost { $script:Bodies.Add([Text.Encoding]::UTF8.GetString($Body)); [pscustomobject]@{ StatusCode = 202 } }
     }
 
     It 'Adresse: leer, http, alte Connector-Adresse, kein URI = ungueltig; https = gueltig' {
@@ -166,11 +183,14 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         Test-WebhookUrl $script:Url | Should -Be ''
         foreach ($u in '', 'http://example.invalid/x', $script:OldHook) { (Test-WebhookUrl $u) | Should -Not -Match 'example|office\.com/' }
     }
-    It 'Bereinigung: Secret, Token, WLAN, Admin-Kennwoerter, Adresse, Tenant- und App-ID weg, MAK nur letzte 5 Zeichen' {
+    It 'Bereinigung: Secret, Token, WLAN, Admin-Kennwoerter, Adresse, Host, Tenant-ID (auch ohne Bindestriche), App-ID weg, MAK nur letzte 5 Zeichen' {
         $sec = Get-ReportSecrets $script:cfg $script:tok
+        $sec | Should -Contain 'example.invalid'
+        $sec | Should -Contain '11111111222233334444555555555555'
         $t = Protect-ReportText ((Get-Content -LiteralPath $script:LocalLog -Encoding UTF8) -join "`n") $sec
         foreach ($s in $script:SecretValues) { $t | Should -Not -Match ([regex]::Escape($s)) }
         $t | Should -Match ([regex]::Escape('*****-UVW12'))
+        $t | Should -Match "Remotename konnte nicht aufgelöst werden: '\*\*\*'"
         $t | Should -Match 'letzte Zeile'
         Protect-ReportText ('https://irgendwo.example/x?a=1&' + 'sig' + '=abcdef123') @() | Should -Be '(Adresse entfernt)'
         Protect-ReportText 'Authorization: Bearer abc.def.ghi' @() | Should -Not -Match 'abc\.def'
@@ -191,6 +211,7 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         $c.body[3].text | Should -Be ("l1`n`nl2")
         $c.body[4].isSubtle | Should -BeTrue
         $c.body[4].text | Should -Match 'HUPilot go 2\.7\.19$'
+        (New-ReportCard -Title 'T' -Level 'Warning' | ConvertFrom-Json).attachments[0].content.body[0].color | Should -Be 'Warning'
     }
     It 'Karte: langes Log wird von vorne gekuerzt, unter 24 KB, letzte Zeile bleibt, "(gekürzt)" steht vorne' {
         $log = @(1..300 | ForEach-Object { ('Zeile {0:000} ' -f $_) + ('ä' * 380) })
@@ -204,21 +225,58 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         ($b | Select-Object -Last 1).text | Should -Be 'F'
         (New-ReportCard -Title 'T' -Log @('a')) | Should -Not -Match 'gekürzt'
     }
-    It 'Senden: ungueltige Adresse liefert Grund, Fehler wirft nie und verraet die Adresse nicht' {
-        Mock Invoke-WebRequest { throw ('Verbindung zu ' + $Uri + ' fehlgeschlagen') }
+    It 'Karte: Titel hoechstens 200 Zeichen, hoechstens 30 Zeilen zu 600, Logzeilen 400' {
+        $j = New-ReportCard -Title ('T' * 500) -Lines @(1..40 | ForEach-Object { 'Zeile ' + $_ + ' ' + ('x' * 900) }) -Log @('L' * 900) -Footer ('F' * 500)
+        $b = ($j | ConvertFrom-Json).attachments[0].content.body
+        $b[0].text.Length | Should -BeLessOrEqual 200
+        $b[-1].text.Length | Should -BeLessOrEqual 200
+        $txt = @($b | Where-Object { -not $_.fontType -and -not $_.isSubtle -and $_.text -like 'Zeile *' })
+        $txt.Count | Should -BeLessOrEqual 30
+        foreach ($x in $txt) { $x.text.Length | Should -BeLessOrEqual 600 }
+        @($b | Where-Object { $_.text -eq '(gekürzt)' }).Count | Should -Be 1
+        @($b | Where-Object { $_.fontType -eq 'Monospace' })[0].text.Length | Should -BeLessOrEqual 400
+    }
+    It 'Karte: reicht das Kuerzen des Logs nicht, werden die Zeilen von hinten gekuerzt, immer unter 24 KB' {
+        $lines = @(1..30 | ForEach-Object { ('Zeile {0:00} ' -f $_) + ('ä' * 580) })
+        $j = New-ReportCard -Title ('ä' * 300) -Lines $lines -Log @(1..50 | ForEach-Object { 'ä' * 400 }) -Footer ('ä' * 300)
+        [Text.Encoding]::UTF8.GetByteCount($j) | Should -BeLessThan 24000
+        $b = ($j | ConvertFrom-Json).attachments[0].content.body
+        @($b | Where-Object { $_.fontType -eq 'Monospace' }).Count | Should -Be 0
+        $b[1].text | Should -Match '^Zeile 01 '
+        @($b | Where-Object { $_.text -like 'Zeile 30 *' }).Count | Should -Be 0
+        @($b | Where-Object { $_.text -eq '(gekürzt)' }).Count | Should -Be 1
+    }
+    It 'Senden: Fehler wirft nie und verraet weder Adresse noch Host; ungueltige Adresse sendet nicht' {
+        Mock Invoke-ReportPost { throw ("Der Remotename konnte nicht aufgelöst werden: 'example.invalid' bei " + $Url) }
         { Send-TeamsCard $script:Url '{}' 8 } | Should -Not -Throw
-        $r = Send-TeamsCard $script:Url '{}' 8
+        $r = Send-TeamsCard $script:Url '{}' 8 (Get-ReportSecrets $script:cfg)
         $r | Should -Match 'fehlgeschlagen'
         $r | Should -Not -Match 'KUENSTLICHESIGNATUR|example\.invalid'
         Send-TeamsCard $script:OldHook '{}' 8 | Should -Match 'ungültig'
         Send-TeamsCard '' '{}' 8 | Should -Match 'ungültig'
-        Should -Invoke Invoke-WebRequest -Times 2 -Exactly
+        Should -Invoke Invoke-ReportPost -Times 2 -Exactly
     }
-    It 'Senden: Body als UTF-8-Bytes, POST, Zeitlimit 8 s' {
-        Mock Invoke-WebRequest { $script:Bodies.Add([Text.Encoding]::UTF8.GetString($Body)); [pscustomobject]@{ StatusCode = 202 } }
+    It 'Senden: Body als UTF-8-Bytes, Zeitlimit 8 s; nur HTTP 2xx zaehlt, Weiterleitung = Fehlschlag' {
         Send-TeamsCard $script:Url '{"t":"Gerät"}' 8 | Should -Be ''
         $script:Bodies[0] | Should -Be '{"t":"Gerät"}'
-        Should -Invoke Invoke-WebRequest -Times 1 -Exactly -ParameterFilter { $Method -eq 'Post' -and $TimeoutSec -eq 8 -and $UseBasicParsing -and $Body -is [byte[]] -and $ContentType -match 'utf-8' }
+        Should -Invoke Invoke-ReportPost -Times 1 -Exactly -ParameterFilter { $TimeoutSec -eq 8 -and $Body -is [byte[]] -and $Url -eq $script:Url }
+        Mock Invoke-ReportPost { [pscustomobject]@{ StatusCode = 302 } }
+        Send-TeamsCard $script:Url '{}' 8 | Should -Match 'Weiterleitung'
+        Mock Invoke-ReportPost { [pscustomobject]@{ StatusCode = 500 } }
+        Send-TeamsCard $script:Url '{}' 8 | Should -Match 'HTTP 500'
+        Mock Invoke-ReportPost { $null }
+        Send-TeamsCard $script:Url '{}' 8 | Should -Match 'fehlgeschlagen'
+    }
+    It 'Senden im Quelltext: Modulname, ohne Weiterleitung, POST, UTF-8, Zeitlimit' {
+        $t = Get-GoFunctionText 'Invoke-ReportPost'
+        $t | Should -Match 'Microsoft\.PowerShell\.Utility\\Invoke-WebRequest'
+        $t | Should -Match '-MaximumRedirection 0'
+        $t | Should -Match '-Method Post'
+        $t | Should -Match '-UseBasicParsing'
+        $t | Should -Match "charset=utf-8"
+        $t | Should -Match '-TimeoutSec \$TimeoutSec'
+        @([regex]::Matches($script:GoText, 'Invoke-WebRequest')).Count | Should -Be @([regex]::Matches($script:GoText, 'Microsoft\.PowerShell\.Utility\\Invoke-WebRequest')).Count
+        (Get-GoFunctionText 'Send-TeamsCard') | Should -Not -Match 'Invoke-WebRequest'
     }
     It 'Ablage: Dateiname, UTF-8 ohne BOM, Felder nach Vertrag, Listen auch mit einem Eintrag' {
         $now = [datetime]::new(2026, 11, 14, 9, 5, 7, [DateTimeKind]::Utc)
@@ -231,7 +289,9 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         $raw | Should -Match '"lines":\s*\[\s*"nur eine"\s*\]'
         $raw | Should -Match '"log":\s*\[\s*"l"\s*\]'
         $o = $raw | ConvertFrom-Json
-        $o.v | Should -Be 1; $o.created | Should -Be '2026-11-14T09:05:07Z'; $o.source | Should -Be 'go'; $o.level | Should -Be 'Error'; $o.title | Should -Be 'T'
+        # created im Rohtext pruefen: PowerShell 7 macht beim Einlesen ein DateTime daraus, 5.1 nicht
+        $raw | Should -Match '"created":\s*"2026-11-14T09:05:07Z"'
+        $o.v | Should -Be 1; $o.source | Should -Be 'go'; $o.level | Should -Be 'Error'; $o.title | Should -Be 'T'
         @($o.PSObject.Properties.Name) -join ',' | Should -Be 'v,created,source,level,title,lines,log'
     }
     It 'Ablage: ohne Stick (keine config.json) oder nicht beschreibbar = leer, wirft nicht' {
@@ -240,68 +300,104 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         Save-OutboxReport (Get-OutboxDir) @{ Title = 'T' } 'X' | Should -Be ''
         Save-OutboxReport 'Q:\gibt\es\nicht\logs\outbox' @{ Title = 'T' } 'X' | Should -Be ''
     }
-    It 'Verwerfen: aelter als 30 Tage weg, dann hoechstens 50 Dateien, aelteste zuerst' {
+    It 'Verwerfen: nie wegen des Alters, nur ueber 50 Dateien die aeltesten, mit Logzeile' {
         $d = Get-OutboxDir; New-Item -ItemType Directory -Path $d -Force | Out-Null
         $now = [datetime]::UtcNow
-        for ($i = 0; $i -lt 60; $i++) { $f = Join-Path $d ('f{0:00}.json' -f $i); Set-Content -LiteralPath $f -Value '{}'; (Get-Item $f).LastWriteTimeUtc = $now.AddDays(-$i * 0.6) }
-        $n = Limit-Outbox $d 30 50 $now
-        $left = @(Get-ChildItem $d -Filter *.json | Sort-Object Name)
-        $left.Count | Should -Be 50
-        $n | Should -Be 10
-        $left[0].Name | Should -Be 'f00.json'
-        $left[-1].Name | Should -Be 'f49.json'
+        # Uhr am Geraet lag weit zurueck: Dateien wirken 1 bis 3 Jahre alt
+        for ($i = 0; $i -lt 10; $i++) { $f = Join-Path $d ('alt{0:00}.json' -f $i); Set-Content -LiteralPath $f -Value '{}'; (Get-Item $f).LastWriteTimeUtc = $now.AddDays(-400 - $i * 60) }
+        Limit-Outbox $d 50 | Should -Be 0
+        @(Get-ChildItem $d -Filter *.json).Count | Should -Be 10
+        for ($i = 0; $i -lt 43; $i++) { $f = Join-Path $d ('g{0:00}.json' -f $i); Set-Content -LiteralPath $f -Value '{}'; (Get-Item $f).LastWriteTimeUtc = $now.AddMinutes(-$i) }
+        Limit-Outbox $d 50 | Should -Be 3
+        @(Get-ChildItem $d -Filter *.json).Count | Should -Be 50
+        foreach ($n in 'alt09.json', 'alt08.json', 'alt07.json') { Test-Path (Join-Path $d $n) | Should -BeFalse }
+        Test-Path (Join-Path $d 'alt06.json') | Should -BeTrue
+        ($script:LogLines -join ' ') | Should -Match '3 älteste verworfen'
         Limit-Outbox (Join-Path $d 'fehlt') | Should -Be 0
     }
-    It 'Verwerfen: mehr als 50 junge Dateien, die aeltesten gehen zuerst' {
-        $d = Get-OutboxDir; New-Item -ItemType Directory -Path $d -Force | Out-Null
-        $now = [datetime]::UtcNow
-        for ($i = 0; $i -lt 53; $i++) { $f = Join-Path $d ('g{0:00}.json' -f $i); Set-Content -LiteralPath $f -Value '{}'; (Get-Item $f).LastWriteTimeUtc = $now.AddMinutes(-$i) }
-        Limit-Outbox $d 30 50 $now | Should -Be 3
-        foreach ($n in 'g50.json', 'g51.json', 'g52.json') { Test-Path (Join-Path $d $n) | Should -BeFalse }
-        Test-Path (Join-Path $d 'g49.json') | Should -BeTrue
-    }
     It 'Nachsenden: hoechstens 5, aelteste zuerst, gesendete Dateien geloescht, Karte aus der Datei' {
-        Mock Invoke-WebRequest { $script:Bodies.Add([Text.Encoding]::UTF8.GetString($Body)); [pscustomobject]@{ StatusCode = 202 } }
-        $base = [datetime]::UtcNow.AddHours(-10)
-        for ($i = 0; $i -lt 7; $i++) {
-            $p = Save-OutboxReport (Get-OutboxDir) @{ Level = 'Error'; Title = ('Bericht ' + $i); Lines = @('z'); Log = @('l') } ('S' + $i) $base.AddMinutes($i)
-            (Get-Item $p).LastWriteTimeUtc = $base.AddMinutes($i)
-        }
+        New-Box 7 'Bericht'
         $n = Send-Outbox (Get-OutboxDir) $script:Url 5 8 @() 'Testschule'
         $n | Should -Be 5
         @(Get-ChildItem (Get-OutboxDir) -Filter *.json).Count | Should -Be 2
-        ($script:Bodies[0] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'Bericht 0'
-        ($script:Bodies[4] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'Bericht 4'
+        (Get-SentTitles) -join ',' | Should -Be 'Bericht 00,Bericht 01,Bericht 02,Bericht 03,Bericht 04'
         ($script:Bodies[0] | ConvertFrom-Json).attachments[0].content.body[-1].text | Should -Match '^Testschule  \|  '
     }
+    It 'Nachsenden: erst senden, dann aufraeumen (bei 53 Dateien geht der aelteste Bericht raus, nicht in den Papierkorb)' {
+        New-Box 53 'Bericht'
+        Send-Outbox (Get-OutboxDir) $script:Url 5 8 @() 'Testschule' | Should -Be 5
+        @(Get-SentTitles)[0] | Should -Be 'Bericht 00'
+        @(Get-ChildItem (Get-OutboxDir) -Filter *.json).Count | Should -Be 48
+    }
     It 'Nachsenden: nach dem ersten Fehlschlag Schluss, Datei bleibt, wirft nicht; ungueltige Adresse sendet nichts' {
-        Mock Invoke-WebRequest { throw 'offline' }
+        Mock Invoke-ReportPost { throw 'offline' }
         for ($i = 0; $i -lt 3; $i++) { [void](Save-OutboxReport (Get-OutboxDir) @{ Level = 'Error'; Title = 'B'; Lines = @(); Log = @() } ('S' + $i) ([datetime]::UtcNow.AddMinutes(-$i))) }
         { Send-Outbox (Get-OutboxDir) $script:Url 5 8 } | Should -Not -Throw
-        Should -Invoke Invoke-WebRequest -Times 1 -Exactly
+        Should -Invoke Invoke-ReportPost -Times 1 -Exactly
         @(Get-ChildItem (Get-OutboxDir) -Filter *.json).Count | Should -Be 3
         Send-Outbox (Get-OutboxDir) $script:OldHook 5 8 | Should -Be 0
-        Should -Invoke Invoke-WebRequest -Times 1 -Exactly
+        Should -Invoke Invoke-ReportPost -Times 1 -Exactly
         ($script:LogLines -join ' ') | Should -Not -Match 'KUENSTLICHESIGNATUR|example\.invalid'
     }
-    It 'Nachsenden: kaputte Datei bleibt liegen, die anderen gehen raus' {
-        Mock Invoke-WebRequest { [pscustomobject]@{ StatusCode = 202 } }
+    It 'Nachsenden: Fusszeile zeigt die Zeit aus created (unter 5.1 und 7 gleich)' {
+        $when = [datetime]::new(2026, 10, 3, 7, 4, 0, [DateTimeKind]::Utc)
+        [void](Save-OutboxReport (Get-OutboxDir) @{ Level = 'Error'; Title = 'B'; Lines = @('z'); Log = @() } 'S' $when)
+        Send-Outbox (Get-OutboxDir) $script:Url 5 8 @() 'Testschule' | Should -Be 1
+        ($script:Bodies[0] | ConvertFrom-Json).attachments[0].content.body[-1].text | Should -Be ('Testschule  |  ' + $when.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + '  |  HUPilot go 2.7.19')
+    }
+    It 'Nachsenden: unlesbare Dateien (kaputt, v unbekannt oder kein Text, groesser als 256 KB) zaehlen nicht mit, bleiben liegen, wirft nicht' {
         $d = Get-OutboxDir; New-Item -ItemType Directory -Path $d -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $d '20260101-000000_kaputt.json') -Value 'kein json'
-        (Get-Item (Join-Path $d '20260101-000000_kaputt.json')).LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-1)
-        [void](Save-OutboxReport $d @{ Level = 'Error'; Title = 'B'; Lines = @('z'); Log = @() } 'S')
-        Send-Outbox $d $script:Url 5 8 | Should -Be 1
-        Test-Path (Join-Path $d '20260101-000000_kaputt.json') | Should -BeTrue
+        $old = [datetime]::UtcNow.AddDays(-2)
+        $bad = [ordered]@{
+            'a_kaputt.json' = 'kein json'
+            'b_v2.json'     = '{"v":2,"title":"x","lines":[],"log":[]}'
+            'c_vtext.json'  = '{"v":"eins","title":"x","lines":[],"log":[]}'
+            'd_vobj.json'   = '{"v":{"a":1},"title":"x","lines":[],"log":[]}'
+            'e_leer.json'   = ''
+            'f_gross.json'  = ('{"v":1,"title":"gross","lines":["' + ('x' * 270000) + '"],"log":[]}')
+        }
+        $i = 0
+        foreach ($k in $bad.Keys) { [IO.File]::WriteAllText((Join-Path $d $k), $bad[$k]); (Get-Item (Join-Path $d $k)).LastWriteTimeUtc = $old.AddMinutes($i++) }
+        New-Box 2 'Gut'
+        { $script:n1 = Send-Outbox $d $script:Url 5 8 @() 'Testschule' } | Should -Not -Throw
+        $script:n1 | Should -Be 2
+        (Get-SentTitles) -join ',' | Should -Be 'Gut 00,Gut 01'
+        foreach ($k in $bad.Keys) { Test-Path (Join-Path $d $k) | Should -BeTrue -Because $k }
+        ($script:LogLines -join ' ') | Should -Match 'größer als 256 KB'
+        ($script:LogLines -join ' ') | Should -Match 'unbekannte Version'
+    }
+    It 'Nachsenden: unlesbare Dateien aelter als 30 Tage werden verworfen, lesbare nie' {
+        $d = Get-OutboxDir; New-Item -ItemType Directory -Path $d -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $d 'alt_kaputt.json'), 'kein json'); (Get-Item (Join-Path $d 'alt_kaputt.json')).LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-31)
+        [IO.File]::WriteAllText((Join-Path $d 'neu_kaputt.json'), 'kein json'); (Get-Item (Join-Path $d 'neu_kaputt.json')).LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-29)
+        $p = Save-OutboxReport $d @{ Level = 'Error'; Title = 'Uralt'; Lines = @('z'); Log = @() } 'S' ([datetime]::UtcNow.AddDays(-900))
+        (Get-Item $p).LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-900)
+        Mock Invoke-ReportPost { throw 'offline' }
+        Send-Outbox $d $script:Url 5 8 | Should -Be 0
+        Test-Path (Join-Path $d 'alt_kaputt.json') | Should -BeFalse
+        Test-Path (Join-Path $d 'neu_kaputt.json') | Should -BeTrue
+        Test-Path $p | Should -BeTrue
+        ($script:LogLines -join ' ') | Should -Match 'älter als 30 Tage, verworfen: alt_kaputt\.json'
+    }
+    It 'Nachsenden: fehlt der Titel, gibt es einen Ersatztitel statt liegen zu lassen' {
+        $d = Get-OutboxDir; New-Item -ItemType Directory -Path $d -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $d 'ohne.json'), '{"v":1,"created":"2026-11-14T09:00:00Z","source":"go","level":"Error","lines":["z"],"log":[]}')
+        Send-Outbox $d $script:Url 5 8 @() 'Testschule' | Should -Be 1
+        @(Get-SentTitles)[0] | Should -Be 'Testschule: Bericht vom Stick'
+        [IO.File]::WriteAllText((Join-Path $d 'ohne2.json'), '{"v":1,"title":"  ","lines":[],"log":[]}')
+        Send-Outbox $d $script:Url 5 8 @() '' | Should -Be 1
+        @(Get-SentTitles)[1] | Should -Be 'HUPilot: Bericht vom Stick'
     }
     It 'Fehler mit Internet: genau ein Bericht je Lauf, Inhalt nach Vertrag, nichts Geheimes in der Karte' {
-        Mock Invoke-WebRequest { $script:Bodies.Add([Text.Encoding]::UTF8.GetString($Body)); [pscustomobject]@{ StatusCode = 202 } }
         $e = Get-EndText 'Fehler' 'Grund X.' 'Mach Y.'
-        $r = Send-GoReport $e 'Error'
+        $r = Send-GoReport $e 'Fehler'
         $r.Text | Should -Be 'Bericht an den Admin gesendet.'
-        Send-GoReport $e 'Error' | Should -BeNullOrEmpty
-        Should -Invoke Invoke-WebRequest -Times 1 -Exactly
+        Send-GoReport $e 'Fehler' | Should -BeNullOrEmpty
+        Send-GoReport $e 'KeinProfilEnde' | Should -BeNullOrEmpty
+        Should -Invoke Invoke-ReportPost -Times 1 -Exactly
         $c = ($script:Bodies[0] | ConvertFrom-Json).attachments[0].content
         $c.body[0].text | Should -Be 'Testschule: Fehler am Gerät SN/123 45'
+        $c.body[0].color | Should -Be 'Attention'
         $t = @($c.body | ForEach-Object { $_.text })
         $t | Should -Contain 'Anzeigename: Testschule'
         $t | Should -Contain 'Gerät: Testhersteller Testmodell'
@@ -330,14 +426,14 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         $r.Title | Should -Be 'HUPilot: Fehler am Gerät ABC123'
         @($r.Lines | Where-Object { $_ -like 'Anzeigename:*' }).Count | Should -Be 0
         (New-GoReport -End $e -SerialNo '' -Cfg $null).Title | Should -Be 'HUPilot: Fehler am Gerät (Seriennummer unbekannt)'
-        $script:NetOk = $false
-        [void](Send-GoReport $e 'Error')
+        $script:ReportNetOk = $false
+        [void](Send-GoReport $e 'Fehler')
         $f = @(Get-ChildItem (Join-Path $script:CfgDir 'logs\outbox') -Filter *.json)
         ([IO.File]::ReadAllText($f[0].FullName) | ConvertFrom-Json).title | Should -Be 'Testschule: Fehler am Gerät SN/123 45'
     }
     It 'Fehler, Senden scheitert: Datei am Stick, bereinigt, Zeile "gespeichert", wirft nicht' {
-        Mock Invoke-WebRequest { throw ('Zeitlimit bei ' + $Uri) }
-        { $script:r1 = Send-GoReport (Get-EndText 'Fehler' 'Grund.' 'Tun.') 'Error' } | Should -Not -Throw
+        Mock Invoke-ReportPost { throw ("Zeitlimit bei 'example.invalid' " + $Url) }
+        { $script:r1 = Send-GoReport (Get-EndText 'Fehler' 'Grund.' 'Tun.') 'Fehler' } | Should -Not -Throw
         $script:r1.Text | Should -Be 'Bericht am Stick gespeichert, wird beim nächsten Mal mit Internet gesendet.'
         $f = @(Get-ChildItem (Join-Path $script:CfgDir 'logs\outbox') -Filter *.json)
         $f.Count | Should -Be 1
@@ -347,77 +443,114 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         ($script:LogLines -join ' ') | Should -Not -Match 'KUENSTLICHESIGNATUR|example\.invalid'
     }
     It 'Fehler ohne Internet: kein Sendeversuch, Datei am Stick' {
-        Mock Invoke-WebRequest { throw 'darf nicht' }
-        $script:NetOk = $false
-        (Send-GoReport (Get-EndText 'Fehler' 'G.' 'T.') 'Error').Text | Should -Match 'am Stick gespeichert'
-        Should -Invoke Invoke-WebRequest -Times 0
+        $script:ReportNetOk = $false
+        (Send-GoReport (Get-EndText 'Fehler' 'G.' 'T.') 'Fehler').Text | Should -Match 'am Stick gespeichert'
+        Should -Invoke Invoke-ReportPost -Times 0
         @(Get-ChildItem (Join-Path $script:CfgDir 'logs\outbox') -Filter *.json).Count | Should -Be 1
     }
     It 'Fehler ohne Internet und ohne Stick: stiller Verzicht mit Logzeile, keine Zeile am Bildschirm' {
-        Mock Invoke-WebRequest { throw 'darf nicht' }
-        $script:NetOk = $false
+        $script:ReportNetOk = $false
         Remove-Item -LiteralPath (Join-Path $script:CfgDir 'config.json')
-        Send-GoReport (Get-EndText 'Fehler' 'G.' 'T.') 'Error' | Should -BeNullOrEmpty
+        Send-GoReport (Get-EndText 'Fehler' 'G.' 'T.') 'Fehler' | Should -BeNullOrEmpty
         ($script:LogLines -join ' ') | Should -Match 'verworfen'
     }
-    It 'Ohne Adresse: nichts, keine Zeile; ungueltige Adresse: graue Hinweiszeile, kein Senden' {
-        Mock Invoke-WebRequest { throw 'darf nicht' }
+    It 'Ohne Adresse: nichts, keine Zeile; ungueltige Adresse: graue Hinweiszeile mit naechstem Schritt, kein Senden' {
         $script:cfg = New-TestCfg ''
-        Send-GoReport (Get-EndText 'Fehler') 'Error' | Should -BeNullOrEmpty
+        Send-GoReport (Get-EndText 'Fehler') 'Fehler' | Should -BeNullOrEmpty
         $script:ReportDone | Should -BeFalse
         $script:cfg = New-TestCfg $script:OldHook
-        $r = Send-GoReport (Get-EndText 'Fehler') 'Error'
+        $r = Send-GoReport (Get-EndText 'Fehler') 'Fehler'
         $r.Color | Should -Be 'Gray'
-        $r.Text | Should -Match 'ungültig'
-        $r.Text | Should -Not -Match 'webhook'
+        $r.Text | Should -Be 'Hinweis: Das Feld Teams-Webhook am Stick ist ungültig, es geht kein Bericht an den Admin. Im Setup das Feld Teams-Webhook prüfen und den Stick neu bespielen.'
         $script:cfg = $null; $script:ReportDone = $false
-        Send-GoReport (Get-EndText 'Fehler') 'Error' | Should -BeNullOrEmpty
-        Should -Invoke Invoke-WebRequest -Times 0
+        Send-GoReport (Get-EndText 'Fehler') 'Fehler' | Should -BeNullOrEmpty
+        Should -Invoke Invoke-ReportPost -Times 0
     }
-    It 'Stufen: nur Error loest aus, Warning erst nach Erweiterung der Liste (ohne Umbau)' {
-        Mock Invoke-WebRequest { [pscustomobject]@{ StatusCode = 202 } }
-        Send-GoReport (Get-EndText 'Abbruch' 'X') 'Warning' | Should -BeNullOrEmpty
-        Should -Invoke Invoke-WebRequest -Times 0
-        $script:ReportLevels = @('Error', 'Warning')
-        (Send-GoReport (Get-EndText 'Abbruch' 'X') 'Warning').Text | Should -Be 'Bericht an den Admin gesendet.'
+    It 'Anlaesse: rote Enden, Secret abgelaufen oder falsch, kein Profil am Ende senden; andere Gelb nicht' {
+        foreach ($a in 'Abbruch', 'Offline', 'UploadKeinProfil', 'NeustartAbgebrochen', '', 'Error', 'Warning') {
+            $script:ReportDone = $false
+            Send-GoReport (Get-EndText 'Abbruch' 'X') $a | Should -BeNullOrEmpty -Because $a
+        }
+        Should -Invoke Invoke-ReportPost -Times 0
+        foreach ($a in 'Fehler', 'FehlerReset', 'ResetNichtGestartet', 'SecretAbgelaufen', 'SecretFalsch', 'KeinProfilEnde') {
+            $script:ReportDone = $false
+            (Send-GoReport (Get-EndText 'Offline' 'X.' 'Y.') $a).Text | Should -Be 'Bericht an den Admin gesendet.' -Because $a
+        }
+        Should -Invoke Invoke-ReportPost -Times 6 -Exactly
+        $titles = Get-SentTitles
+        $titles[0..2] | ForEach-Object { $_ | Should -Be 'Testschule: Fehler am Gerät SN/123 45' }
+        $titles[3..5] | ForEach-Object { $_ | Should -Be 'Testschule: Hinweis am Gerät SN/123 45' }
+        ($script:Bodies[3] | ConvertFrom-Json).attachments[0].content.body[0].color | Should -Be 'Warning'
+    }
+    It 'Anlaesse: Liste erweiterbar ohne Umbau' {
+        Send-GoReport (Get-EndText 'Abbruch' 'X') 'Abbruch' | Should -BeNullOrEmpty
+        $script:ReportAnlaesse['Abbruch'] = 'Warning'
+        (Send-GoReport (Get-EndText 'Abbruch' 'X') 'Abbruch').Text | Should -Be 'Bericht an den Admin gesendet.'
     }
     It 'unerwarteter Fehler im Bericht wirft nie' {
         Mock Get-DeviceReportLines { throw 'kaputt' }
-        { Send-GoReport (Get-EndText 'Fehler') 'Error' } | Should -Not -Throw
+        { Send-GoReport (Get-EndText 'Fehler') 'Fehler' } | Should -Not -Throw
     }
 }
 
 Describe 'go 2.7.19: Einbau des Berichts' {
     BeforeAll {
+        function Get-GoFunctionAst([string]$Name) { $script:GoAst.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq $Name }, $true) | Select-Object -First 1 }
         $script:FailText = (Get-GoFunctionText 'Fail')
-        $script:FailResetAst = $script:GoAst.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Fail-Reset' }, $true) | Select-Object -First 1
+        $script:FailResetAst = Get-GoFunctionAst 'Fail-Reset'
     }
-    It 'Fail: Bericht nach dem roten Bild und vor Wait-Close, Exitcode bleibt 1' {
+    It 'Fail: Bericht nach dem roten Bild und vor Wait-Close, -NoReport ohne Bericht, Exitcode bleibt 1' {
         $t = $script:FailText
-        $t | Should -Match ([regex]::Escape("Write-ReportLine (Send-GoReport (Get-EndText 'Fehler' `$sp[0] `$Tun) 'Error')"))
+        $t | Should -Match ([regex]::Escape("[switch]`$NoReport"))
+        $t | Should -Match ([regex]::Escape("if (`$NoReport) { Log 'Kein Bericht an den Admin: Abbruch auf Wunsch des Benutzers' }"))
+        $t | Should -Match ([regex]::Escape("else { Write-ReportLine (Send-GoReport (Get-EndText 'Fehler' `$sp[0] `$Tun) 'Fehler') }"))
         $t.IndexOf('Banner ') | Should -BeLessThan $t.IndexOf('Send-GoReport')
         $t.IndexOf('Send-GoReport') | Should -BeLessThan $t.IndexOf('Wait-Close')
         $t | Should -Match 'exit 1'
     }
-    It 'Fail-Reset: Bericht nach dem roten Bild und vor Wait-Close, Exitcode bleibt 1' {
+    It 'Fail-Reset: Bericht nach dem roten Bild und vor Wait-Close, -NoReport ohne Bericht, Exitcode bleibt 1' {
         $t = $script:FailResetAst.Extent.Text
+        $t | Should -Match ([regex]::Escape("[switch]`$NoReport"))
         $t.IndexOf('Banner ') | Should -BeLessThan $t.IndexOf('Send-GoReport')
         $t.IndexOf('Send-GoReport') | Should -BeLessThan $t.IndexOf('Wait-Close')
         $t | Should -Match "Get-EndText 'FehlerReset'"
+        $t | Should -Match "'FehlerReset'\) \}"
         $t | Should -Match 'exit 1'
     }
-    It 'Bericht nur aus Fail und Fail-Reset, nicht aus gelben oder gruenen Abschluessen' {
-        @([regex]::Matches($script:GoText, 'Send-GoReport \(')).Count | Should -Be 2
-        foreach ($n in 'Stop-ByUser', 'Save-Offline') {
-            ($script:GoAst.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq $n }, $true) | Select-Object -First 1).Extent.Text | Should -Not -Match 'Send-GoReport'
+    It 'Bewusstes Nein des Benutzers: kein Bericht (alle vier Stellen mit -NoReport)' {
+        $l = @($script:GoText -split "`r?`n")
+        foreach ($p in "if (`$k -ne 'W') { Fail ('Umstellung auf Pro hat nicht geklappt", "if (`$k -ne 'J' -and `$k -ne 'Y') { Fail (", "if (`$k -ne 'N') { Fail 'Autopilot meldet eine Hardware-Änderung", "if (`$a -notmatch '^[jJyY]') { Fail-Reset 'WLAN-Paket von Intune gesperrt") {
+            $hit = @($l | Where-Object { $_.Contains($p) })
+            $hit.Count | Should -Be 1 -Because $p
+            $hit[0].TrimEnd() | Should -Match ' -NoReport \}$' -Because $p
         }
+        @([regex]::Matches($script:GoText, ' -NoReport \}')).Count | Should -Be 4
     }
-    It 'Internet OK setzt NetOk, danach Nachsenden; alle Bericht-Funktionen vor Fail definiert' {
+    It 'Bericht genau an den vereinbarten Stellen, mit dem passenden Anlass' {
+        @([regex]::Matches($script:GoText, 'Send-GoReport \(')).Count | Should -Be 5
+        $script:GoText | Should -Match ([regex]::Escape("Write-ReportLine (Send-GoReport (Get-EndText 'ResetNichtGestartet') 'ResetNichtGestartet')"))
+        $script:GoText | Should -Match ([regex]::Escape("Write-ReportLine (Send-GoReport (Get-EndText 'KeinProfilEnde' `$kpWas `$kpTun) 'KeinProfilEnde')"))
+        # Ende nach 15 Minuten: Bericht zwischen rotem Bild und Wait-Close
+        $i = $script:GoText.IndexOf("Banner 'ZURÜCKSETZEN NICHT GESTARTET'")
+        $script:GoText.IndexOf("'ResetNichtGestartet')", $i) | Should -BeLessThan $script:GoText.IndexOf('Wait-Close', $i + 60)
+        (Get-GoFunctionAst 'Stop-ByUser').Extent.Text | Should -Not -Match 'Send-GoReport'
+        $so = (Get-GoFunctionAst 'Save-Offline').Extent.Text
+        $so | Should -Match ([regex]::Escape("if (`$Anlass) { Write-ReportLine (Send-GoReport (Get-EndText 'Offline' `$was `$tun) `$Anlass) }"))
+        $so.IndexOf('Send-GoReport') | Should -BeLessThan $so.IndexOf('exit 2')
+    }
+    It 'Gelb mit Bericht nur bei Secret abgelaufen oder falsch, nicht bei kein Internet oder anderer Anmeldung' {
+        $script:GoText | Should -Match ([regex]::Escape(". Am PC im Setup ein neues Secret eintragen') 'SecretAbgelaufen' }"))
+        $script:GoText | Should -Match ([regex]::Escape(". Am PC im Setup den Wert des Secrets eintragen') 'SecretFalsch' }"))
+        $script:GoText | Should -Match ([regex]::Escape("Save-Offline 'Kein Internet nach 2 Min (WLAN-Reichweite/Kennwort/Firewall prüfen)'`r`n"))
+        $script:GoText | Should -Match ([regex]::Escape("Save-Offline 'Anmeldung am Tenant fehlgeschlagen (Details im Log). Am PC im Setup `"Verbindung testen`"' }"))
+    }
+    It 'Internet OK setzt ReportNetOk, danach Nachsenden; eindeutiger Name; alle Bericht-Funktionen vor Fail definiert' {
         $i = $script:GoText.IndexOf("Say 'Internet OK' 'Green'")
-        $script:GoText.IndexOf('$script:NetOk = $true') | Should -BeGreaterThan $i
+        $script:GoText.IndexOf('$script:ReportNetOk = $true') | Should -BeGreaterThan $i
         $script:GoText.IndexOf('Send-Outbox (Get-OutboxDir)') | Should -BeGreaterThan $i
+        $script:GoText | Should -Not -Match '(?i)\$script:NetOk\b'
         $f = $script:GoText.IndexOf('function Fail {')
-        foreach ($n in 'Test-WebhookUrl', 'Protect-ReportText', 'New-ReportCard', 'Send-TeamsCard', 'Save-OutboxReport', 'Send-Outbox', 'Send-GoReport', 'Write-ReportLine') {
+        foreach ($n in 'Test-WebhookUrl', 'Protect-ReportText', 'New-ReportCard', 'Invoke-ReportPost', 'Send-TeamsCard', 'Save-OutboxReport', 'Read-OutboxFile', 'Send-Outbox', 'Send-GoReport', 'Write-ReportLine') {
             $script:GoText.IndexOf('function ' + $n + ' {') | Should -BeLessThan $f -Because $n
         }
     }
@@ -431,15 +564,20 @@ Describe 'go 2.7.19: Einbau des Berichts' {
             $t | Should -Not -Match 'sig='
         }
     }
-    It 'diag.ps1: parst, prueft den Host der Teams-Adresse und gibt die Adresse nie aus' {
+    It 'diag.ps1: parst, prueft den Host des Teams-Webhooks, gibt die Adresse nie aus, Hinweis mit naechstem Schritt' {
         $dp = Join-Path $script:Root 'Stick\HUPilot\diag.ps1'
         $tk = $null; $er = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile($dp, [ref]$tk, [ref]$er)
         @($er).Count | Should -Be 0
         $t = Get-Content -LiteralPath $dp -Raw -Encoding UTF8
         $t | Should -Match 'TeamsWebhook'
-        $t | Should -Match ([regex]::Escape("Teams-Bericht ' + `$x.Host"))
+        $t | Should -Match ([regex]::Escape("Bericht an den Admin ' + `$x.Host"))
+        $t | Should -Match ([regex]::Escape('Feld Teams-Webhook ungültig. Im Setup das Feld Teams-Webhook prüfen und den Stick neu bespielen.'))
         $t | Should -Not -Match 'Write-Host[^\r\n]*\$tw\b'
+        $t | Should -Not -Match 'Teams-Bericht|Teams-Adresse'
+    }
+    It 'Bezeichnungen einheitlich: Feld Teams-Webhook, Sache Bericht an den Admin' {
+        $script:GoText | Should -Not -Match 'Teams-Adresse|Teams-Bericht'
     }
     It 'im Repo steht keine echte Webhook-Adresse (nur kuenstliche Werte in Tests)' {
         $files = @(Get-ChildItem -LiteralPath $script:Root -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Extension -in '.ps1', '.psm1', '.json', '.md', '.html', '.yml', '.cmd', '.txt', '.xaml' })
