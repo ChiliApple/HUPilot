@@ -443,10 +443,10 @@ Describe 'Setup: Status in Klartext' {
         $x | Should -Match 'r="A3" s="5"'
         $x | Should -Match 'r="A4" s="4"'
     }
-    It 'Aktionen nur mit Rueckfrage, keine Loesch-Aktion, Sync 409/429 kein Fehler' {
+    It 'Aktionen nur mit Rueckfrage, Loeschen nur ueber die doppelte Abfrage, Sync 409/429 kein Fehler' {
         $script:SetupText | Should -Match "Tag `"' \+ \`$pick\.Tag \+ '`" setzen für"
         $script:SetupText | Should -Match "if \(\`$code -in 409, 429\)"
-        $script:SetupText | Should -Not -Match "Method DELETE -Uri \('https://graph\.microsoft\.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/"
+        $script:SetupText | Should -Match 'if \(-not \(Show-DeleteConfirm \$sel \$canI \$sw\)\)'
     }
     It 'Automatisch aktualisieren: Timer stoppt beim Schliessen, nicht bei offenem Dialog' {
         $script:SetupText | Should -Match 'if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\) \{ & \$load \$true \}'

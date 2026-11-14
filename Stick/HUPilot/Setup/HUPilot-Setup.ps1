@@ -3500,25 +3500,62 @@ function Get-ErrCode($Err) {
     return $c
 }
 function Get-ErrText($Err) { $m = ''; try { $m = $Err.Exception.Message } catch { }; try { if ($Err.ErrorDetails -and $Err.ErrorDetails.Message) { $m = $Err.ErrorDetails.Message } } catch { }; if (-not $m) { $m = [string]$Err }; return $m }
-# Rechte (roles) aus dem Zugriffstoken lesen, ohne Netz (Teil 2 des Tokens, Base64url). Unlesbar = leere Liste.
+# Rechte (roles) aus dem Zugriffstoken lesen, ohne Netz (Teil 2 des Tokens, Base64url).
+# Leere Liste heisst "unbekannt": Token unlesbar ODER kein roles-Anspruch (z. B. ohne Anwendungsrechte). Der Aufrufer
+# entscheidet nur bei einer lesbaren, nicht leeren Liste anhand der Rechte, sonst laesst er es auf den Versuch ankommen.
 function Get-TokenRoles([string]$Token) {
     try {
         $p = $Token.Split('.')[1].Replace('-', '+').Replace('_', '/')
         switch ($p.Length % 4) { 2 { $p += '==' } 3 { $p += '=' } }
         $j = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($p)) | ConvertFrom-Json
-        return @($j.roles | ForEach-Object { [string]$_ })
+        return @($j.roles | Where-Object { $_ } | ForEach-Object { [string]$_ })
     } catch { return @() }
 }
-# Auswahl pruefen: nur ausdruecklich markierte Zeilen, hoechstens 5, keine Zeile "Wird gelöscht"
+# Seriennummern, die Hersteller als Platzhalter eintragen (an EINER Stelle): darueber nie einen Intune-Eintrag zuordnen
+$script:SerialPlaceholders = @('To be filled by O.E.M.', 'To Be Filled By O.E.M.', 'System Serial Number', 'Default string', 'None', '0', 'Not Specified', 'Not Applicable', 'Chassis Serial Number', 'Base Board Serial Number', 'Invalid', '123456789', '0123456789')
+function Test-SerialPlaceholder([string]$Serial) {
+    $s = ([string]$Serial).Trim()
+    if ($s.Length -lt 5) { return $true }
+    if ($s -match '^(.)\1*$') { return $true }
+    foreach ($p in $script:SerialPlaceholders) { if ($s -ieq $p) { return $true } }
+    return $false
+}
+# Intune-Eintrag zu einem Autopilot-Eintrag. Link 'ms' = Verknuepfung von Microsoft (managedDeviceId), 'sn' = Rueckfall ueber
+# die Seriennummer, nur wenn eindeutig: keine Doppel-Seriennummer in Autopilot, kein Platzhalter, genau ein Intune-Geraet.
+# Ambig = es gibt passende Intune-Geraete, aber keine eindeutige Zuordnung. SnCount = Intune-Geraete mit dieser Seriennummer.
+function Resolve-IntuneLink([string]$ManagedDeviceId, [string]$Serial, [hashtable]$Md, [hashtable]$MdCount, [bool]$IsDup = $false) {
+    $mid = [string]$ManagedDeviceId
+    if ($mid -match '^0{8}-0{4}-0{4}-0{4}-0{12}$') { $mid = '' }
+    $k = 'SN:' + [string]$Serial
+    $cnt = $(if ($Serial -and $MdCount -and $MdCount.ContainsKey($k)) { [int]$MdCount[$k] } else { 0 })
+    if ($mid) { return [pscustomobject]@{ Id = $mid; Link = 'ms'; Ambig = $false; SnCount = $cnt; Im = $(if ($Md -and $Md.ContainsKey($mid)) { $Md[$mid] } else { $null }) } }
+    if (-not $cnt) { return [pscustomobject]@{ Id = ''; Link = ''; Ambig = $false; SnCount = 0; Im = $null } }
+    if ($cnt -eq 1 -and -not $IsDup -and -not (Test-SerialPlaceholder $Serial)) { $im = $Md[$k]; return [pscustomobject]@{ Id = [string]$im.id; Link = 'sn'; Ambig = $false; SnCount = 1; Im = $im } }
+    return [pscustomobject]@{ Id = ''; Link = ''; Ambig = $true; SnCount = $cnt; Im = $null }
+}
+# Plan fuer den Intune-Eintrag einer Zeile, EINE Quelle fuer Rueckfrage und Ausfuehrung:
+#   delete = Eintrag Id wird geloescht, right = bleibt (Recht fehlt), ambig = nicht eindeutig zuordenbar, none = keiner bekannt
+function Get-IntunePlan($Row, [bool]$CanIntune) {
+    $id = [string]$Row.IntuneId; $link = [string]$Row.IntuneLink; $more = ([int]$Row.IntuneSnCount -gt 1)
+    if ($id -and ($link -eq 'ms' -or $link -eq 'sn')) {
+        if (-not $CanIntune) { return [pscustomobject]@{ Kind = 'right'; Id = $id; Link = $link; More = $more; Text = 'Eintrag bleibt stehen (Recht fehlt)' } }
+        return [pscustomobject]@{ Kind = 'delete'; Id = $id; Link = $link; More = $more; Text = ('Eintrag ' + $id + ' wird gelöscht') }
+    }
+    if ($Row.IntuneAmbig) { return [pscustomobject]@{ Kind = 'ambig'; Id = ''; Link = ''; More = $more; Text = 'Intune-Eintrag nicht eindeutig zuordenbar, bleibt stehen, Admin im Intune-Portal' } }
+    return [pscustomobject]@{ Kind = 'none'; Id = ''; Link = ''; More = $false; Text = 'kein Eintrag bekannt' }
+}
+# Auswahl pruefen: nur ausdruecklich markierte Zeilen, hoechstens 5, keine Zeile "Wird gelöscht", nur mit Kennung und Seriennummer.
+# Rows = genau die Zeilen, aus denen Rueckfrage, Abfrage und Ausfuehrung abgeleitet werden.
 function Test-DeleteSelection($Rows) {
     $Rows = @($Rows | Where-Object { $_ })
-    if (-not $Rows.Count) { return @{ Ok = $false; Msg = 'Bitte zuerst die Geräte markieren, deren Autopilot-Eintrag gelöscht werden soll (Klick, mehrere mit Strg+Klick).' } }
-    if ($Rows.Count -gt $script:DelMax) { return @{ Ok = $false; Msg = ('Höchstens ' + $script:DelMax + ' Geräte auf einmal. Markiert sind ' + $Rows.Count + '. Bitte weniger markieren. Es wurde nichts gelöscht.') } }
+    if (-not $Rows.Count) { return @{ Ok = $false; Rows = @(); Msg = 'Bitte zuerst die Geräte markieren, deren Autopilot-Eintrag gelöscht werden soll (Klick, mehrere mit Strg+Klick).' } }
+    if ($Rows.Count -gt $script:DelMax) { return @{ Ok = $false; Rows = @(); Msg = ('Höchstens ' + $script:DelMax + ' Geräte auf einmal. Markiert sind ' + $Rows.Count + '. Bitte weniger markieren. Es wurde nichts gelöscht.') } }
     $pend = @($Rows | Where-Object { [string]$_.Stand -eq 'Wird gelöscht' })
-    if ($pend.Count) { return @{ Ok = $false; Msg = ((@($pend | ForEach-Object { $_.Seriennr }) -join ', ') + ' wird schon gelöscht. Bitte nur Geräte markieren, die noch nicht gelöscht werden. Es wurde nichts gelöscht.') } }
+    if ($pend.Count) { return @{ Ok = $false; Rows = @(); Msg = ((@($pend | ForEach-Object { $_.Seriennr }) -join ', ') + ' wird schon gelöscht. Bitte nur Geräte markieren, die noch nicht gelöscht werden. Es wurde nichts gelöscht.') } }
+    if (@($Rows | Where-Object { -not ([string]$_.Seriennr).Trim() }).Count) { return @{ Ok = $false; Rows = @(); Msg = 'Eintrag ohne Seriennummer: löschen geht hier nicht, bitte den Admin im Intune-Portal. Es wurde nichts gelöscht.' } }
     $noId = @($Rows | Where-Object { -not $_.Id })
-    if ($noId.Count) { return @{ Ok = $false; Msg = ((@($noId | ForEach-Object { $_.Seriennr }) -join ', ') + ': Kennung fehlt. Bitte "Aktualisieren" und nochmal versuchen. Es wurde nichts gelöscht.') } }
-    return @{ Ok = $true; Msg = '' }
+    if ($noId.Count) { return @{ Ok = $false; Rows = @(); Msg = ((@($noId | ForEach-Object { $_.Seriennr }) -join ', ') + ': Kennung fehlt. Bitte "Aktualisieren" und nochmal versuchen. Es wurde nichts gelöscht.') } }
+    return @{ Ok = $true; Rows = $Rows; Msg = '' }
 }
 # Zweite Abfrage: ein Geraet = Seriennummer genau so eintippen, mehrere = das Wort LÖSCHEN (Gross- und Kleinschreibung zaehlt)
 function Test-DeleteConfirm([string]$Typed, [string[]]$Serials) {
@@ -3527,83 +3564,139 @@ function Test-DeleteConfirm([string]$Typed, [string[]]$Serials) {
     if ($Serials.Count -eq 1) { return ($Typed -ceq $Serials[0]) }
     return ($Typed -ceq 'LÖSCHEN')
 }
-# Zusaetzliche Warnung fuer eingerichtete Geraete bzw. Geraete in Benutzung
-function Get-DeleteWarnings($Row, [datetime]$Now) {
+# Text der zweiten Abfrage aus derselben Liste wie Test-DeleteConfirm
+function Get-DeleteAskText([string[]]$Serials) {
+    $Serials = @($Serials | Where-Object { $_ })
+    if ($Serials.Count -eq 1) { return ('Zweite Bestätigung: die Seriennummer ' + $Serials[0] + ' genau so eintippen.') }
+    return 'Zweite Bestätigung: das Wort LÖSCHEN in Großbuchstaben eintippen.'
+}
+# Zusaetzliche Warnungen: eingerichtet, in Benutzung, alle Eintraege einer Seriennummer markiert
+function Get-DeleteWarnings($Row, [datetime]$Now, $AllRows = $null) {
     $w = @()
     if ([string]$Row.Stand -eq 'Fertig' -or [string]$Row.EnrollState -eq 'enrolled') { $w += 'ACHTUNG: Das Gerät ist fertig eingerichtet. Ohne Intune-Eintrag bekommt es keine Richtlinien und Apps mehr, bis es neu eingerichtet ist.' }
     $ls = [datetime]::MinValue
     if ([datetime]::TryParseExact([string]$Row.SyncSort, 'yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$ls) -and ($Now - $ls).TotalDays -le 30) { $w += ('ACHTUNG: Das Gerät ist in Benutzung (letzter Sync mit Intune am ' + $ls.ToString('dd.MM.yyyy HH:mm') + ').') }
+    if ($AllRows -and [int]$Row.DupCount -gt 1) {
+        $same = @(@($AllRows) | Where-Object { ([string]$_.Seriennr).Trim().ToUpperInvariant() -eq ([string]$Row.Seriennr).Trim().ToUpperInvariant() }).Count
+        if ($same -ge [int]$Row.DupCount) { $w += ('ACHTUNG: ' + $(if ($same -eq 2) { 'Beide Einträge' } else { 'Alle ' + $same + ' Einträge' }) + ' dieser Seriennummer sind markiert. Danach ist das Gerät nicht mehr in Autopilot.') }
+    }
     return $w
 }
-# Text der ersten Rueckfrage: je Geraet Seriennummer, Geraetename, Tag, Benutzer, Stand, Warnungen; danach, was verloren geht
+# Text der ersten Rueckfrage: je Geraet Seriennummer, Autopilot-ID, Geraetename, Tag, Benutzer, Stand, letzter Kontakt,
+# Rang bei Doppel, Intune-Plan (Get-IntunePlan), Warnungen; danach, was verloren geht
 function Get-DeletePlanText($Rows, [bool]$CanIntune, [datetime]$Now) {
     $Rows = @($Rows); $nl = "`r`n"
-    $withI = @($Rows | Where-Object { $_.IntuneId }).Count
+    $plans = @($Rows | ForEach-Object { Get-IntunePlan $_ $CanIntune })
+    $nDel = @($plans | Where-Object { $_.Kind -eq 'delete' }).Count
+    $nRight = @($plans | Where-Object { $_.Kind -eq 'right' }).Count
+    $nAmbig = @($plans | Where-Object { $_.Kind -eq 'ambig' }).Count
+    $geraet = { param($n) '' + $n + ' Gerät' + $(if ($n -ne 1) { 'en' } else { '' }) }
     $t = 'Autopilot-Eintrag löschen: ' + $Rows.Count + ' Gerät' + $(if ($Rows.Count -ne 1) { 'e' } else { '' }) + $nl + $nl
-    $i = 0
-    foreach ($r in $Rows) {
-        $i++
-        $t += ('' + $i + ') Seriennummer: ' + $r.Seriennr) + $nl
+    for ($i = 0; $i -lt $Rows.Count; $i++) {
+        $r = $Rows[$i]; $p = $plans[$i]
+        $t += ('' + ($i + 1) + ') Seriennummer: ' + $r.Seriennr) + $nl
+        $t += ('   Autopilot-ID: ' + $r.Id) + $nl
         $t += ('   Gerätename:   ' + $(if ($r.Name) { $r.Name } else { '-' })) + $nl
         $t += ('   Tag:          ' + $(if ($r.Tag) { $r.Tag } else { '-' })) + $nl
         $t += ('   Benutzer:     ' + $(if ($r.Benutzer) { $r.Benutzer } else { '-' })) + $nl
         $t += ('   Stand:        ' + $r.Stand) + $nl
-        $t += ('   Intune:       ' + $(if (-not $r.IntuneId) { 'kein Eintrag bekannt' } elseif ($CanIntune) { 'Eintrag wird gelöscht' } else { 'Eintrag bleibt stehen (Recht fehlt)' })) + $nl
-        foreach ($w in @(Get-DeleteWarnings $r $Now)) { $t += ('   ' + $w) + $nl }
+        $t += ('   Letzter Kontakt: ' + $(if ($r.LetzterKontakt) { $r.LetzterKontakt } else { '-' })) + $nl
+        if ([int]$r.DupCount -gt 1) { $t += ('   Doppelt:      ' + $(switch ([string]$r.DupRank) { 'älter' { 'älterer von ' + $r.DupCount } 'neuer' { 'neuerer von ' + $r.DupCount } default { 'Alter unklar (' + $r.DupCount + ' Einträge)' } })) + $nl }
+        $t += ('   Intune:       ' + $p.Text) + $nl
+        if ($p.More -and $p.Kind -eq 'delete') { $t += '   Es gibt weitere Intune-Einträge mit dieser Seriennummer, die bleiben stehen (Admin).' + $nl }
+        foreach ($w in @(Get-DeleteWarnings $r $Now $Rows)) { $t += ('   ' + $w) + $nl }
         $t += $nl
     }
     $t += 'Was verloren geht:' + $nl
     $t += '- Der Autopilot-Eintrag mit Hardware-Hash, Group Tag und Benutzer-Zuweisung. Beim nächsten Zurücksetzen bekommt das Gerät kein Autopilot-Profil, bis es mit dem Stick neu registriert ist.' + $nl
-    if ($withI -and $CanIntune) { $t += '- Der Intune-Eintrag (bei ' + $withI + ' Gerät' + $(if ($withI -ne 1) { 'en' } else { '' }) + '): Das Gerät verschwindet aus Intune, Richtlinien und Apps kommen nicht mehr, bis es neu eingerichtet ist.' + $nl }
-    if ($withI -and -not $CanIntune) { $t += '- Nicht gelöscht wird der Intune-Eintrag (bei ' + $withI + ' Gerät' + $(if ($withI -ne 1) { 'en' } else { '' }) + '): Der App fehlt das Recht DeviceManagementManagedDevices.ReadWrite.All. Das Gerät bleibt in Intune verwaltet. Microsoft empfiehlt, zuerst den Intune-Eintrag zu löschen, sonst können verwaiste Einträge bleiben. Den Intune-Eintrag dann ein Admin im Intune-Portal löschen lassen.' + $nl }
+    if ($nDel) { $t += '- Der Intune-Eintrag (bei ' + (& $geraet $nDel) + '): Das Gerät verschwindet aus Intune, Richtlinien und Apps kommen nicht mehr, bis es neu eingerichtet ist.' + $nl }
+    if ($nRight) { $t += '- Nicht gelöscht wird der Intune-Eintrag (bei ' + (& $geraet $nRight) + '): Der App fehlt das Recht DeviceManagementManagedDevices.ReadWrite.All. Das Gerät bleibt in Intune verwaltet. Microsoft empfiehlt, zuerst den Intune-Eintrag zu löschen, sonst können verwaiste Einträge bleiben. Den Intune-Eintrag dann ein Admin im Intune-Portal löschen lassen.' + $nl }
+    if ($nAmbig) { $t += '- Nicht angefasst wird der Intune-Eintrag (bei ' + (& $geraet $nAmbig) + '): nicht eindeutig zuordenbar. Ein Admin prüft und löscht ihn im Intune-Portal.' + $nl }
     $t += '- Rückgängig machen geht nicht.' + $nl + $nl
     $t += 'Microsoft entfernt die Einträge nicht sofort, das dauert bis zu 30 Minuten. So lange stehen sie mit Stand "Wird gelöscht" in der Liste.'
     return $t
 }
-# Ein Geraet loeschen. Rueckgabe: Serial, Deleted (Autopilot-Eintrag geloescht), Level (OK/Hinweis/Fehler), Text, Detail
-function Invoke-ApDeleteOne($Row, [string]$Token, [bool]$CanIntune) {
+# Ausgang eines DELETE, der mit Fehler endete: 404 = schon weg. Eindeutige Ablehnung (400, 401, 403, 409) = nicht geloescht.
+# Sonst (Zeitueberschreitung, Netz, 5xx, 429) einmal neu lesen: 404 = geloescht, sonst unklar.
+# Rueckgabe 'gone' | 'failed' | 'unclear'
+function Get-DeleteOutcome($Err, [string]$Uri, [string]$Token) {
+    $code = Get-ErrCode $Err
+    if ($code -eq 404) { return 'gone' }
+    if ($code -in 400, 401, 403, 409) { return 'failed' }
+    try { [void](Invoke-HuGraph 'GET' $Uri $Token) } catch { if ((Get-ErrCode $_) -eq 404) { return 'gone' } }
+    return 'unclear'
+}
+# Ein Geraet loeschen, genau nach dem Plan aus der Rueckfrage ($Plan von Get-IntunePlan).
+# Rueckgabe: Serial, Deleted (Autopilot-Eintrag geloescht), Level (OK/Hinweis/Fehler), Text, Detail, Intune, User
+function Invoke-ApDeleteOne($Row, [string]$Token, $Plan) {
     $sn = [string]$Row.Seriennr; $id = [string]$Row.Id; $GB = $script:DelGB
     $res = [pscustomobject]@{ Serial = $sn; Deleted = $false; Level = 'Fehler'; Text = ''; Detail = ''; Intune = ''; User = '' }
     $fail = { param($lv, $txt, $det) $res.Level = $lv; $res.Text = $sn + ': ' + $txt; $res.Detail = [string]$det; return $res }
+    $changed = 'Eintrag hat sich geändert, übersprungen, nichts gelöscht. Bitte "Aktualisieren" und nochmal.'
+    if (-not $sn.Trim() -or -not $id -or -not $Plan) { return (& $fail 'Hinweis' 'Seriennummer, Kennung oder Plan fehlt, nichts gelöscht.' '') }
     # 1. Autopilot-Eintrag neu lesen und Seriennummer vergleichen
+    $apUri = $GB + '/windowsAutopilotDeviceIdentities/' + $id
     $ap = $null
-    try { $ap = Invoke-HuGraph 'GET' ($GB + '/windowsAutopilotDeviceIdentities/' + $id) $Token }
+    try { $ap = Invoke-HuGraph 'GET' $apUri $Token }
     catch { if ((Get-ErrCode $_) -eq 404) { return (& $fail 'Hinweis' 'Eintrag ist nicht mehr da (schon gelöscht?). Nichts gelöscht.' (Get-ErrText $_)) }; return (& $fail 'Fehler' 'Eintrag nicht lesbar, nichts gelöscht. Später nochmal versuchen.' (Get-ErrText $_)) }
     if (-not $ap -or [string]$ap.serialNumber -cne $sn) { return (& $fail 'Hinweis' ('Eintrag hat sich geändert (Seriennummer jetzt "' + [string]$ap.serialNumber + '"). Übersprungen, nichts gelöscht. Bitte "Aktualisieren".') '') }
-    # 2. Intune-Eintrag: nur der mit diesem Autopilot-Eintrag verknuepfte. Ohne Verknuepfung der aus der Liste (gleiche
-    #    Seriennummer), aber nie bei doppelten Seriennummern (sonst traefe es das Geraet des anderen Eintrags).
+    # 2. Intune-Eintrag: nur der aus der Rueckfrage. Frisch gelesene Verknuepfung muss zum Plan passen, sonst nichts loeschen.
     $mid = [string]$ap.managedDeviceId
     if ($mid -match '^0{8}-0{4}-0{4}-0{4}-0{12}$') { $mid = '' }
-    if (-not $mid -and [int]$Row.DupCount -le 1) { $mid = [string]$Row.IntuneId }
-    $res.Intune = 'kein Eintrag'
-    if ($mid -and -not $CanIntune) { $res.Intune = 'bleibt (Recht fehlt)' }
-    elseif ($mid) {
-        $md = $null
-        try { $md = Invoke-HuGraph 'GET' ($GB + '/managedDevices/' + $mid + '?$select=id,serialNumber,deviceName') $Token }
-        catch { if ((Get-ErrCode $_) -ne 404) { return (& $fail 'Fehler' 'Intune-Eintrag nicht lesbar. Nichts gelöscht, später nochmal versuchen.' (Get-ErrText $_)) } }
-        if ($md) {
-            if ([string]$md.serialNumber -and [string]$md.serialNumber -cne $sn) { return (& $fail 'Hinweis' ('Der verknüpfte Intune-Eintrag gehört zu einer anderen Seriennummer ("' + [string]$md.serialNumber + '"). Übersprungen, nichts gelöscht. Den Admin fragen.') '') }
-            try { [void](Invoke-HuGraph 'DELETE' ($GB + '/managedDevices/' + $mid) $Token); $res.Intune = 'gelöscht' }
-            catch { return (& $fail 'Fehler' 'Intune-Eintrag konnte nicht gelöscht werden. Der Autopilot-Eintrag bleibt deshalb unverändert (erst Intune, dann Autopilot). Später nochmal versuchen oder den Admin fragen.' (Get-ErrText $_)) }
+    if ($Plan.Link -eq 'ms') { if ($mid -ne [string]$Plan.Id) { return (& $fail 'Hinweis' $changed ('Intune-Verknüpfung jetzt "' + $mid + '", angezeigt war "' + $Plan.Id + '"')) } }
+    elseif ($mid) { return (& $fail 'Hinweis' $changed ('Intune-Verknüpfung neu: "' + $mid + '"')) }
+    $res.Intune = $(switch ($Plan.Kind) { 'right' { 'bleibt (Recht fehlt)' } 'ambig' { 'bleibt (nicht eindeutig)' } default { 'kein Eintrag' } })
+    if ($Plan.Kind -eq 'delete') {
+        $mdUri = $GB + '/managedDevices/' + $Plan.Id
+        $md = $null; $gone = $false
+        try { $md = Invoke-HuGraph 'GET' ($mdUri + '?$select=id,serialNumber,deviceName') $Token }
+        catch { if ((Get-ErrCode $_) -eq 404) { $gone = $true } else { return (& $fail 'Fehler' 'Intune-Eintrag nicht lesbar. Nichts gelöscht, später nochmal versuchen.' (Get-ErrText $_)) } }
+        if ($gone) { $res.Intune = 'schon weg' }
+        else {
+            $msn = [string]$md.serialNumber
+            # Rueckfall ueber die Seriennummer: sie muss frisch gelesen vorhanden und gleich sein. Verknuepfung: leer ist erlaubt.
+            if ($Plan.Link -eq 'sn' -and (-not $msn -or $msn -cne $sn)) { return (& $fail 'Hinweis' ('Der Intune-Eintrag passt nicht mehr sicher zu dieser Seriennummer ("' + $msn + '"). Übersprungen, nichts gelöscht. Bitte "Aktualisieren" oder den Admin fragen.') '') }
+            if ($msn -and $msn -cne $sn) { return (& $fail 'Hinweis' ('Der verknüpfte Intune-Eintrag gehört zu einer anderen Seriennummer ("' + $msn + '"). Übersprungen, nichts gelöscht. Den Admin fragen.') '') }
+            try { [void](Invoke-HuGraph 'DELETE' $mdUri $Token); $res.Intune = 'gelöscht' }
+            catch {
+                $det = Get-ErrText $_
+                switch (Get-DeleteOutcome $_ $mdUri $Token) {
+                    'gone' { $res.Intune = 'gelöscht' }
+                    'unclear' { return (& $fail 'Fehler' 'Intune-Eintrag: Stand unklar (keine eindeutige Antwort von Microsoft). Der Autopilot-Eintrag bleibt unverändert. "Aktualisieren" und prüfen.' $det) }
+                    default { return (& $fail 'Fehler' 'Intune-Eintrag konnte nicht gelöscht werden. Der Autopilot-Eintrag bleibt deshalb unverändert (erst Intune, dann Autopilot). Später nochmal versuchen oder den Admin fragen.' $det) }
+                }
+            }
         }
     }
     # 3. Benutzer-Zuweisung aufheben (sonst laesst sich der Eintrag oft nicht loeschen); ein Fehler bricht nicht ab
     $res.User = 'keine'
     if ([string]$ap.userPrincipalName) {
-        try { [void](Invoke-HuGraph 'POST' ($GB + '/windowsAutopilotDeviceIdentities/' + $id + '/unassignUserFromDevice') $Token); $res.User = 'aufgehoben' }
+        try { [void](Invoke-HuGraph 'POST' ($apUri + '/unassignUserFromDevice') $Token); $res.User = 'aufgehoben' }
         catch { $res.User = 'nicht aufgehoben'; $res.Detail = 'Benutzer-Zuweisung: ' + (Get-ErrText $_) }
     }
-    $iTxt = $(if ($res.Intune -eq 'gelöscht') { 'Intune-Eintrag gelöscht' } elseif ($res.Intune -like 'bleibt*') { 'Intune-Eintrag bleibt (Recht fehlt)' } else { 'kein Intune-Eintrag' })
+    $iTxt = $(switch ($res.Intune) { 'gelöscht' { 'Intune-Eintrag gelöscht' } 'schon weg' { 'Intune-Eintrag war schon weg' } 'bleibt (Recht fehlt)' { 'Intune-Eintrag bleibt (Recht fehlt)' } 'bleibt (nicht eindeutig)' { 'Intune-Eintrag nicht eindeutig zuordenbar, bleibt stehen' } default { 'kein Intune-Eintrag' } })
+    $iDone = ($res.Intune -eq 'gelöscht')
     # 4. Autopilot-Eintrag: direkt davor nochmal lesen und vergleichen, dann loeschen
-    $part = { param($why, $det) if ($res.Intune -eq 'gelöscht') { return (& $fail 'Fehler' ('TEILWEISE: Intune-Eintrag gelöscht, Autopilot-Eintrag NICHT gelöscht. ' + $why) $det) }; return (& $fail 'Fehler' ('Autopilot-Eintrag NICHT gelöscht. ' + $why) $det) }
-    try { $ap2 = Invoke-HuGraph 'GET' ($GB + '/windowsAutopilotDeviceIdentities/' + $id) $Token }
-    catch { if ((Get-ErrCode $_) -eq 404) { $res.Level = 'OK'; $res.Deleted = $true; $res.Text = $sn + ': Autopilot-Eintrag ist schon weg (' + $iTxt + ').'; return $res }; return (& $part 'Eintrag nicht lesbar. Später nochmal "Autopilot-Eintrag löschen".' (Get-ErrText $_)) }
-    if ([string]$ap2.serialNumber -cne $sn) { return (& $part 'Der Eintrag hat sich geändert, übersprungen. Bitte "Aktualisieren".' '') }
-    try { [void](Invoke-HuGraph 'DELETE' ($GB + '/windowsAutopilotDeviceIdentities/' + $id) $Token) }
-    catch { return (& $part 'Später nochmal "Autopilot-Eintrag löschen", sonst den Admin fragen.' (Get-ErrText $_)) }
+    $part = { param($why, $det, $lv = 'Fehler') if ($iDone) { return (& $fail $lv ('TEILWEISE: Intune-Eintrag gelöscht, Autopilot-Eintrag ' + $why) $det) }; return (& $fail $lv ('Autopilot-Eintrag ' + $why) $det) }
+    $ap2 = $null
+    try { $ap2 = Invoke-HuGraph 'GET' $apUri $Token }
+    catch { if ((Get-ErrCode $_) -eq 404) { $res.Level = 'OK'; $res.Deleted = $true; $res.Text = $sn + ': Autopilot-Eintrag ist schon weg (' + $iTxt + ').'; return $res }; return (& $part 'NICHT gelöscht: Eintrag nicht lesbar. Später nochmal "Autopilot-Eintrag löschen".' (Get-ErrText $_)) }
+    if ([string]$ap2.serialNumber -cne $sn) { return (& $part 'NICHT gelöscht: Der Eintrag hat sich geändert, übersprungen. Bitte "Aktualisieren".' '') }
+    try { [void](Invoke-HuGraph 'DELETE' $apUri $Token) }
+    catch {
+        $det = Get-ErrText $_
+        switch (Get-DeleteOutcome $_ $apUri $Token) {
+            'gone' { }
+            'unclear' { return (& $part 'Stand unklar (keine eindeutige Antwort von Microsoft). "Aktualisieren" und prüfen.' $det) }
+            default { return (& $part 'NICHT gelöscht. Später nochmal "Autopilot-Eintrag löschen", sonst den Admin fragen.' $det) }
+        }
+    }
     $res.Deleted = $true
-    $res.Level = $(if ($res.Intune -like 'bleibt*' -or $res.User -eq 'nicht aufgehoben') { 'Hinweis' } else { 'OK' })
-    $res.Text = $sn + ': Autopilot-Eintrag gelöscht (' + $iTxt + $(if ($res.User -eq 'aufgehoben') { ', Benutzer-Zuweisung aufgehoben' } elseif ($res.User -eq 'nicht aufgehoben') { ', Benutzer-Zuweisung NICHT aufgehoben' } else { '' }) + '). Microsoft entfernt ihn in bis zu 30 Minuten.' + $(if ($res.Intune -like 'bleibt*') { ' Den Intune-Eintrag muss ein Admin im Intune-Portal löschen.' } else { '' })
+    $more = ($iDone -and $Plan.More)
+    $res.Level = $(if ($res.Intune -like 'bleibt*' -or $res.User -eq 'nicht aufgehoben' -or $more) { 'Hinweis' } else { 'OK' })
+    $res.Text = $sn + ': Autopilot-Eintrag gelöscht (' + $iTxt + $(if ($res.User -eq 'aufgehoben') { ', Benutzer-Zuweisung aufgehoben' } elseif ($res.User -eq 'nicht aufgehoben') { ', Benutzer-Zuweisung NICHT aufgehoben' } else { '' }) + '). Microsoft entfernt ihn in bis zu 30 Minuten.' +
+        $(if ($res.Intune -like 'bleibt*') { ' Den Intune-Eintrag muss ein Admin im Intune-Portal prüfen und löschen.' } else { '' }) +
+        $(if ($more) { ' Es gibt weitere Intune-Einträge mit dieser Seriennummer, die bleiben stehen (Admin).' } else { '' })
     return $res
 }
 # Zusammenfassung nach dem Loeschen (Meldung im Status-Fenster)
@@ -3633,7 +3726,7 @@ function Show-DeleteConfirm($Rows, [bool]$CanIntune, $Owner) {
     </StackPanel>
     <StackPanel x:Name="spAsk" DockPanel.Dock="Bottom" Visibility="Collapsed" Margin="0,10,0,0">
       <TextBlock x:Name="tAsk" TextWrapping="Wrap" Margin="0,0,0,6"/>
-      <TextBox x:Name="tType" FontFamily="Consolas" FontSize="14" Padding="4,3" ToolTip="Zur Bestätigung genau so eintippen wie angezeigt (Groß- und Kleinschreibung zählt)."/>
+      <TextBox x:Name="tType" FontFamily="Consolas" FontSize="14" Padding="4,3" AllowDrop="False" ToolTip="Bitte tippen, Einfügen ist hier gesperrt.&#x0a;Genau so eintippen wie angezeigt (Groß- und Kleinschreibung zählt)."/>
     </StackPanel>
     <TextBox x:Name="tPlan" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" ToolTip="Was gelöscht wird und was dabei verloren geht. Text lässt sich markieren und kopieren."/>
   </DockPanel>
@@ -3650,7 +3743,12 @@ function Show-DeleteConfirm($Rows, [bool]$CanIntune, $Owner) {
     $st = @{ Ok = $false }
     $c.tHead.Text = $(if ($Rows.Count -eq 1) { 'Diesen Autopilot-Eintrag wirklich löschen? Bitte genau lesen.' } else { 'Diese ' + $Rows.Count + ' Autopilot-Einträge wirklich löschen? Bitte genau lesen.' })
     $c.tPlan.Text = Get-DeletePlanText $Rows $CanIntune (Get-Date)
-    $c.tAsk.Text = $(if ($sns.Count -eq 1) { 'Zweite Bestätigung: die Seriennummer ' + $sns[0] + ' genau so eintippen.' } else { 'Zweite Bestätigung: das Wort LÖSCHEN in Großbuchstaben eintippen.' })
+    $c.tAsk.Text = Get-DeleteAskText $sns
+    # Zweite Abfrage wirklich tippen: Einfuegen (Strg+V, Umschalt+Einfg, Kontextmenue) und Ziehen sind gesperrt
+    [System.Windows.DataObject]::AddPastingHandler($c.tType, [System.Windows.DataObjectPastingEventHandler]{ param($s, $e) $e.CancelCommand() })
+    $c.tType.Add_PreviewDragOver({ param($s, $e) $e.Effects = [System.Windows.DragDropEffects]::None; $e.Handled = $true })
+    $c.tType.Add_PreviewDrop({ param($s, $e) $e.Handled = $true })
+    $c.tType.CommandBindings.Add((New-Object System.Windows.Input.CommandBinding([System.Windows.Input.ApplicationCommands]::Paste, { param($s, $e) $e.Handled = $true }, { param($s, $e) $e.CanExecute = $false; $e.Handled = $true }))) | Out-Null
     $c.bNext.Add_Click({ $c.spAsk.Visibility = 'Visible'; $c.bDel.Visibility = 'Visible'; $c.bBack.Visibility = 'Visible'; $c.bNext.Visibility = 'Collapsed'; $c.bCancel.IsDefault = $false; $c.tType.Text = ''; [void]$c.tType.Focus() })
     $c.bBack.Add_Click({ $c.spAsk.Visibility = 'Collapsed'; $c.bDel.Visibility = 'Collapsed'; $c.bBack.Visibility = 'Collapsed'; $c.bNext.Visibility = 'Visible'; $c.bCancel.IsDefault = $true; $c.tType.Text = ''; [void]$c.bCancel.Focus() })
     $c.tType.Add_TextChanged({ $c.bDel.IsEnabled = (Test-DeleteConfirm $c.tType.Text $sns) })
@@ -3835,7 +3933,8 @@ function Show-Status {
     $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb; hw = $g.kHw; dup = $g.kDup; del = $g.kDel }
     $refresh = {
         # Auswahl und Sortierung merken
-        $selSn = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Seriennr })
+        # Auswahl ueber die Kennung merken (nie ueber die Seriennummer: Zwillinge und leere Seriennummern)
+        $selId = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Id } | Where-Object { $_ })
         $sorts = @($g.dGrid.Items.SortDescriptions | ForEach-Object { $_ })
         $v = @($script:SRows)
         if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
@@ -3861,7 +3960,7 @@ function Show-Status {
         $g.dGrid.ItemsSource = $v
         # Sortierung und Auswahl wiederherstellen
         foreach ($sd in $sorts) { $g.dGrid.Items.SortDescriptions.Add($sd); foreach ($dc in $g.dGrid.Columns) { if ($dc.SortMemberPath -eq $sd.PropertyName) { $dc.SortDirection = $sd.Direction } } }
-        if ($selSn.Count) { foreach ($it in @($g.dGrid.Items)) { if ($selSn -contains [string]$it.Seriennr) { [void]$g.dGrid.SelectedItems.Add($it) } } }
+        if ($selId.Count) { foreach ($it in @($g.dGrid.Items)) { if ($it.Id -and $selId -contains [string]$it.Id) { [void]$g.dGrid.SelectedItems.Add($it) } } }
         $g.tCount.Text = ('' + $v.Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' }))
         # Spaltenbreiten nach der ANGEZEIGTEN Liste, bei jeder Aenderung (Filter, Suche, Kachel, Aktualisieren)
         try { & $fitCols } catch { }
@@ -3975,6 +4074,7 @@ function Show-Status {
         try { Set-UiSetting 'StatusCols' @($g.dGrid.Columns | ForEach-Object { [string]$_.Binding.Path.Path + '|' + $_.DisplayIndex }) } catch { }
     })
     $detail = {
+        if ($sst.Busy) { return }
         $it = $g.dGrid.SelectedItem; if (-not $it) { $g.tCount.Text = 'Bitte zuerst eine Zeile markieren.'; return }
         $sst.Dialog = $true
         try { Show-DeviceDetail $it $sw } catch { Out-Log ('Details zu ' + $it.Seriennr + ' nicht verfügbar.') 'Fehler' $_.Exception.Message } finally { $sst.Dialog = $false }
@@ -4036,26 +4136,36 @@ function Show-Status {
     # pausiert, Ergebnis je Geraet ins Protokoll und in die Protokolldatei. Geloeschte Zeilen: Stand "Wird gelöscht".
     $sw.Add_Closing({ param($s, $e) if ($sst.Busy) { $e.Cancel = $true } })
     $g.bDelete.Add_Click({
-        if ($sst.Busy -or $sst.Loading) { return }
+        if ($sst.Busy) { return }
+        if ($sst.Loading) { Show-Msg 'Die Liste lädt noch, bitte kurz warten.' 'HUPilot - Autopilot-Eintrag löschen' 'Information' $sw; return }
+        # Rueckfrage, Abfrage und Ausfuehrung kommen aus genau dieser gepruefen Liste
         $chk = Test-DeleteSelection @($g.dGrid.SelectedItems)
         if (-not $chk.Ok) { Show-Msg $chk.Msg 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw; return }
-        $sel = @($g.dGrid.SelectedItems)
+        $sel = @($chk.Rows)
         $sst.Busy = $true; $sst.Dialog = $true; $tm.Stop()
-        $btns = @($g.bDelete, $g.bTagSet, $g.bSync, $g.bReload, $g.bDetail)
+        $btns = @($g.bDelete, $g.bTagSet, $g.bSync, $g.bReload, $g.bDetail, $g.bCsv, $g.bXlsx, $g.bPrint)
         foreach ($b in $btns) { $b.IsEnabled = $false }
         $results = @()
         try {
             $tok = Get-ApiToken
             if (-not $tok) { Show-Msg $script:TokenMsg 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw; return }
-            # Recht fuer den Intune-Eintrag aus dem Token; nicht lesbar = unbekannt, dann wird es versucht (Fehler = Geraet uebersprungen)
+            # Rechte aus dem Token. Nur eine lesbare, nicht leere Liste entscheidet; leer = unbekannt (Fehler beim Loeschen = Geraet uebersprungen)
             $roles = @(Get-TokenRoles $tok)
+            if ($roles.Count -and $roles -notcontains 'DeviceManagementServiceConfig.ReadWrite.All') {
+                Out-Log 'Löschen geht nicht: der App fehlt das Recht DeviceManagementServiceConfig.ReadWrite.All. Es wurde nichts gelöscht.' 'Fehler'
+                Show-Msg 'Der App fehlt das Recht DeviceManagementServiceConfig.ReadWrite.All. Damit lässt sich kein Autopilot-Eintrag löschen. Es wurde nichts gelöscht, bitte den Admin fragen.' 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw
+                return
+            }
             $canI = ($roles.Count -eq 0 -or $roles -contains 'DeviceManagementManagedDevices.ReadWrite.All')
-            if (-not $canI -and @($sel | Where-Object { $_.IntuneId }).Count) { Out-Log 'Löschen: der App fehlt das Recht DeviceManagementManagedDevices.ReadWrite.All, Intune-Einträge bleiben stehen. Angeboten wird nur der Autopilot-Eintrag.' 'Hinweis' }
+            # Intune-Plan je Zeile: dieselbe Funktion fuer Rueckfrage und Ausfuehrung, vor der Rueckfrage festgehalten
+            $plans = @($sel | ForEach-Object { Get-IntunePlan $_ $canI })
+            if (@($plans | Where-Object { $_.Kind -eq 'right' }).Count) { Out-Log 'Löschen: der App fehlt das Recht DeviceManagementManagedDevices.ReadWrite.All, Intune-Einträge bleiben stehen. Angeboten wird nur der Autopilot-Eintrag.' 'Hinweis' }
             if (-not (Show-DeleteConfirm $sel $canI $sw)) { Out-Log 'Autopilot-Eintrag löschen abgebrochen, nichts gelöscht.'; return }
-            Out-Log ('Autopilot-Eintrag löschen bestätigt für: ' + (@($sel | ForEach-Object { $_.Seriennr }) -join ', '))
-            foreach ($r in $sel) {
+            Out-Log ('Autopilot-Eintrag löschen bestätigt für: ' + (@($sel | ForEach-Object { $_.Seriennr + ' (' + $_.Id + ')' }) -join ', '))
+            for ($i = 0; $i -lt $sel.Count; $i++) {
+                $r = $sel[$i]
                 $x = $null
-                try { $x = Invoke-ApDeleteOne $r $tok $canI }
+                try { $x = Invoke-ApDeleteOne $r $tok $plans[$i] }
                 catch { $x = [pscustomobject]@{ Serial = [string]$r.Seriennr; Deleted = $false; Level = 'Fehler'; Text = ([string]$r.Seriennr + ': unerwarteter Fehler, Stand unklar. "Aktualisieren" und prüfen.'); Detail = $_.Exception.Message } }
                 Out-Log $x.Text $x.Level $x.Detail
                 if ($x.Deleted) {
@@ -4068,8 +4178,12 @@ function Show-Status {
             $okN = @($results | Where-Object { $_.Deleted }).Count
             Out-Log ('Autopilot-Eintrag löschen: ' + $okN + ' von ' + $results.Count + ' gelöscht') $(if ($okN -eq $results.Count) { 'OK' } else { 'Hinweis' })
             Show-Msg (Get-DeleteSummary $results) 'HUPilot - Autopilot-Eintrag löschen' $(if ($okN -eq $results.Count) { 'Information' } else { 'Warning' }) $sw
+        } catch {
+            # nie ins globale trap: Fehlerzeile, bis dahin Erledigtes zeigen, aufraeumen (finally)
+            Out-Log 'Autopilot-Eintrag löschen unerwartet abgebrochen. "Aktualisieren" und den Stand prüfen.' 'Fehler' $_.Exception.Message
+            try { Show-Msg ('Unerwartet abgebrochen.' + "`r`n`r`n" + $(if ($results.Count) { Get-DeleteSummary $results } else { 'Bis dahin wurde nichts gelöscht.' })) 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw } catch { }
         } finally {
-            foreach ($b in $btns) { $b.IsEnabled = $true }
+            foreach ($b in $btns) { try { $b.IsEnabled = $true } catch { } }
             $sst.Busy = $false; $sst.Dialog = $false
             if ($g.cAuto.IsChecked -and -not $sst.Paused) { $tm.Start() }
         }
@@ -4155,14 +4269,15 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         }
     } catch { Out-Log 'Autopilot-Geräte nicht lesbar. 1. Verbindung testen.' 'Fehler' $_.Exception.Message; return $null }
     # Optional: Intune-Geraete (Primaerer Benutzer, Geraetename, letzter Sync) - braucht DeviceManagementManagedDevices.Read.All
-    $md = @{}
+    $md = @{}; $mdCnt = @{}
     try {
         $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime,enrolledDateTime&`$top=999"
         $page = 0
         while ($uri) {
             $page++; & $say ('lade Intune-Geräte, Seite ' + $page + ' ...')
             $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h -TimeoutSec 60
-            foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $md['SN:' + [string]$m.serialNumber] = $m } }
+            # je Seriennummer mitzaehlen: der Rueckfall ueber die Seriennummer gilt nur bei genau einem Intune-Geraet
+            foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $k = 'SN:' + [string]$m.serialNumber; $md[$k] = $m; $mdCnt[$k] = 1 + [int]$mdCnt[$k] } }
             $uri = $r.'@odata.nextLink'
         }
     } catch { Out-Log 'Benutzer, Gerätename und letzter Sync nicht lesbar. Optional: der App die Berechtigung DeviceManagementManagedDevices.Read.All geben.' 'Hinweis' $_.Exception.Message }
@@ -4193,9 +4308,9 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         $lc = ''; $lcS = ''
         try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $lcS = $dt.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { }
         $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
-        $im = $null
-        if ($d.managedDeviceId -and $md.ContainsKey([string]$d.managedDeviceId)) { $im = $md[[string]$d.managedDeviceId] }
-        elseif ($md.ContainsKey('SN:' + [string]$d.serialNumber)) { $im = $md['SN:' + [string]$d.serialNumber] }
+        # Intune-Eintrag: Verknuepfung von Microsoft, sonst nur eindeutig ueber die Seriennummer (Resolve-IntuneLink)
+        $il = Resolve-IntuneLink ([string]$d.managedDeviceId) ([string]$d.serialNumber) $md $mdCnt ([bool]($dm))
+        $im = $il.Im
         $sync = ''; $syncS = ''; $reg = ''; $regS = ''
         if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $syncS = $sd.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { } }
         $tReg = $null; $tImp = $null
@@ -4204,10 +4319,6 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         if ($pr -and [datetime]::TryParseExact([string]$pr.Zeit, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$pt)) { $tImp = $pt }
         if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
         if ($d.serialNumber) { $script:StatusTimes[[string]$d.serialNumber] = @{ Reg = $tReg; Imp = $tImp } }
-        # Intune-Eintrag dieses Autopilot-Eintrags: verknuepfte Kennung, sonst ueber die Seriennummer (nur mit Leserecht bekannt)
-        $mid = [string]$d.managedDeviceId
-        if ($mid -match '^0{8}-0{4}-0{4}-0{4}-0{12}$') { $mid = '' }
-        if (-not $mid -and $im) { $mid = [string]$im.id }
         [pscustomobject]@{
             Stand          = $stand
             WasTun         = $todo
@@ -4229,7 +4340,10 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
             Klasse         = $script:StandClass[$stand]
             # nicht als Spalte: fuer Aktionen (Tag aendern, Loeschen) und das Details-Fenster
             Id             = $id
-            IntuneId       = $mid
+            IntuneId       = $il.Id
+            IntuneLink     = $il.Link
+            IntuneAmbig    = $il.Ambig
+            IntuneSnCount  = $il.SnCount
             EnrollState    = $es
             Remediation    = $rem
             DupCount       = $(if ($dm) { $dm.Count } else { 0 })
@@ -4722,7 +4836,8 @@ function Invoke-StickReadyCore {
     if (-not (Copy-ToStick $dr $pre.WithMak)) { Stop-Ready 'Copy' ('Kopieren auf ' + $dr + ' fehlgeschlagen:' + $nl + $script:CopyErr + $nl + $nl + 'Stick neu anstecken und nochmal versuchen. Hilft das nicht: anderen Stick nehmen oder "Sticks vorbereiten" (formatiert).'); return }
     Set-Step 'Copy' 'ok' ('Stick ' + $dr)
     Set-Step 'Ready' $(if ($warn.Count) { 'warn' } else { 'ok' }) $(if ($warn.Count) { $warn -join '; ' } else { 'Stick ' + $dr + ' fertig' })
-    Set-ReadyText ('Stick ' + $dr + ' ist fertig und kontrolliert (' + (Get-Date -Format 'HH:mm') + ')' + $(if ($warn.Count) { ', mit Hinweisen im Protokoll' } else { '' })) $(if ($warn.Count) { 'HuWarn' } else { 'HuText' }) $(if ($warn.Count) { 'Hinweise:' + "`n" + ($warn -join "`n") } else { '' })
+    # kurz, damit bei 890 px Text, Uhrzeit und Merker (z. B. MAK am Stick) nebeneinander Platz haben; ganzer Text im Tooltip
+    Set-ReadyText ('Stick ' + $dr + ' fertig und kontrolliert (' + (Get-Date -Format 'HH:mm') + ')' + $(if ($warn.Count) { ', Hinweise im Protokoll' } else { '' })) $(if ($warn.Count) { 'HuWarn' } else { 'HuText' }) $(if ($warn.Count) { 'Hinweise:' + "`n" + ($warn -join "`n") } else { '' })
     Out-Log ('Stick ' + $dr + ' ist fertig und kontrolliert' + $(if ($warn.Count) { ', mit Hinweisen' } else { '' })) $(if ($warn.Count) { 'Hinweis' } else { 'OK' })
     Show-Msg ('Stick ' + $dr + ' ist fertig und kontrolliert.' + $(if ($warn.Count) { $nl + $nl + 'Hinweise:' + $nl + (($warn | ForEach-Object { '- ' + $_ }) -join $nl) } else { '' }) + $nl + $nl + 'Der Stick kann jetzt abgezogen werden.') 'HUPilot - Stick fertig' $(if ($warn.Count) { 'Warning' } else { 'Information' })
     # waehrend der Meldung kann der Stick schon getauscht sein: sofort neu lesen, der Fertig-Text bleibt nur beim selben Stick
