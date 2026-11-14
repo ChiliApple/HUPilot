@@ -28,7 +28,7 @@
 ### 📨 Bericht an den Admin
 - **Fehlerbericht per Teams:** Geht am Gerät etwas schief, schickt go von selbst einen Bericht in einen Teams-Kanal. Niemand muss mehr den Bildschirm fotografieren.
   - Einrichten: im Setup die Adresse eines Teams-Workflows bei "Teams-Webhook" eintragen, "Testnachricht senden", speichern, Stick neu bespielen. Leer heißt aus.
-  - Der Bericht nennt Anzeigename, Seriennummer, Modell, Windows, Version, den Schritt und die drei Sätze vom Bildschirm, dazu die letzten Zeilen des Logs.
+  - Der Bericht nennt Anzeigename, Seriennummer, Modell, Windows, Version, den Schritt und die drei Sätze vom Bildschirm, dazu das Log des aktuellen Laufs. Meldungen, die sich wiederholen, stehen nur einmal mit Zähler da.
   - Gesendet wird bei jedem roten Ende, außerdem bei "Secret abgelaufen oder falsch" und wenn nach allen Warterunden kein Profil da ist. Nicht nach einem bewussten Abbruch.
   - Ohne Internet bleibt der Bericht am Stick. Gesendet wird er beim nächsten Lauf mit Internet oder vom Setup, sobald der Stick am PC steckt.
   - Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht vorne in jeder Nachricht.
@@ -42,6 +42,7 @@
   - Antworten von Microsoft stehen gegliedert da: Fehlercode, Beschreibung, Zeitpunkt und Kennungen je in einer Zeile.
 - **Behoben: falsche Verweise in Tooltips:** Der Tooltip von "4. WLAN-Paket bauen" verwies auf die falsche Stelle. Er nennt jetzt selbst, welche ICD.exe benutzt wird. Alle Verweise in Tooltips wurden geprüft.
 - **Hashes importieren zeigt, dass es läuft:** Solange der Import läuft, pulsiert ein grüner Punkt neben dem Hinweis "Import läuft, bitte warten ...".
+- **Knopfzeilen bündig:** Die ersten Knöpfe der Zeilen "Vorbereiten", "Stick" und "Danach" beginnen an derselben Stelle.
 - **Am Gerät immer im großen Fenster:** go öffnet sein Fenster jetzt von selbst so groß wie der Bildschirm.
 
 ### 📝 Protokoll
@@ -65,7 +66,7 @@
 - **Adresse im Entra-Portal:** Microsoft kann sie ohne Ankündigung ändern. Dann die App-Registrierung von Hand öffnen.
 
 ### ✅ Qualität
-- 337 automatische Tests.
+- 339 automatische Tests.
 
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen

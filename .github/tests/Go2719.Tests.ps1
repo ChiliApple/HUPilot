@@ -122,13 +122,15 @@ Describe 'go 2.7.19: Einbau im Import' {
 # Nie ein echter Webhook: alle Adressen sind kuenstlich (example.invalid), das Senden (Invoke-ReportPost) ist immer ersetzt.
 Describe 'go 2.7.19: Bericht an den Admin' {
     BeforeAll {
-        . ([scriptblock]::Create((Get-GoFunctionText 'Get-ReadableColor', 'Get-EndText', 'Test-WebhookUrl', 'Get-ReportSecrets', 'Protect-ReportText', 'Get-SafeFileName', 'Get-CutText', 'New-ReportCard', 'Invoke-ReportPost', 'Send-TeamsCard', 'Get-OutboxDir', 'Limit-Outbox', 'Save-OutboxReport', 'Read-OutboxFile', 'Get-ReportFooter', 'Send-Outbox', 'Get-DeviceReportLines', 'New-GoReport', 'Send-GoReport', 'Write-ReportLine')))
+        . ([scriptblock]::Create((Get-GoFunctionText 'Get-ReadableColor', 'Get-EndText', 'Test-WebhookUrl', 'Get-ReportSecrets', 'Protect-ReportText', 'Get-SafeFileName', 'Get-CutText', 'Get-ReportLog', 'New-ReportCard', 'Invoke-ReportPost', 'Send-TeamsCard', 'Get-OutboxDir', 'Limit-Outbox', 'Save-OutboxReport', 'Read-OutboxFile', 'Get-ReportFooter', 'Send-Outbox', 'Get-DeviceReportLines', 'New-GoReport', 'Send-GoReport', 'Write-ReportLine')))
         function Log([string]$Msg) { $script:LogLines.Add($Msg) }
         $script:Ver = '2.7.19'; $script:StepTotal = 6
-        $script:ReportTimeoutSec = 8; $script:ReportMaxBytes = 24000; $script:ReportLogLines = 50; $script:ReportLogSep = "`n`n"
+        $script:ReportTimeoutSec = 8; $script:ReportMaxBytes = 24000; $script:ReportLogLines = 50; $script:ReportLogRead = 400; $script:ReportLogSep = "`n`n"
         $script:ReportTitleMax = 200; $script:ReportLinesMax = 30; $script:ReportLineLen = 600; $script:ReportLogLen = 400
         $script:OutboxKeepDays = 30; $script:OutboxMaxFiles = 50; $script:OutboxSendMax = 5; $script:OutboxFileMaxBytes = 262144
-        $script:OldHook = 'https://firma.' + 'webhook' + '.office.com/webhookb2/x'   # alte Connector-Adresse, kuenstlich, zur Laufzeit zusammengesetzt
+        # alte Connector-Adresse: das Muster steht in go.ps1 in einer Variablen, die Tests pruefen die Logik mit einem erfundenen Host
+        $script:ReportOldHookHostRx = '(?i)(^|\.)alt\.example\.invalid$'
+        $script:OldHook = 'https://firma.alt.example.invalid/webhookb2/x'
         # kuenstliche Adresse, zur Laufzeit zusammengesetzt (keine vollstaendige Webhook-Adresse als Literal im Repo)
         $script:Url = 'https://example.invalid/workflows/abc/triggers/manual/paths/invoke?api-version=1&sp=x&' + 'sig' + '=KUENSTLICHESIGNATUR0123456789'
         $script:Mak = 'ABCDE-FGHIJ-KLMNO-PQRST-UVW12'
@@ -174,6 +176,28 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         Mock Invoke-ReportPost { $script:Bodies.Add([Text.Encoding]::UTF8.GetString($Body)); [pscustomobject]@{ StatusCode = 202 } }
     }
 
+    It 'Muster der alten Connector-Adresse steht als Variable in go.ps1 und wird in Test-WebhookUrl benutzt' {
+        [regex]::Match($script:GoText, "(?m)^\`$script:ReportOldHookHostRx = '([^']+)'").Groups[1].Value | Should -Be '(?i)(^|\.)webhook\.office\.com$'
+        (Get-GoFunctionText 'Test-WebhookUrl') | Should -Match '\$x\.Host -match \$script:ReportOldHookHostRx'
+    }
+    It 'Log im Bericht: nur der aktuelle Lauf, gleiche Meldungen einmal mit Zaehler, hoechstens Max Zeilen' {
+        $p = { param($s, $m) '2026-11-14 16:55:{0:00}  [{1,5:N0}s]  {2}' -f ($s % 60), $s, $m }
+        $in = @((& $p 1 'alter Lauf'), (& $p 2 '===== START go.ps1 v2.7.18 ====='), (& $p 3 'noch alt'),
+            (& $p 4 '===== START go.ps1 v2.7.19 ====='), (& $p 5 'Schritt 1'), (& $p 6 'Internet-Test: X'), (& $p 16 'Uhr: Y'), (& $p 17 'Internet-Test: X'), (& $p 27 'Internet-Test: X'), (& $p 28 'FEHLER: Z'))
+        $r = @(Get-ReportLog $in 50)
+        $r.Count | Should -Be 5
+        $r[0] | Should -Match 'START go\.ps1 v2\.7\.19'
+        ($r -join '|') | Should -Not -Match 'alter Lauf|noch alt|2\.7\.18'
+        $r[2] | Should -Match 'Internet-Test: X  \(3-mal\)$'
+        $r[3] | Should -Match 'Uhr: Y$'
+        $r[4] | Should -Match 'FEHLER: Z$'
+        @(Get-ReportLog $in 2).Count | Should -Be 2
+        (@(Get-ReportLog $in 2))[1] | Should -Match 'FEHLER: Z$'
+        # ohne START-Zeile bleibt alles, leere Zeilen fallen weg, leer bleibt leer
+        @(Get-ReportLog @('a', '', 'b') 50).Count | Should -Be 2
+        @(Get-ReportLog @() 50).Count | Should -Be 0
+        (Get-GoFunctionText 'Send-GoReport') | Should -Match ([regex]::Escape('Get-ReportLog @(Get-Content -LiteralPath $LocalLog -Tail $ReportLogRead'))
+    }
     It 'Adresse: leer, http, alte Connector-Adresse, kein URI = ungueltig; https = gueltig' {
         Test-WebhookUrl '' | Should -Be 'leer'
         Test-WebhookUrl '   ' | Should -Be 'leer'

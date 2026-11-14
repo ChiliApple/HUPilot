@@ -358,6 +358,7 @@ $script:StepName     = ''
 $ReportTimeoutSec = 8
 $ReportMaxBytes   = 24000           # ganze Nachricht unter 24 KB (Microsoft nennt etwa 28 KB als Grenze)
 $ReportLogLines   = 50
+$ReportLogRead    = 400             # so viele Zeilen vom Ende des Logs lesen, daraus der aktuelle Lauf
 $ReportLogSep     = "`n`n"          # Zeilentrenner im Log-Block, gleich im Setup (Teams-Markdown: einfacher Umbruch wird teils verschluckt)
 $ReportTitleMax   = 200
 $ReportLinesMax   = 30
@@ -367,6 +368,8 @@ $OutboxKeepDays   = 30              # nur fuer unlesbare Dateien
 $OutboxMaxFiles   = 50
 $OutboxSendMax    = 5
 $OutboxFileMaxBytes = 262144        # groessere Dateien werden nicht gelesen
+# Hostname der alten Office-365-Connector-Adressen (gibt es nicht mehr), gleich im Setup
+$script:ReportOldHookHostRx = '(?i)(^|\.)webhook\.office\.com$'
 function Test-WebhookUrl {
     # '' = gueltig, sonst Grund (ohne die Adresse)
     param([string]$Url)
@@ -374,7 +377,7 @@ function Test-WebhookUrl {
     if (-not $u) { return 'leer' }
     $x = $null
     if (-not [uri]::TryCreate($u, [UriKind]::Absolute, [ref]$x) -or $x.Scheme -ne 'https') { return 'keine https-Adresse' }
-    if ($x.Host -match '(?i)(^|\.)webhook\.office\.com$') { return 'alte Office-365-Connector-Adresse, die gibt es nicht mehr' }
+    if ($x.Host -match $script:ReportOldHookHostRx) { return 'alte Office-365-Connector-Adresse, die gibt es nicht mehr' }
     return ''
 }
 function Get-ReportSecrets {
@@ -417,6 +420,24 @@ function Get-CutText([string]$Text, [int]$Max) {
     $s = [string]$Text
     if ($Max -lt 8 -or $s.Length -le $Max) { return $s }
     return ($s.Substring(0, $Max - 4) + ' ...')
+}
+function Get-ReportLog {
+    # Log fuer den Bericht: nur der aktuelle Lauf (ab dem letzten START), gleiche Meldungen nur einmal mit Zaehler
+    # (z. B. der Internet-Test alle 10 Sekunden), davon die letzten $Max Zeilen. Ohne START-Zeile bleibt alles.
+    param([string[]]$Lines = @(), [int]$Max = 50)
+    $all = @(@($Lines) | Where-Object { ([string]$_).Trim() })
+    $s = -1
+    for ($i = 0; $i -lt $all.Count; $i++) { if ([string]$all[$i] -match '===== START go\.ps1') { $s = $i } }
+    if ($s -gt 0) { $all = @($all[$s..($all.Count - 1)]) }
+    $out = New-Object System.Collections.Generic.List[string]
+    $idx = @{}; $cnt = @{}
+    foreach ($l in $all) {
+        $k = ([string]$l) -replace '^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\s+\[\s*[\d.,]+s\]\s+', ''
+        if ($idx.ContainsKey($k)) { $cnt[$k] = [int]$cnt[$k] + 1; continue }
+        $idx[$k] = $out.Count; $cnt[$k] = 1; $out.Add([string]$l)
+    }
+    foreach ($k in @($idx.Keys)) { if ([int]$cnt[$k] -gt 1) { $out[[int]$idx[$k]] = $out[[int]$idx[$k]] + '  (' + [int]$cnt[$k] + '-mal)' } }
+    return @($out | Select-Object -Last $Max)
 }
 function New-ReportCard {
     # Adaptive Card 1.4: Titel farbig, Zeilen, Log als ein Textblock in Festbreite, Fusszeile. Immer unter $MaxBytes (UTF-8):
@@ -613,7 +634,7 @@ function Send-GoReport {
             return @{ Text = 'Hinweis: Das Feld Teams-Webhook am Stick ist ungültig, es geht kein Bericht an den Admin. Im Setup das Feld Teams-Webhook prüfen und den Stick neu bespielen.'; Color = 'Gray' }
         }
         $sec = Get-ReportSecrets $cfg ([string]$script:tok)
-        $tail = @(); try { $tail = @(Get-Content -LiteralPath $LocalLog -Tail $ReportLogLines -Encoding UTF8 -ErrorAction Stop) } catch { }
+        $tail = @(); try { $tail = @(Get-ReportLog @(Get-Content -LiteralPath $LocalLog -Tail $ReportLogRead -Encoding UTF8 -ErrorAction Stop) $ReportLogLines) } catch { }
         $rep = New-GoReport -End $End -Level $Level -SerialNo $Serial -Cfg $cfg -LogTail $tail -Dev (Get-DeviceReportLines) -Step $script:StepNo -StepText $script:StepName -Secrets $sec
         if ($script:ReportNetOk) {
             Write-Host '  Sende Bericht an den Admin ...' -ForegroundColor (Get-ReadableColor 'Gray')
