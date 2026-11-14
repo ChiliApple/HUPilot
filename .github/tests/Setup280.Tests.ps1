@@ -13,7 +13,7 @@ BeforeAll {
     $script:ParseErrors = @($er)
     $script:FnByName = @{}
     foreach ($f in @($script:SetupAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] })) { $script:FnByName[$f.Name] = $f.Extent.Text }
-    $want = @('Hide-SecretPatterns', 'Get-SecretVariants', 'Hide-LogSecrets', 'Limit-TeamsText', 'Protect-TeamsText', 'Test-PrepBigDisk', 'Get-CsvDataLines',
+    $want = @('Limit-MaskInput', 'Complete-MaskInput', 'Repair-HashTmp', 'Hide-SecretPatterns', 'Get-SecretVariants', 'Hide-LogSecrets', 'Limit-TeamsText', 'Protect-TeamsText', 'Test-PrepBigDisk', 'Get-CsvDataLines',
         'Get-StickDataWarnings', 'Read-HashText', 'Write-HashText', 'Move-HashDone', 'Read-HashCsv', 'Get-ImportErrorText', 'Get-HashRowLogText', 'Get-SecretBanner')
     . ([scriptblock]::Create((@($want | ForEach-Object { $script:FnByName[$_] }) -join "`n")))
     . ([scriptblock]::Create([regex]::Match($script:SetupText, '(?m)^\$script:PrepBigDiskGB = .*$').Value))
@@ -329,5 +329,139 @@ Describe '2.8.0: Ampel im Hauptknopf sichtbar' {
     It 'XAML des Hauptfensters laedt weiterhin (Ellipse in Grid)' {
         $x = [regex]::Match($script:SetupText, "(?s)\[xml\]\`$xaml = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
         { [xml]$x } | Should -Not -Throw
+    }
+}
+
+Describe '2.8.0 Runde 2 (G2): Fehlertext im trap ohne Out-String' {
+    It 'kein Out-String mehr im Setup, der trap setzt Meldung, Stelle und Aufrufkette selbst zusammen' {
+        $script:SetupText | Should -Not -Match '\|\s*Out-String'
+        $m = [regex]::Match($script:SetupText, '(?s)trap \{(.*?)\r?\n\}').Groups[1].Value
+        $m | Should -Match '\$_\.Exception\.Message'
+        $m | Should -Match '\$_\.InvocationInfo\.PositionMessage'
+        $m | Should -Match '\$_\.ScriptStackTrace'
+        $m.IndexOf('Hide-LogSecrets') | Should -BeGreaterThan $m.IndexOf('ScriptStackTrace')
+    }
+    It 'eine lange Adresse mit sig= in einer Meldung wird am Stueck erkannt' {
+        $u = 'https://' + ('x' * 150) + '.invalid/workflows/abc?api-version=1&sig=' + ('S' * 43)
+        Hide-LogSecrets ('Fehler beim Senden an ' + $u + ' Ende') @() | Should -Be 'Fehler beim Senden an (Webhook) Ende'
+    }
+}
+
+Describe '2.8.0 Runde 2: lange Zeilen erst kappen, dann bereinigen, dann kuerzen' {
+    It 'kurze Texte bleiben unveraendert' {
+        $t = ('Wort ' * 900).TrimEnd()
+        Limit-MaskInput $t | Should -Be $t
+        Complete-MaskInput $t | Should -Be $t
+    }
+    It '30000 Zeichen ohne Leerzeichen mit vielen https:// sind schnell bereinigt' {
+        $t = ('https://x.invalid/a' * 1600)
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $o = Hide-LogSecrets $t @('geheimerWert1')
+        $sw.Stop()
+        $sw.Elapsed.TotalSeconds | Should -BeLessThan 3
+        $o.Length | Should -BeLessOrEqual 4011
+        $o | Should -Match ' \(gekürzt\)$'
+    }
+    It 'Geheimnis genau an der groben Schnittstelle: kein Teilstueck bleibt stehen (ohne Leerzeichen)' {
+        $sec = 'QWERTZUIOPasdfghjkl1234567890yxcvbnmMNBV'
+        $o = Hide-LogSecrets (('a' * 4990) + $sec + ('b' * 200)) @($sec)
+        $o | Should -Not -Match 'QWERTZ'
+        $o | Should -Match ' \(gekürzt\)$'
+    }
+    It 'Geheimnis an der Schnittstelle mit Leerzeichen davor: Ende bis zum letzten Leerzeichen weg' {
+        $sec = 'QWERTZUIOPasdfghjkl1234567890yxcvbnmMNBV'
+        $pre = ('wort ' * 998)                       # 4990 Zeichen
+        $o = Hide-LogSecrets ($pre + $sec + ' Rest') @($sec)
+        $o | Should -Not -Match 'QWERTZ'
+        $o | Should -Match 'wort \(gekürzt\)$'
+        $o.Length | Should -BeLessOrEqual 4011
+    }
+    It 'Muster ohne bekannten Wert an der Schnittstelle (sig=-Adresse angeschnitten) kommt nicht durch' {
+        $o = Hide-SecretPatterns (('c ' * 2470) + 'https://y.invalid/p?a=1&s' + ('ig=' + ('Z' * 60)))
+        $o | Should -Not -Match 'y\.invalid'
+        $o | Should -Match ' \(gekürzt\)$'
+    }
+    It 'nur lange Zeilen werden gekuerzt, andere Zeilen bleiben' {
+        $o = Hide-LogSecrets ("erste Zeile`n" + ('d' * 9000) + "`nletzte Zeile") @()
+        $l = $o -split "`n"
+        $l | Should -HaveCount 3
+        $l[0] | Should -Be 'erste Zeile'; $l[2] | Should -Be 'letzte Zeile'
+        $l[1] | Should -Match '^d+ \(gekürzt\)$'
+        $l[1].Length | Should -BeLessOrEqual 4011
+    }
+    It 'Bereinigen und Kuerzen in Hide-LogSecrets: erst Limit, dann Werte und Muster, dann Complete' {
+        $f = Get-FnText 'Hide-LogSecrets'
+        $f.IndexOf('Limit-MaskInput') | Should -BeLessThan $f.IndexOf('Get-SecretVariants')
+        $f.IndexOf('Get-SecretVariants') | Should -BeLessThan $f.IndexOf('Complete-MaskInput')
+    }
+}
+
+Describe '2.8.0 Runde 2 (G6): Pruefung der Hashes darf nie still "keine" heissen' {
+    It 'Ordner am Stick da, aber nicht lesbar: -1, nicht 0' {
+        $d = Join-Path $script:Tmp 'gesperrt'; New-Item -ItemType Directory -Path (Join-Path $d 'logs') -Force | Out-Null
+        $who = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        & icacls.exe (Join-Path $d 'logs') /deny ($who + ':(RX)') | Out-Null
+        try { Get-CsvDataLines (Join-Path $d 'logs\hashes.csv') 'Device Serial Number' | Should -Be -1 }
+        finally { & icacls.exe (Join-Path $d 'logs') /remove:d $who | Out-Null }
+    }
+    It 'Ordner fehlt ganz: 0 (kein Stick-Protokoll, keine Hashes)' {
+        Get-CsvDataLines (Join-Path $script:Tmp 'gibtsnicht\logs\hashes.csv') 'Device Serial Number' | Should -Be 0
+    }
+    It 'Ausnahme in der Pruefung: Warnzeile je Stick und Nein vorgewaehlt' {
+        $b = Get-FnText 'Show-PrepSticks'
+        $b | Should -Match "catch \{ \`$dw = \[pscustomobject\]@\{ Lines = @\(\`$sel \| ForEach-Object \{ 'Stick ' \+ \`$_\.Letter \+ ': Ob nicht importierte Hashes am Stick liegen, ließ sich nicht prüfen\.' \}\); Hashes = 1 \} \}"
+    }
+}
+
+Describe '2.8.0 Runde 2 (G7): hashes.csv ueber eine Datei daneben ersetzen' {
+    BeforeAll { $script:U8 = New-Object System.Text.UTF8Encoding($false) }
+    It 'schreibt vollstaendig und laesst keine .tmp liegen (neue und bestehende Datei)' {
+        $f = Join-Path $script:Tmp 'w1.csv'
+        Write-HashText $f @('a', 'b') $script:U8
+        [System.IO.File]::ReadAllText($f) | Should -Be "a`r`nb`r`n"
+        Write-HashText $f @('c') $script:U8
+        [System.IO.File]::ReadAllText($f) | Should -Be "c`r`n"
+        Test-Path -LiteralPath ($f + '.tmp') | Should -BeFalse
+    }
+    It 'UTF-8 mit BOM bleibt mit BOM' {
+        $f = Join-Path $script:Tmp 'w2.csv'
+        Write-HashText $f @('x') (New-Object System.Text.UTF8Encoding($true))
+        $b = [System.IO.File]::ReadAllBytes($f); $b[0] | Should -Be 0xEF; $b.Length | Should -Be 6
+    }
+    It 'Repair-HashTmp: beide da = .tmp ist ein Rest und kommt weg' {
+        $f = Join-Path $script:Tmp 'r1.csv'; Set-Content -LiteralPath $f -Value 'alt' -Encoding ASCII; Set-Content -LiteralPath ($f + '.tmp') -Value 'halb' -Encoding ASCII
+        Repair-HashTmp $f | Should -Be 'removed'
+        Test-Path -LiteralPath ($f + '.tmp') | Should -BeFalse
+        (Get-Content -LiteralPath $f) | Should -Be 'alt'
+    }
+    It 'Repair-HashTmp: nur .tmp da (Abbruch zwischen Loeschen und Umbenennen) = wird zur Datei' {
+        $f = Join-Path $script:Tmp 'r2.csv'; Set-Content -LiteralPath ($f + '.tmp') -Value 'voll' -Encoding ASCII
+        Repair-HashTmp $f | Should -Be 'restored'
+        (Get-Content -LiteralPath $f) | Should -Be 'voll'
+        Repair-HashTmp $f | Should -Be 'none'
+    }
+    It 'Read-HashCsv liest nach einem Abbruch die wiederhergestellte Datei, nie die .tmp als zusaetzliche Daten' {
+        $d = Join-Path $script:Tmp 'rh'; New-Item -ItemType Directory $d -Force | Out-Null
+        $f = Join-Path $d 'hashes.csv'
+        Set-Content -LiteralPath $f -Value @($script:Hdr, 'SN1,,H1,T,') -Encoding ASCII
+        Set-Content -LiteralPath ($f + '.tmp') -Value @($script:Hdr, 'SN1,,H1,T,', 'SN9,,H9,T,') -Encoding ASCII
+        @(Read-HashCsv $f).Seriennr | Should -Be @('SN1')
+        Test-Path -LiteralPath ($f + '.tmp') | Should -BeFalse
+    }
+    It 'Move-HashDone raeumt einen Rest auf und arbeitet danach normal' {
+        $d = Join-Path $script:Tmp 'mh'; New-Item -ItemType Directory $d -Force | Out-Null
+        $f = Join-Path $d 'hashes.csv'
+        Set-Content -LiteralPath $f -Value @($script:Hdr, 'SN1,,H1,T,', 'SN2,,H2,T,') -Encoding ASCII
+        Set-Content -LiteralPath ($f + '.tmp') -Value 'halb' -Encoding ASCII
+        Move-HashDone $f @('SN1') | Should -Be 1
+        Test-Path -LiteralPath ($f + '.tmp') | Should -BeFalse
+        [System.IO.File]::ReadAllText($f) | Should -Be ($script:Hdr + "`r`nSN2,,H2,T,`r`n")
+    }
+    It 'Rueckfall ohne File.Replace (z. B. FAT32, exFAT): alte Datei loeschen, neue umbenennen' {
+        $w = Get-FnText 'Write-HashText'
+        $w | Should -Match 'try \{ \[System\.IO\.File\]::Replace\(\$tmp, \$Path, \$null\) \}'
+        $w | Should -Match 'catch \{ \[System\.IO\.File\]::Delete\(\$Path\); \[System\.IO\.File\]::Move\(\$tmp, \$Path\) \}'
+        $w | Should -Match 'FileOptions\]::WriteThrough'
+        $w | Should -Match '\$fs\.Flush\(\$true\)'
     }
 }

@@ -18,13 +18,38 @@ $ErrorActionPreference = 'Stop'
 $StartLog = Join-Path $env:PUBLIC 'HUPilot-Setup-Start.log'   # gleicher Ort fuer Benutzer + Admin-Konto
 # Muster fuer Geheimes, die ohne bekannte Werte greifen (auch vor dem Laden der Einstellungen): client_secret in JSON und
 # Formular, Tokens (Bearer, access_token, JWT), Webhook-Adressen mit Signatur sig=. Wird von Hide-LogSecrets mitbenutzt.
+# Sehr lange Zeilen (z. B. ohne Leerzeichen) vor der Bereinigung grob auf 5000 Zeichen kappen (die Muster waeren sonst
+# quadratisch langsam), Marke [char]1 am Schnitt. Nach der Bereinigung kuerzt Complete-MaskInput diese Zeilen auf 4000 Zeichen
+# und wirft das angeschnittene Ende weg (bis zum letzten Leerzeichen oder Anfuehrungszeichen der letzten 1000 Zeichen, sonst
+# die letzten 1000 Zeichen): ein am Schnitt angeschnittenes Geheimnis wurde nicht erkannt und darf nicht stehen bleiben.
+function Limit-MaskInput([string]$Text) {
+    if (-not $Text -or $Text.Length -le 5000) { return $Text }
+    $mk = [string][char]1
+    return (@($Text -split "`n" | ForEach-Object { $l = $_; if ($l.Length -gt 5000 -and $l.IndexOf([char]1) -lt 0) { $l.Substring(0, 5000) + $mk } else { $l } }) -join "`n")
+}
+function Complete-MaskInput([string]$Text) {
+    $mk = [string][char]1
+    if (-not $Text -or $Text.IndexOf([char]1) -lt 0) { return $Text }
+    return (@($Text -split "`n" | ForEach-Object {
+        $l = $_; $i = $l.IndexOf([char]1)
+        if ($i -lt 0) { $l } else {
+            $v = $l.Substring(0, $i); if ($v.Length -gt 4000) { $v = $v.Substring(0, 4000) }
+            $tail = $v.Substring([math]::Max(0, $v.Length - 1000))
+            $cut = $tail.LastIndexOfAny([char[]]@(' ', "`t", '"', "'"))
+            $v = $(if ($cut -ge 0) { $v.Substring(0, $v.Length - $tail.Length + $cut + 1) } else { $v.Substring(0, $v.Length - $tail.Length) })
+            $v.TrimEnd() + ' (gekürzt)'
+        }
+    }) -join "`n")
+}
 function Hide-SecretPatterns([string]$Text) {
     if (-not $Text) { return $Text }
+    $Text = Limit-MaskInput $Text
     $t = [regex]::Replace($Text, '(?i)("(?:client_secret|access_token|refresh_token|id_token|password)"\s*:\s*")(?:[^"\\]|\\.)*(")', '$1***$2')
-    $t = [regex]::Replace($t, '(?i)\b((?:client_secret|access_token|refresh_token|id_token)=)[^&\s"''<>]+', '$1***')
+    $t = [regex]::Replace($t, '(?i)\b((?:client_secret|access_token|refresh_token|id_token)=)[^&\s"''<>\x01]+', '$1***')
     $t = [regex]::Replace($t, '(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}', '$1***')
     $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*', '***')
-    return [regex]::Replace($t, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
+    $t = [regex]::Replace($t, '(?i)https://[^\s\x01]*?[?&]sig=[^\s"''<>\x01]*', '(Webhook)')
+    return (Complete-MaskInput $t)
 }
 function Start-Log([string]$m) { try { Add-Content -Path $StartLog -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  PID ' + $PID + '  ' + (Hide-SecretPatterns $m)) -Encoding UTF8 } catch { } }
 Start-Log ('Start: ' + $PSCommandPath + '  als ' + [Environment]::UserName)
@@ -47,7 +72,9 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Start-Log 'als Admin gestartet'
 # Fehler sichtbar machen (Fenster laeuft ohne Konsole)
 trap {
-    $msg = ($_ | Out-String)
+    # Text selbst zusammensetzen (Out-String bricht nach 119 Zeichen um, ein Wert waere dann nicht mehr am Stueck zu erkennen)
+    $msg = ''
+    try { $msg = ([string]$_.Exception.Message) + "`r`n" + ([string]$_.InvocationInfo.PositionMessage) + "`r`n" + ([string]$_.ScriptStackTrace) } catch { try { $msg = [string]$_ } catch { $msg = 'Fehler' } }
     # bekannte Werte (Secret, Kennwoerter, MAK, Webhook), soweit schon geladen, sonst nur die Muster
     try { $hv = $null; try { $hv = @(Get-LogSecretValues) } catch { }; if (Get-Command Hide-LogSecrets -ErrorAction SilentlyContinue) { $msg = Hide-LogSecrets $msg $hv } else { $msg = Hide-SecretPatterns $msg } } catch { try { $msg = Hide-SecretPatterns $msg } catch { $msg = 'Fehler (Text nicht bereinigbar)' } }
     try { Set-Content -Path (Join-Path $env:PUBLIC 'HUPilot-Setup-Fehler.txt') -Value $msg -Encoding UTF8 } catch { }
@@ -67,7 +94,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.19'
+$SetupVer = '2.8.0'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -892,11 +919,14 @@ function Get-SecretVariants([string]$Value) {
 }
 function Hide-LogSecrets([string]$Text, [string[]]$Values) {
     if (-not $Text) { return $Text }
+    # sehr lange Zeilen erst grob kappen (Limit-MaskInput), gekuerzt wird nach der Bereinigung (in Hide-SecretPatterns)
+    try { $Text = Limit-MaskInput $Text } catch [System.Management.Automation.CommandNotFoundException] { }
     # Schreibweisen je Wert (Get-SecretVariants, im Setup immer da; Tests, die nur diese Funktion laden: nur woertlich)
     $all = @(foreach ($v in @($Values | Where-Object { $_ -and $_.Length -ge 4 })) { try { Get-SecretVariants $v } catch [System.Management.Automation.CommandNotFoundException] { $v } })
     foreach ($v in @($all | Where-Object { $_.Length -ge 4 } | Sort-Object Length -Descending)) { $Text = $Text.Replace($v, '***') }
     # Muster ohne bekannten Wert: client_secret, Tokens (Hide-SecretPatterns), Webhook-Adressen mit Signatur sig=
     try { $Text = Hide-SecretPatterns $Text } catch [System.Management.Automation.CommandNotFoundException] { }
+    try { $Text = Complete-MaskInput $Text } catch [System.Management.Automation.CommandNotFoundException] { }
     $Text = [regex]::Replace($Text, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
     return [regex]::Replace($Text, '\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-([A-Za-z0-9]{5})\b', '*****-*****-*****-*****-$1')
 }
@@ -1758,7 +1788,15 @@ function Test-PrepBigDisk([int64]$Size) { return ($Size -gt ([int64]$script:Prep
 # Zeilen einer CSV am Stick ohne Kopfzeile und Leerzeilen. -1 = Datei da, aber nicht lesbar (gesperrt), 0 = fehlt oder leer
 function Get-CsvDataLines([string]$Path, [string]$HeaderPrefix) {
     try {
-        if (-not [System.IO.File]::Exists($Path)) { return 0 }
+        if (-not [System.IO.File]::Exists($Path)) {
+            # File.Exists sagt auch bei verweigertem Zugriff "nein": ist ein Ordner auf dem Weg da, aber nicht lesbar, gilt -1
+            $d = [System.IO.Path]::GetDirectoryName($Path)
+            while ($d) {
+                if ([System.IO.Directory]::Exists($d)) { try { [void][System.IO.Directory]::GetFileSystemEntries($d) } catch { return -1 }; break }
+                $d = [System.IO.Path]::GetDirectoryName($d)
+            }
+            return 0
+        }
         $fs = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
         try { $sr = New-Object System.IO.StreamReader($fs, $true); $txt = $sr.ReadToEnd() } finally { $fs.Dispose() }
         return @($txt -split "`r?`n" | Where-Object { $_.Trim() -and -not $_.StartsWith($HeaderPrefix) }).Count
@@ -1924,7 +1962,9 @@ function Show-PrepSticks {
         # Berichte an den Admin, die go am Stick abgelegt hat: vorher senden, sonst in der Rueckfrage nennen (gehen beim Formatieren verloren)
         $obw = @(); try { $obw = @(Send-OutboxBeforeFormat @($sel | ForEach-Object { $_.Letter }) $plog { try { $pw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) } catch { } }) } catch { }
         # nicht importierte Hashes und Stick-Protokoll: am Anfang der Warnungen, dann ist Nein vorgewaehlt
-        $dw = [pscustomobject]@{ Lines = @(); Hashes = 0 }; try { $dw = Get-StickDataWarnings @($sel | ForEach-Object { $_.Letter }) } catch { }
+        $dw = [pscustomobject]@{ Lines = @(); Hashes = 0 }
+        try { $dw = Get-StickDataWarnings @($sel | ForEach-Object { $_.Letter }) }
+        catch { $dw = [pscustomobject]@{ Lines = @($sel | ForEach-Object { 'Stick ' + $_.Letter + ': Ob nicht importierte Hashes am Stick liegen, ließ sich nicht prüfen.' }); Hashes = 1 } }
         $warnAll = @(@($dw.Lines) + $obw)
         foreach ($wl in $warnAll) { & $plog $wl 'Hinweis' }
         $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + $(if ($warnAll.Count) { "`r`n`r`n" + ($warnAll -join "`r`n") } else { '' }) + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning', $(if ($dw.Hashes -gt 0) { 'No' } else { 'Yes' }))
@@ -5113,7 +5153,7 @@ $ui.bTags.Add_Click({
 # Microsoft auch ein alter Datensatz im eigenen Tenant oder in Intune die Ursache sein. Andere Codes: $null.
 function Get-ImportErrorText([string]$Code, [string]$Name) {
     # Texte je Fehler, je eine Zeile (mit go abgestimmt): Was ({0} = Fehlercode roh), Tun, Kurz (Tabelle "Hashes importieren")
-    $Was808 = 'Das Gerät ist bei Microsoft noch einer anderen Organisation zugeordnet, zum Beispiel dem Vorbesitzer (Fehler {0}).'
+    $Was808 = 'Das Gerät ist bei Microsoft schon registriert, meist bei einer anderen Organisation (zum Beispiel dem Vorbesitzer), manchmal unter einem alten Eintrag im eigenen Intune (Fehler {0}).'
     $Tun808 = 'Zuerst unter "6. Status" nach einem alten Eintrag mit dieser Seriennummer suchen, ihn löschen und warten, bis er aus der Liste verschwunden ist (bis zu 30 Minuten). Gibt es keinen: Der Händler oder Vorbesitzer muss das Gerät freigeben, den Admin fragen.'
     $Kurz808 = 'Fehler 808: andere Organisation, siehe Protokoll'
     $Was806 = 'Das Gerät steht schon in Autopilot, unter einem alten Eintrag (Fehler {0}).'
@@ -5147,13 +5187,31 @@ function Read-HashText([string]$Path) {
     $txt = $enc.GetString($b, $skip, $b.Length - $skip)
     return [pscustomobject]@{ Lines = @($txt -split "`r?`n" | Where-Object { $_ -ne '' }); Enc = $enc }
 }
+# Neu schreiben ueber eine Datei daneben (<Name>.tmp, direkt auf den Datentraeger geschrieben), dann ersetzen: wird der Stick
+# dabei gezogen, bleibt die alte Datei ganz oder die neue ist vollstaendig. File.Replace (NTFS); geht das nicht (z. B. FAT32,
+# exFAT), alte Datei loeschen und die neue umbenennen. Fuer den Fall eines Abbruchs dazwischen raeumt Repair-HashTmp auf.
 function Write-HashText([string]$Path, [string[]]$Lines, $Enc, [switch]$Append) {
     $txt = (@($Lines) -join "`r`n") + $(if (@($Lines).Count) { "`r`n" } else { '' })
-    if ($Append -and [System.IO.File]::Exists($Path)) { [System.IO.File]::AppendAllText($Path, $txt, $Enc) }
-    else { [System.IO.File]::WriteAllText($Path, $txt, $Enc) }
+    if ($Append -and [System.IO.File]::Exists($Path)) { [System.IO.File]::AppendAllText($Path, $txt, $Enc); return }
+    $tmp = $Path + '.tmp'
+    [byte[]]$bytes = @($Enc.GetPreamble()) + @($Enc.GetBytes($txt))
+    $fs = New-Object System.IO.FileStream($tmp, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None, 4096, [System.IO.FileOptions]::WriteThrough)
+    try { $fs.Write($bytes, 0, $bytes.Length); $fs.Flush($true) } finally { $fs.Dispose() }
+    if (-not [System.IO.File]::Exists($Path)) { [System.IO.File]::Move($tmp, $Path); return }
+    try { [System.IO.File]::Replace($tmp, $Path, $null) }
+    catch { [System.IO.File]::Delete($Path); [System.IO.File]::Move($tmp, $Path) }
+}
+# Rest eines abgebrochenen Schreibens: Datei da = die .tmp ist ein unfertiger Rest (weg damit); Datei fehlt = Abbruch zwischen
+# Loeschen und Umbenennen, die .tmp ist vollstaendig (wird zur Datei). Rueckgabe: 'none' | 'removed' | 'restored'
+function Repair-HashTmp([string]$Path) {
+    $tmp = $Path + '.tmp'
+    if (-not [System.IO.File]::Exists($tmp)) { return 'none' }
+    if ([System.IO.File]::Exists($Path)) { [System.IO.File]::Delete($tmp); return 'removed' }
+    [System.IO.File]::Move($tmp, $Path); return 'restored'
 }
 # Erledigte Zeilen (Seriennummern in $Done) aus $File nach hashes-erledigt.csv daneben verschieben. Rueckgabe: Zahl verschoben
 function Move-HashDone([string]$File, [string[]]$Done) {
+    [void](Repair-HashTmp $File)
     $r = Read-HashText $File
     $keep = @($r.Lines | Where-Object { $sn = $_.Split(',')[0]; -not ($Done -contains $sn) })
     $moved = @($r.Lines | Where-Object { $sn = $_.Split(',')[0]; $Done -contains $sn })
@@ -5167,6 +5225,8 @@ function Move-HashDone([string]$File, [string[]]$Done) {
 }
 function Read-HashCsv([string]$File) {
     $out = @()
+    # Rest eines abgebrochenen Schreibens zuerst aufraeumen, eine .tmp wird nie als Daten gelesen
+    try { [void](Repair-HashTmp $File) } catch { }
     $lines = @(); try { $lines = @((Read-HashText $File).Lines) } catch { }
     foreach ($l in $lines) {
         if (-not $l -or $l -like 'Device Serial Number*') { continue }
