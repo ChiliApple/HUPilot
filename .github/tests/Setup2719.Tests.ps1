@@ -43,6 +43,19 @@ Describe 'v2.7.19: Datei vollstaendig' {
     }
 }
 
+Describe 'v2.7.19: Hashes importieren zeigt, dass es laeuft' {
+    It 'Pulspunkt und Hinweis erscheinen beim Start des Imports und verschwinden im finally' {
+        $script:SetupText | Should -Match 'x:Name="eHPulse"[^>]*Visibility="Collapsed"'
+        $i = $script:SetupText.IndexOf('$g.bImp.Add_Click({')
+        $on = $script:SetupText.IndexOf("$g.eHPulse.Visibility = 'Visible'", $i)
+        $run = $script:SetupText.IndexOf('try { & $doImport }', $i)
+        $fin = $script:SetupText.IndexOf('finally {', $run)
+        $off = $script:SetupText.IndexOf("$g.eHPulse.Visibility = 'Collapsed'", $i)
+        $on | Should -BeGreaterThan $i
+        $on | Should -BeLessThan $run
+        $off | Should -BeGreaterThan $fin
+    }
+}
 Describe 'v2.7.19 Paket 1: Tooltips lesbar' {
     It 'Antwort des Anmeldedienstes: je Angabe eine Zeile, Kennungen nicht doppelt in der Beschreibung' {
         $t = Format-TechDetail $script:AadJson

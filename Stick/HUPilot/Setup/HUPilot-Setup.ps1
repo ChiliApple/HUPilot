@@ -5088,6 +5088,8 @@ function Show-HashImport {
   <DockPanel Margin="10">
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Text="Offline gespeicherte Hashes (HUPilot\logs\hashes.csv aus Quelle und Ziel-Stick). Schon vorhandene Geräte bekommen nur den Tag. Erledigte Zeilen wandern nach hashes-erledigt.csv."/>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Ellipse x:Name="eHPulse" Width="10" Height="10" Fill="{DynamicResource HuOk}" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Der Import läuft, Microsoft braucht je Gerät meist 1 bis 5 Minuten."/>
+      <TextBlock x:Name="tHBusy" VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed" Text="Import läuft, bitte warten ..." ToolTip="Der Import läuft, Microsoft braucht je Gerät meist 1 bis 5 Minuten."/>
       <Button x:Name="bAdd" Content="CSV hinzufügen ..." Padding="10,4" ToolTip="Weitere hashes.csv-Dateien laden (z. B. von anderen Sticks)."/>
       <Button x:Name="bImp" Content="Importieren" FontWeight="SemiBold" Padding="10,4" Margin="8,0,0,0" ToolTip="Offene Zeilen nach Autopilot hochladen (dauert bis zu 15 Minuten). Schließen während des Imports bricht nach Rückfrage sauber ab."/>
       <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen. Während eines Imports: Abbrechen mit Rückfrage."/>
@@ -5111,7 +5113,7 @@ function Show-HashImport {
     $hw.Owner = $win
     if ($win.Icon) { $hw.Icon = $win.Icon }
     Set-WinFit $hw
-    $g = @{}; foreach ($n in 'bAdd','bImp','bClose','tHLog','dGrid') { $g[$n] = $hw.FindName($n) }
+    $g = @{}; foreach ($n in 'bAdd','bImp','bClose','tHLog','dGrid','eHPulse','tHBusy') { $g[$n] = $hw.FindName($n) }
     $script:HRows = @()
     $hlog = { param($m, $lv = '', $dt = '') Out-SubLog $g.tHLog $hw 'Hashes importieren' $m $lv $dt }
     $g.tHLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $g.tHLog); $e.Handled = $true } })
@@ -5229,10 +5231,13 @@ function Show-HashImport {
         $hst.Busy = $true; $hst.Abort = $false; $hst.CloseAfter = $false
         $g.bImp.IsEnabled = $false; $g.bAdd.IsEnabled = $false; $g.bClose.Content = 'Abbrechen'
         Set-Step 'Hash' 'run'
+        # gruener Pulspunkt, solange der Import laeuft (wie im Status-Fenster) - Fehler egal
+        try { $hp = New-Object System.Windows.Media.Animation.DoubleAnimation(1.0, 0.2, (New-Object System.Windows.Duration([TimeSpan]::FromMilliseconds(600)))); $hp.AutoReverse = $true; $hp.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever; $g.eHPulse.Visibility = 'Visible'; $g.tHBusy.Visibility = 'Visible'; $g.eHPulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $hp) } catch { }
         try { & $doImport }
         catch { & $hlog 'Import unerwartet abgebrochen.' 'Fehler' $_.Exception.Message; Set-Step 'Hash' 'err' $_.Exception.Message }
         finally {
             $hst.Busy = $false
+            try { $g.eHPulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null); $g.eHPulse.Visibility = 'Collapsed'; $g.tHBusy.Visibility = 'Collapsed' } catch { }
             $g.bImp.IsEnabled = $true; $g.bAdd.IsEnabled = $true; $g.bClose.Content = 'Schließen'
             if ($hst.CloseAfter) { $hwRef = $hw; [void]$hw.Dispatcher.BeginInvoke([action]({ try { if ($hwRef.IsVisible) { $hwRef.Close() } } catch { } }.GetNewClosure())) }
         }

@@ -41,6 +41,7 @@
 - **Tooltips lesbar:** Alle Tooltips haben eine feste Höchstbreite und brechen um, nichts läuft mehr aus dem Bild.
   - Antworten von Microsoft stehen gegliedert da: Fehlercode, Beschreibung, Zeitpunkt und Kennungen je in einer Zeile.
 - **Behoben: falsche Verweise in Tooltips:** Der Tooltip von "4. WLAN-Paket bauen" verwies auf die falsche Stelle. Er nennt jetzt selbst, welche ICD.exe benutzt wird. Alle Verweise in Tooltips wurden geprüft.
+- **Hashes importieren zeigt, dass es läuft:** Solange der Import läuft, pulsiert ein grüner Punkt neben dem Hinweis "Import läuft, bitte warten ...".
 - **Am Gerät immer im großen Fenster:** go öffnet sein Fenster jetzt von selbst so groß wie der Bildschirm.
 
 ### 📝 Protokoll
@@ -64,7 +65,7 @@
 - **Adresse im Entra-Portal:** Microsoft kann sie ohne Ankündigung ändern. Dann die App-Registrierung von Hand öffnen.
 
 ### ✅ Qualität
-- 336 automatische Tests.
+- 337 automatische Tests.
 
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen
