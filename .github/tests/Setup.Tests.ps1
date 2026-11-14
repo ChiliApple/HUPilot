@@ -446,7 +446,7 @@ Describe 'Setup: Status in Klartext' {
     It 'Aktionen nur mit Rueckfrage, Loeschen nur ueber die doppelte Abfrage, Sync 409/429 kein Fehler' {
         $script:SetupText | Should -Match "Tag `"' \+ \`$pick\.Tag \+ '`" setzen für"
         $script:SetupText | Should -Match "if \(\`$code -in 409, 429\)"
-        $script:SetupText | Should -Match 'if \(-not \(Show-DeleteConfirm \$sel \$canI \$sw\)\)'
+        $script:SetupText | Should -Match 'if \(-not \(Show-DeleteConfirm \$sel \$canI \$sw \$plans\)\)'
     }
     It 'Automatisch aktualisieren: Timer stoppt beim Schliessen, nicht bei offenem Dialog' {
         $script:SetupText | Should -Match 'if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\) \{ & \$load \$true \}'

@@ -574,7 +574,7 @@ Describe 'v2.7.19 Pakete 3 und 4: Hardware geaendert und doppelte Seriennummern'
     It 'Status: Kacheln, Druck und Details kennen die neuen Staende, Aktionen nutzen die Kennung der Zeile' {
         $sx = @($script:XamlBlocks | Where-Object { $_.Name -eq 'sx' })[0].Xaml
         foreach ($n in 'kHw', 'kDup', 'kDel', 'nHw', 'nDup', 'nDel') { $sx | Should -Match ('x:Name="' + $n + '"') }
-        $script:SetupText | Should -Match "hw = 'Hardware geändert'; dup = 'Doppelt'; del = 'Wird gelöscht'"
+        $script:SetupText | Should -Match "hw = 'Hardware geändert'; hwa = 'Hardware wird abgeglichen'; dup = 'Doppelt'; del = 'Wird gelöscht'"
         $script:SetupText | Should -Match "\('Hardware:          ' \+"
         $script:SetupText | Should -Match "\('Doppelt:           ' \+"
         $script:SetupText | Should -Match '\$id = \$\(if \(\$r\.Id\) \{ \[string\]\$r\.Id \} else \{ \$script:ApIds\[\[string\]\$r\.Seriennr\] \}\)'
@@ -678,7 +678,7 @@ Describe 'v2.7.19 Paket 5: Autopilot-Eintrag loeschen mit doppelter Abfrage (mit
         $script:SetupText | Should -Match "if \(\`$roles\.Count -and \`$roles -notcontains 'DeviceManagementServiceConfig\.ReadWrite\.All'\) \{"
         $script:SetupText | Should -Match 'Der App fehlt das Recht DeviceManagementServiceConfig\.ReadWrite\.All\. Damit lässt sich kein Autopilot-Eintrag löschen\. Es wurde nichts gelöscht'
         # die Pruefung steht vor der Rueckfrage
-        $i1 = $script:SetupText.IndexOf("`$roles -notcontains 'DeviceManagementServiceConfig.ReadWrite.All'"); $i2 = $script:SetupText.IndexOf('if (-not (Show-DeleteConfirm $sel $canI $sw))')
+        $i1 = $script:SetupText.IndexOf("`$roles -notcontains 'DeviceManagementServiceConfig.ReadWrite.All'"); $i2 = $script:SetupText.IndexOf('if (-not (Show-DeleteConfirm $sel $canI $sw $plans))')
         $i1 | Should -BeGreaterThan 0; $i1 | Should -BeLessThan $i2
     }
     It 'Hersteller-Platzhalter und unsichere Seriennummern' {
@@ -903,7 +903,7 @@ Describe 'v2.7.19 Paket 5: Autopilot-Eintrag loeschen mit doppelter Abfrage (mit
         $t | Should -Match 'Nicht alles hat geklappt'
     }
     It 'Verdrahtung: nur per Klick, Busy-Sperre, Laden meldet sich, catch statt trap, Doppelklick gesperrt' {
-        $script:SetupText | Should -Match '\$g\.bDelete\.Add_Click\(\{\s+if \(\$sst\.Busy\) \{ return \}\s+if \(\$sst\.Loading\) \{ Show-Msg ''Die Liste lädt noch, bitte kurz warten\.'''
+        $script:SetupText | Should -Match '\$g\.bDelete\.Add_Click\(\{\s+# alles im geschuetzten Bereich[^\r\n]*\r?\n\s+\$mine = \$false; \$btns = @\(\); \$results = @\(\)\r?\n\s+try \{\r?\n\s+if \(\$sst\.Busy\) \{ return \}\r?\n\s+if \(\$sst\.Loading\) \{ Show-Msg ''Die Liste lädt noch, bitte kurz warten\.'''
         $script:SetupText | Should -Match '\$sst\.Busy = \$true; \$sst\.Dialog = \$true; \$tm\.Stop\(\)'
         $script:SetupText | Should -Match '\$btns = @\(\$g\.bDelete, \$g\.bTagSet, \$g\.bSync, \$g\.bReload, \$g\.bDetail, \$g\.bCsv, \$g\.bXlsx, \$g\.bPrint\)'
         $script:SetupText | Should -Match '\$sw\.Add_Closing\(\{ param\(\$s, \$e\) if \(\$sst\.Busy\) \{ \$e\.Cancel = \$true \} \}\)'
@@ -1009,13 +1009,13 @@ Describe 'v2.7.19 Korrekturrunde 2' {
         Get-DeviceStand 'notAssigned' 'notContacted' $false 'automaticRemediationRequired' | Should -Be 'Kein Profil für diesen Tag'
         $script:StandClass['Hardware geändert'] | Should -Be 'err'
         $script:StandClass['Hardware wird abgeglichen'] | Should -Be 'warn'
-        $script:StandTile['Hardware wird abgeglichen'] | Should -Be 'hw'
+        $script:StandTile['Hardware wird abgeglichen'] | Should -Be 'hwa'
         Get-DeviceTodo 'Hardware geändert' '' '' | Should -Match '^Mit "Autopilot-Eintrag löschen" entfernen'
         Get-DeviceTodo 'Hardware wird abgeglichen' '' '' | Should -Match '^Microsoft gleicht selbst ab, warten\. Bleibt es: löschen, neu registrieren\.$'
         $script:SetupText | Should -Match "'automaticRemediationRequired' \{ 'geändert, Microsoft versucht die Korrektur selbst' \+ \`$\(if \(\[string\]\`$Row\.Stand -eq 'Fertig'\)"
         $script:SetupText | Should -Match 'ANNAHME \(so nicht auf Learn\): automaticRemediationRequired = Fix pending'
         $sx = @($script:XamlBlocks | Where-Object { $_.Name -eq 'sx' })[0].Xaml
-        $sx | Should -Match 'Hardware wird abgeglichen \(gelb\): Microsoft versucht die Korrektur selbst'
+        $sx | Should -Match 'x:Name="kHwa"[^>]*Microsoft versucht die Korrektur selbst'
     }
     It '3: neue Was-tun-Texte passen in die Spalte (STA)' {
         $res = Invoke-Sta {
@@ -1108,5 +1108,72 @@ Describe 'v2.7.19 Korrekturrunde 2' {
     }
     It '15: Merker am Tooltip-Stil zu Objekten statt Text' {
         $script:SetupText | Should -Match 'Merken: Ein Tooltip mit einem Objekt \(kein Text, kein Steuerelement\) zeigt hier nur dessen Typnamen'
+    }
+}
+
+Describe 'v2.7.19 Korrekturrunde 3' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Get-SecretBanner', 'Update-SecretBanner', 'Set-SecretMode', 'Set-SecretLoginFail', 'Test-SerialPlaceholder', 'Resolve-IntuneLink', 'Get-IntunePlan', 'Get-DeletePlanText', 'Get-DeleteWarnings') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        . ([scriptblock]::Create([regex]::Match($script:SetupText, '(?m)^\$script:SerialPlaceholders = @\(.*\)\r?$').Value))
+        $til = [regex]::Match($script:SetupText, '(?m)^\$script:StandTile = (@\{.*\})\r?$').Groups[1].Value
+        $script:StandTile = Invoke-Expression $til
+        $script:ui = @{}
+    }
+    It '1: fehlgeschlagene Anmeldung stellt einen sichtbaren Hinweis um, nie bleibt "gueltig" stehen' {
+        foreach ($c in @(@('ok', 'wrong', 'wrong'), @('okNoEnd', 'config', 'fail'), @('saved', 'net', 'net'), @('ok', 'proxy', 'net'), @('ok', 'other', 'fail'))) {
+            $script:SecMode = $c[0]
+            Set-SecretLoginFail $c[1]
+            $script:SecMode | Should -Be $c[2] -Because ($c[0] + ' + ' + $c[1])
+        }
+        # ohne Hinweis bleibt es ohne Hinweis; abgelaufen und fehlende Felder stellt diese Stelle nicht um
+        $script:SecMode = ''; Set-SecretLoginFail 'wrong'; $script:SecMode | Should -Be ''
+        $script:SecMode = 'ok'; Set-SecretLoginFail 'fields'; $script:SecMode | Should -Be 'ok'
+        $script:FnByName['Get-ApiToken'] | Should -Match "if \(\`$kind -eq 'expired'\) \{ Set-SecretMode 'expired' \}\r?\n(\s+#[^\r\n]*\r?\n)?\s+Set-SecretLoginFail \`$kind"
+    }
+    It '2: Intune-Liste unvollstaendig: kein Rueckfall ueber die Seriennummer, Verknuepfung bleibt nutzbar, Hinweis im Fenster' {
+        $md = @{ 'SN:SN100' = [pscustomobject]@{ id = 'm1' } }; $cnt = @{ 'SN:SN100' = 1 }
+        $a = Resolve-IntuneLink '' 'SN100' $md $cnt $false $true
+        $a.Id | Should -Be ''; $a.Ambig | Should -BeTrue
+        (Get-IntunePlan ([pscustomobject]@{ IntuneId = $a.Id; IntuneLink = $a.Link; IntuneAmbig = $a.Ambig; IntuneSnCount = $a.SnCount }) $true).Kind | Should -Be 'ambig'
+        $b = Resolve-IntuneLink 'mX' 'SN100' $md $cnt $false $true
+        $b.Link | Should -Be 'ms'; $b.Id | Should -Be 'mX'
+        # ganz geladen: wie bisher eindeutig
+        (Resolve-IntuneLink '' 'SN100' $md $cnt $false $false).Link | Should -Be 'sn'
+        $script:SetupText | Should -Match 'if \(\$md\.Count\) \{ \$mdPartial = \$true; Out-Log ''Intune-Angaben unvollständig'
+        $script:SetupText | Should -Match '\$md \$mdCnt \(\[bool\]\(\$dm\)\) \$mdPartial'
+        $script:SetupText | Should -Match 'IntunePartial = \$mdPartial'
+        $script:SetupText | Should -Match '\$g\.tLoad\.Text = \$\(if \(\$d\.IntunePartial\) \{ ''Intune-Angaben unvollständig'
+    }
+    It '3: Plan nur einmal berechnet und an die Rueckfrage uebergeben' {
+        $script:SetupText | Should -Match 'Show-DeleteConfirm \$sel \$canI \$sw \$plans'
+        $script:SetupText | Should -Match '\$c\.tPlan\.Text = Get-DeletePlanText \$Rows \$CanIntune \(Get-Date\) \$Plans'
+        # uebergebener Plan wird benutzt, nicht neu berechnet
+        $r = [pscustomobject]@{ Seriennr = 'SN100'; Id = 'ap1'; IntuneId = 'md1'; IntuneLink = 'ms'; IntuneAmbig = $false; IntuneSnCount = 1; DupCount = 0; Stand = 'Fertig'; Name = ''; Tag = ''; Benutzer = ''; EnrollState = ''; SyncSort = ''; LetzterKontakt = '' }
+        $fake = [pscustomobject]@{ Kind = 'right'; Id = 'md1'; Link = 'ms'; More = $false; Text = 'Eintrag bleibt stehen (Recht fehlt)' }
+        (Get-DeletePlanText @($r) $true (Get-Date) @($fake)) | Should -Match 'Intune:       Eintrag bleibt stehen \(Recht fehlt\)'
+    }
+    It '4: verknuepfter Eintrag anders als der einzige Treffer ueber die Seriennummer: weitere Eintraege genannt' {
+        $md = @{ 'SN:SN100' = [pscustomobject]@{ id = 'mAnders' } }; $cnt = @{ 'SN:SN100' = 1 }
+        $a = Resolve-IntuneLink 'mVerkn' 'SN100' $md $cnt
+        $a.SnCount | Should -Be 2
+        (Get-IntunePlan ([pscustomobject]@{ IntuneId = $a.Id; IntuneLink = $a.Link; IntuneAmbig = $false; IntuneSnCount = $a.SnCount }) $true).More | Should -BeTrue
+        (Resolve-IntuneLink 'mAnders' 'SN100' $md $cnt).SnCount | Should -Be 1
+    }
+    It '5: Kachel "Hardware geändert" zaehlt nur rot, eigene gelbe Kachel, Druck und Filter mitgezogen' {
+        $script:StandTile['Hardware geändert'] | Should -Be 'hw'
+        $script:StandTile['Hardware wird abgeglichen'] | Should -Be 'hwa'
+        $sx = @($script:XamlBlocks | Where-Object { $_.Name -eq 'sx' })[0].Xaml
+        $sx | Should -Match '<Button x:Name="kHwa" Style="\{StaticResource HuTile\}" Tag="hwa" Visibility="Collapsed"'
+        $sx | Should -Match 'x:Name="nHwa"[^>]*Foreground="\{DynamicResource HuWarn\}"'
+        $sx | Should -Not -Match 'x:Name="kHw" [^>]*\(gelb\)'
+        $script:SetupText | Should -Match "foreach \(\`$k in 'hw', 'hwa', 'dup', 'del'\)"
+        $script:SetupText | Should -Match "hwa = 'Hardware wird abgeglichen'"
+        $script:SetupText | Should -Match "@\(\`$g\.nHwa, 'Hardware wird abgeglichen'\)"
+    }
+    It '6 und 7: Kommentar stimmt, Klick-Handler raeumt nur auf, was er gesetzt hat' {
+        $script:SetupText | Should -Not -Match '1,5 s nach dem letzten Tastendruck'
+        $script:SetupText | Should -Match 'if \(\$mine\) \{ \$sst\.Busy = \$false; \$sst\.Dialog = \$false;'
+        $script:SetupText | Should -Match "try \{ Out-Log 'Autopilot-Eintrag löschen unerwartet abgebrochen\."
+        $script:SetupText | Should -Match '\$mine = \$true; \$sst\.Busy = \$true; \$sst\.Dialog = \$true; \$tm\.Stop\(\)'
     }
 }

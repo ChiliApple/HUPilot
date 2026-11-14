@@ -2379,7 +2379,7 @@ function Get-SecretExpiresValue([string]$Secret) {
 #   Modus fuer das eingetragene Secret: '' (kein Hinweis), expired, awaiting (Seite geoeffnet, wartet auf den neuen Wert),
 #   checking, net (keine Verbindung: nicht geprueft, nie "ungueltig"), wrong, fail, ok, okNoEnd (Ablauf unbekannt), saved.
 #   Nach "abgelaufen" oder einem Klick auf "Neues Secret anlegen" prueft das Setup jede Aenderung im Feld von selbst
-#   (1,5 s nach dem letzten Tastendruck bzw. Einfuegen). Keine Vorwarnung vor dem Ablauf (nicht gewaehlt).
+#   (kurz nach dem Einfuegen oder wenn das Feld den Fokus verliert, nie nach Tipp-Pausen). Keine Vorwarnung vor dem Ablauf (nicht gewaehlt).
 $script:SecMode = ''; $script:SecEndText = ''; $script:SecAwait = $false; $script:SecChecking = $false; $script:SecCheckedFor = ''
 # Text, Farbe und Knopf je Modus (ohne Oberflaeche, fuer Tests)
 function Get-SecretBanner([string]$Mode, [string]$EndText = '') {
@@ -2422,6 +2422,12 @@ function Set-SecretLoginOk([string]$Secret) {
     $end = $null; try { $end = ConvertTo-UtcDate (Get-SecretExpiresValue $Secret) } catch { }
     if ($end -and $end -gt [datetime]::UtcNow) { Set-SecretMode 'ok' $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } else { Set-SecretMode 'okNoEnd' }
 }
+# Fehlgeschlagene Anmeldung mit dem eingetragenen Secret: einen SICHTBAREN Hinweis passend umstellen (falsch, abgelehnt,
+# kein Netz). Ohne Hinweis bleibt es ohne Hinweis (abgelaufen stellt Get-ApiToken selbst ein). Fehlende Felder sind keine Anmeldung.
+function Set-SecretLoginFail([string]$Kind) {
+    if (-not $script:SecMode -or $Kind -in 'expired', 'fields', '') { return }
+    switch ($Kind) { 'wrong' { Set-SecretMode 'wrong' } 'config' { Set-SecretMode 'fail' } 'net' { Set-SecretMode 'net' } 'proxy' { Set-SecretMode 'net' } default { Set-SecretMode 'fail' } }
+}
 function Set-SecretMode([string]$Mode, [string]$EndText = '') {
     $script:SecMode = $Mode; $script:SecEndText = $EndText
     if ($Mode -in 'expired', 'awaiting', 'wrong', 'net', 'fail') { $script:SecAwait = $true }
@@ -2463,6 +2469,8 @@ function Get-ApiToken {
         try { $script:SecCheckedFor = Get-StrHash ([string]$c.ClientSecret) } catch { }
         # abgelaufen: deutlicher Hinweis mit Knopf "Neues Secret anlegen" (ohne Netz nie, dann ist nichts geprueft)
         if ($kind -eq 'expired') { Set-SecretMode 'expired' }
+        # Gegenstueck zu Set-SecretLoginOk: ein sichtbarer Hinweis zeigt nie "gültig", wenn die letzte Anmeldung scheiterte
+        Set-SecretLoginFail $kind
         $txt = 'Anmeldung bei Microsoft fehlgeschlagen. Später nochmal versuchen, Details im Protokoll.'
         if ($kind -eq 'expired') { $txt = 'Das Secret ist abgelaufen. Oben auf "Neues Secret anlegen" klicken und den neuen Wert bei "Secret (Wert)" einfügen.' }
         elseif ($kind -eq 'wrong') { $txt = 'Das Secret ist falsch, oft ist die "Geheimnis-ID" statt des Werts kopiert. Den Wert bei "Secret (Wert)" einfügen.' }
@@ -3179,7 +3187,7 @@ function Get-PendingTodo([datetime]$Since, [datetime]$Now) {
 }
 # Farbe und Kachel je Stand: ok (gruen) / warn (gelb) / err (rot)
 $script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err'; 'Hardware geändert' = 'err'; 'Hardware wird abgeglichen' = 'warn'; 'Doppelt' = 'err'; 'Wird gelöscht' = 'warn' }
-$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob'; 'Hardware geändert' = 'hw'; 'Hardware wird abgeglichen' = 'hw'; 'Doppelt' = 'dup'; 'Wird gelöscht' = 'del' }
+$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob'; 'Hardware geändert' = 'hw'; 'Hardware wird abgeglichen' = 'hwa'; 'Doppelt' = 'dup'; 'Wird gelöscht' = 'del' }
 
 # Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Fenster, CSV, Excel und Druck
 $script:StatusCols = @(
@@ -3571,12 +3579,17 @@ function Test-SerialPlaceholder([string]$Serial) {
 # Intune-Eintrag zu einem Autopilot-Eintrag. Link 'ms' = Verknuepfung von Microsoft (managedDeviceId), 'sn' = Rueckfall ueber
 # die Seriennummer, nur wenn eindeutig: keine Doppel-Seriennummer in Autopilot, kein Platzhalter, genau ein Intune-Geraet.
 # Ambig = es gibt passende Intune-Geraete, aber keine eindeutige Zuordnung. SnCount = Intune-Geraete mit dieser Seriennummer.
-function Resolve-IntuneLink([string]$ManagedDeviceId, [string]$Serial, [hashtable]$Md, [hashtable]$MdCount, [bool]$IsDup = $false) {
+# -Partial: Intune-Liste nur teilweise geladen: dann nie Rueckfall ueber die Seriennummer (nicht eindeutig, bleibt stehen).
+# SnCount zaehlt bei Verknuepfung mindestens 2, wenn der einzige Treffer ueber die Seriennummer ein ANDERER Eintrag ist.
+function Resolve-IntuneLink([string]$ManagedDeviceId, [string]$Serial, [hashtable]$Md, [hashtable]$MdCount, [bool]$IsDup = $false, [bool]$Partial = $false) {
     $mid = [string]$ManagedDeviceId
     if ($mid -match '^0{8}-0{4}-0{4}-0{4}-0{12}$') { $mid = '' }
     $k = 'SN:' + [string]$Serial
     $cnt = $(if ($Serial -and $MdCount -and $MdCount.ContainsKey($k)) { [int]$MdCount[$k] } else { 0 })
+    # 4: verknuepfter Eintrag ist ein anderer als der einzige Treffer ueber die Seriennummer = es gibt einen zweiten
+    if ($mid -and $cnt -eq 1 -and $Md -and $Md.ContainsKey($k) -and [string]$Md[$k].id -ne $mid) { $cnt = 2 }
     if ($mid) { return [pscustomobject]@{ Id = $mid; Link = 'ms'; Ambig = $false; SnCount = $cnt; Im = $(if ($Md -and $Md.ContainsKey($mid)) { $Md[$mid] } else { $null }) } }
+    if ($Partial) { return [pscustomobject]@{ Id = ''; Link = ''; Ambig = $true; SnCount = $cnt; Im = $null } }
     if (-not $cnt) { return [pscustomobject]@{ Id = ''; Link = ''; Ambig = $false; SnCount = 0; Im = $null } }
     if ($cnt -eq 1 -and -not $IsDup -and -not (Test-SerialPlaceholder $Serial)) { $im = $Md[$k]; return [pscustomobject]@{ Id = [string]$im.id; Link = 'sn'; Ambig = $false; SnCount = 1; Im = $im } }
     return [pscustomobject]@{ Id = ''; Link = ''; Ambig = $true; SnCount = $cnt; Im = $null }
@@ -3632,9 +3645,10 @@ function Get-DeleteWarnings($Row, [datetime]$Now, $AllRows = $null) {
 }
 # Text der ersten Rueckfrage: je Geraet Seriennummer, Autopilot-ID, Geraetename, Tag, Benutzer, Stand, letzter Kontakt,
 # Rang bei Doppel, Intune-Plan (Get-IntunePlan), Warnungen; danach, was verloren geht
-function Get-DeletePlanText($Rows, [bool]$CanIntune, [datetime]$Now) {
+# -Plans: die im Klick festgehaltenen Plaene (eine Berechnung fuer Rueckfrage und Ausfuehrung); ohne: hier berechnet (Tests, Demo)
+function Get-DeletePlanText($Rows, [bool]$CanIntune, [datetime]$Now, $Plans = $null) {
     $Rows = @($Rows); $nl = "`r`n"
-    $plans = @($Rows | ForEach-Object { Get-IntunePlan $_ $CanIntune })
+    $plans = $(if ($Plans -and @($Plans).Count -eq $Rows.Count) { @($Plans) } else { @($Rows | ForEach-Object { Get-IntunePlan $_ $CanIntune }) })
     $nDel = @($plans | Where-Object { $_.Kind -eq 'delete' }).Count
     $nRight = @($plans | Where-Object { $_.Kind -eq 'right' }).Count
     $nAmbig = @($plans | Where-Object { $_.Kind -eq 'ambig' }).Count
@@ -3759,7 +3773,7 @@ function Get-DeleteSummary($Results) {
 # Doppelte Abfrage in einem Fenster: Seite 1 zeigt, was geloescht wird und was verloren geht (Weiter / Abbrechen),
 # Seite 2 verlangt die Seriennummer bzw. das Wort LÖSCHEN. Abbrechen ist Standard (Enter auf Seite 1, Esc immer).
 # Rueckgabe $true nur nach beiden Bestaetigungen.
-function Show-DeleteConfirm($Rows, [bool]$CanIntune, $Owner) {
+function Show-DeleteConfirm($Rows, [bool]$CanIntune, $Owner, $Plans = $null) {
     [xml]$lx = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -3790,7 +3804,7 @@ function Show-DeleteConfirm($Rows, [bool]$CanIntune, $Owner) {
     $sns = [string[]]@($Rows | ForEach-Object { [string]$_.Seriennr })
     $st = @{ Ok = $false }
     $c.tHead.Text = $(if ($Rows.Count -eq 1) { 'Diesen Autopilot-Eintrag wirklich löschen? Bitte genau lesen.' } else { 'Diese ' + $Rows.Count + ' Autopilot-Einträge wirklich löschen? Bitte genau lesen.' })
-    $c.tPlan.Text = Get-DeletePlanText $Rows $CanIntune (Get-Date)
+    $c.tPlan.Text = Get-DeletePlanText $Rows $CanIntune (Get-Date) $Plans
     $c.tAsk.Text = Get-DeleteAskText $sns
     # Zweite Abfrage wirklich tippen: Einfuegen (Strg+V, Umschalt+Einfg, Kontextmenue) und Ziehen sind gesperrt
     [System.Windows.DataObject]::AddPastingHandler($c.tType, [System.Windows.DataObjectPastingEventHandler]{ param($s, $e) $e.CancelCommand() })
@@ -3854,7 +3868,8 @@ function Show-Status {
       <Button x:Name="kWait" Style="{StaticResource HuTile}" Tag="wait" ToolTip="Hochgeladen, Microsoft weist das Profil noch zu (meist 5 bis 15 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nWait" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wartet auf Profil"/></StackPanel></Button>
       <Button x:Name="kReady" Style="{StaticResource HuTile}" Tag="ready" ToolTip="Profil ist da, das Gerät hat sich aber noch nicht angemeldet. Klick filtert."><StackPanel><TextBlock x:Name="nReady" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Profil da, noch nicht angemeldet"/></StackPanel></Button>
       <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Problem"/></StackPanel></Button>
-      <Button x:Name="kHw" Style="{StaticResource HuTile}" Tag="hw" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung (z. B. Mainboardtausch), der gespeicherte Hash passt nicht mehr.&#x0a;Hardware geändert (rot): Eintrag mit &quot;Autopilot-Eintrag löschen ...&quot; entfernen, dann mit dem Stick neu registrieren.&#x0a;Hardware wird abgeglichen (gelb): Microsoft versucht die Korrektur selbst, abwarten. Klick filtert."><StackPanel><TextBlock x:Name="nHw" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Hardware geändert"/></StackPanel></Button>
+      <Button x:Name="kHw" Style="{StaticResource HuTile}" Tag="hw" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung (z. B. Mainboardtausch), der gespeicherte Hash passt nicht mehr.&#x0a;Microsoft korrigiert das nicht von selbst: Eintrag mit &quot;Autopilot-Eintrag löschen ...&quot; entfernen, dann mit dem Stick neu registrieren. Klick filtert."><StackPanel><TextBlock x:Name="nHw" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Hardware geändert"/></StackPanel></Button>
+      <Button x:Name="kHwa" Style="{StaticResource HuTile}" Tag="hwa" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung, Microsoft versucht die Korrektur selbst. Abwarten.&#x0a;Bleibt es länger so: Eintrag mit &quot;Autopilot-Eintrag löschen ...&quot; entfernen und mit dem Stick neu registrieren. Klick filtert."><StackPanel><TextBlock x:Name="nHwa" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Hardware wird abgeglichen"/></StackPanel></Button>
       <Button x:Name="kDup" Style="{StaticResource HuTile}" Tag="dup" Visibility="Collapsed" ToolTip="Mehrere Autopilot-Einträge mit derselben Seriennummer. &quot;Was tun&quot; sagt, welcher der ältere ist. Klick filtert."><StackPanel><TextBlock x:Name="nDup" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Doppelt"/></StackPanel></Button>
       <Button x:Name="kDel" Style="{StaticResource HuTile}" Tag="del" Visibility="Collapsed" ToolTip="In diesem Fenster gelöscht, Microsoft hat den Eintrag noch nicht entfernt (bis zu 30 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nDel" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wird gelöscht"/></StackPanel></Button>
     </WrapPanel>
@@ -3906,7 +3921,7 @@ function Show-Status {
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
     Set-WinFit $sw
-    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','kHw','kDup','kDel','nHw','nDup','nDel','bDelete','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
+    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','kHw','kDup','kDel','nHw','nDup','nDel','kHwa','nHwa','bDelete','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
     $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; FitW = @{}; ManualCols = @{}; UserSized = $false; SizingByCode = $false; FromSearch = $false; Del = @{}; Busy = $false }
     $script:SRows = @(); $script:StatusView = @()
     # Spalten fest (deutsche Ueberschriften), Breite nach Inhalt (Set-GridColumnsFit), Reihenfolge aus ui.json
@@ -3978,7 +3993,7 @@ function Show-Status {
     [void]$g.cZeitBasis.Items.Add('nach Autopilot-Import')
     $g.cZeitBasis.SelectedIndex = 0
     $g.cAuto.IsChecked = ([string](Get-UiSetting 'StatusAuto' $true) -ne 'False')
-    $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb; hw = $g.kHw; dup = $g.kDup; del = $g.kDel }
+    $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb; hw = $g.kHw; hwa = $g.kHwa; dup = $g.kDup; del = $g.kDel }
     $refresh = {
         # Auswahl und Sortierung merken
         # Auswahl ueber die Kennung merken (nie ueber die Seriennummer: Zwillinge und leere Seriennummern)
@@ -3996,12 +4011,12 @@ function Show-Status {
         }
         if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
         # Kacheln zaehlen ueber die gefilterte Liste (ohne Kachel-Filter)
-        $cnt = @{ ok = 0; wait = 0; ready = 0; prob = 0; hw = 0; dup = 0; del = 0 }
+        $cnt = @{ ok = 0; wait = 0; ready = 0; prob = 0; hw = 0; hwa = 0; dup = 0; del = 0 }
         foreach ($r in $v) { $k = $script:StandTile[[string]$r.Stand]; if ($k) { $cnt[$k]++ } }
         $g.nAll.Text = '' + $v.Count; $g.nOk.Text = '' + $cnt.ok; $g.nWait.Text = '' + $cnt.wait; $g.nReady.Text = '' + $cnt.ready; $g.nProb.Text = '' + $cnt.prob
-        $g.nHw.Text = '' + $cnt.hw; $g.nDup.Text = '' + $cnt.dup; $g.nDel.Text = '' + $cnt.del
+        $g.nHw.Text = '' + $cnt.hw; $g.nHwa.Text = '' + $cnt.hwa; $g.nDup.Text = '' + $cnt.dup; $g.nDel.Text = '' + $cnt.del
         # seltene Staende: Kachel nur, wenn es solche Geraete gibt oder ihr Filter gerade aktiv ist
-        foreach ($k in 'hw', 'dup', 'del') { $tiles[$k].Visibility = $(if ($cnt[$k] -gt 0 -or $sst.Tile -eq $k) { 'Visible' } else { 'Collapsed' }) }
+        foreach ($k in 'hw', 'hwa', 'dup', 'del') { $tiles[$k].Visibility = $(if ($cnt[$k] -gt 0 -or $sst.Tile -eq $k) { 'Visible' } else { 'Collapsed' }) }
         if ($sst.Tile) { $tk = $sst.Tile; $v = @($v | Where-Object { $script:StandTile[[string]$_.Stand] -eq $tk }) }
         foreach ($k in @($tiles.Keys)) { if ($k -eq $sst.Tile -and $k) { $tiles[$k].SetResourceReference([System.Windows.Controls.Control]::BorderBrushProperty, 'HuAccent') } else { $tiles[$k].ClearValue([System.Windows.Controls.Control]::BorderBrushProperty) } }
         $script:StatusView = $v
@@ -4043,7 +4058,7 @@ function Show-Status {
                 $script:SRows = @($d.Rows); & $fillTags
                 if ($sst.First) { $g.cProto.IsChecked = ($d.Proto.Count -gt 0); $g.cProto.IsEnabled = ($d.Proto.Count -gt 0); $sst.First = $false }
                 $g.tStamp.Text = 'Stand: ' + (Get-Date -Format 'HH:mm')
-                $g.tLoad.Text = ''
+                $g.tLoad.Text = $(if ($d.IntunePartial) { 'Intune-Angaben unvollständig, Intune-Einträge werden nicht über die Seriennummer zugeordnet. "Aktualisieren" hilft.' } else { '' })
                 Set-Step 'Status' 'ok' ('' + @($d.Rows).Count + ' Geräte')
             } else {
                 $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Set-Step 'Status' 'err' 'nicht geladen'
@@ -4184,17 +4199,18 @@ function Show-Status {
     # pausiert, Ergebnis je Geraet ins Protokoll und in die Protokolldatei. Geloeschte Zeilen: Stand "Wird gelöscht".
     $sw.Add_Closing({ param($s, $e) if ($sst.Busy) { $e.Cancel = $true } })
     $g.bDelete.Add_Click({
-        if ($sst.Busy) { return }
-        if ($sst.Loading) { Show-Msg 'Die Liste lädt noch, bitte kurz warten.' 'HUPilot - Autopilot-Eintrag löschen' 'Information' $sw; return }
-        # Rueckfrage, Abfrage und Ausfuehrung kommen aus genau dieser gepruefen Liste
-        $chk = Test-DeleteSelection @($g.dGrid.SelectedItems)
-        if (-not $chk.Ok) { Show-Msg $chk.Msg 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw; return }
-        $sel = @($chk.Rows)
-        $sst.Busy = $true; $sst.Dialog = $true; $tm.Stop()
-        $btns = @($g.bDelete, $g.bTagSet, $g.bSync, $g.bReload, $g.bDetail, $g.bCsv, $g.bXlsx, $g.bPrint)
-        foreach ($b in $btns) { $b.IsEnabled = $false }
-        $results = @()
+        # alles im geschuetzten Bereich, auch Pruefen und Sperren; aufgeraeumt wird nur, was dieser Klick gesetzt hat ($mine)
+        $mine = $false; $btns = @(); $results = @()
         try {
+            if ($sst.Busy) { return }
+            if ($sst.Loading) { Show-Msg 'Die Liste lädt noch, bitte kurz warten.' 'HUPilot - Autopilot-Eintrag löschen' 'Information' $sw; return }
+            # Rueckfrage, Abfrage und Ausfuehrung kommen aus genau dieser gepruefen Liste
+            $chk = Test-DeleteSelection @($g.dGrid.SelectedItems)
+            if (-not $chk.Ok) { Show-Msg $chk.Msg 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw; return }
+            $sel = @($chk.Rows)
+            $mine = $true; $sst.Busy = $true; $sst.Dialog = $true; $tm.Stop()
+            $btns = @($g.bDelete, $g.bTagSet, $g.bSync, $g.bReload, $g.bDetail, $g.bCsv, $g.bXlsx, $g.bPrint)
+            foreach ($b in $btns) { $b.IsEnabled = $false }
             $tok = Get-ApiToken
             if (-not $tok) { Show-Msg $script:TokenMsg 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw; return }
             # Rechte aus dem Token. Nur eine lesbare, nicht leere Liste entscheidet; leer = unbekannt (Fehler beim Loeschen = Geraet uebersprungen)
@@ -4208,7 +4224,7 @@ function Show-Status {
             # Intune-Plan je Zeile: dieselbe Funktion fuer Rueckfrage und Ausfuehrung, vor der Rueckfrage festgehalten
             $plans = @($sel | ForEach-Object { Get-IntunePlan $_ $canI })
             if (@($plans | Where-Object { $_.Kind -eq 'right' }).Count) { Out-Log 'Löschen: der App fehlt das Recht DeviceManagementManagedDevices.ReadWrite.All, Intune-Einträge bleiben stehen. Angeboten wird nur der Autopilot-Eintrag.' 'Hinweis' }
-            if (-not (Show-DeleteConfirm $sel $canI $sw)) { Out-Log 'Autopilot-Eintrag löschen abgebrochen, nichts gelöscht.'; return }
+            if (-not (Show-DeleteConfirm $sel $canI $sw $plans)) { Out-Log 'Autopilot-Eintrag löschen abgebrochen, nichts gelöscht.'; return }
             Out-Log ('Autopilot-Eintrag löschen bestätigt für: ' + (@($sel | ForEach-Object { $_.Seriennr + ' (' + $_.Id + ')' }) -join ', '))
             for ($i = 0; $i -lt $sel.Count; $i++) {
                 $r = $sel[$i]
@@ -4228,12 +4244,11 @@ function Show-Status {
             Show-Msg (Get-DeleteSummary $results) 'HUPilot - Autopilot-Eintrag löschen' $(if ($okN -eq $results.Count) { 'Information' } else { 'Warning' }) $sw
         } catch {
             # nie ins globale trap: Fehlerzeile, bis dahin Erledigtes zeigen, aufraeumen (finally)
-            Out-Log 'Autopilot-Eintrag löschen unerwartet abgebrochen. "Aktualisieren" und den Stand prüfen.' 'Fehler' $_.Exception.Message
+            try { Out-Log 'Autopilot-Eintrag löschen unerwartet abgebrochen. "Aktualisieren" und den Stand prüfen.' 'Fehler' $_.Exception.Message } catch { }
             try { Show-Msg ('Unerwartet abgebrochen.' + "`r`n`r`n" + $(if ($results.Count) { Get-DeleteSummary $results } else { 'Bis dahin wurde nichts gelöscht.' })) 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw } catch { }
         } finally {
             foreach ($b in $btns) { try { $b.IsEnabled = $true } catch { } }
-            $sst.Busy = $false; $sst.Dialog = $false
-            if ($g.cAuto.IsChecked -and -not $sst.Paused) { $tm.Start() }
+            if ($mine) { $sst.Busy = $false; $sst.Dialog = $false; try { if ($g.cAuto.IsChecked -and -not $sst.Paused) { $tm.Start() } } catch { } }
         }
         try { & $refresh } catch { }
     })
@@ -4280,10 +4295,10 @@ function Show-Status {
             if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus dem Stick-Protokoll' }
             if ($g.cToday.IsChecked) { $flt += 'heute' }
             if ($g.cProblem.IsChecked) { $flt += 'nur Probleme' }
-            if ($sst.Tile) { $flt += ('Kachel ' + @{ ok = 'Fertig'; wait = 'Wartet auf Profil'; ready = 'Profil da'; prob = 'Problem'; hw = 'Hardware geändert'; dup = 'Doppelt'; del = 'Wird gelöscht' }[$sst.Tile]) }
+            if ($sst.Tile) { $flt += ('Kachel ' + @{ ok = 'Fertig'; wait = 'Wartet auf Profil'; ready = 'Profil da'; prob = 'Problem'; hw = 'Hardware geändert'; hwa = 'Hardware wird abgeglichen'; dup = 'Doppelt'; del = 'Wird gelöscht' }[$sst.Tile]) }
             if ($g.cZeit.IsChecked) { $flt += ('letzte ' + [string]$g.cZeitSpan.SelectedItem + ' ' + [string]$g.cZeitBasis.SelectedItem) }
             if ($g.tFind.Text) { $flt += ('Suche "' + $g.tFind.Text + '"') }
-            $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + (@(foreach ($x in @(@($g.nHw, 'Hardware geändert'), @($g.nDup, 'doppelt'), @($g.nDel, 'wird gelöscht'))) { if ($x[0].Text -ne '0') { ', ' + $x[0].Text + ' ' + $x[1] } }) -join '') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
+            $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + (@(foreach ($x in @(@($g.nHw, 'Hardware geändert'), @($g.nHwa, 'Hardware wird abgeglichen'), @($g.nDup, 'doppelt'), @($g.nDel, 'wird gelöscht'))) { if ($x[0].Text -ne '0') { ', ' + $x[0].Text + ' ' + $x[1] } }) -join '') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
             # tatsaechliche Seite (Papier, Ausrichtung, Rand) erst nach dem Dialog lesen und danach rechnen
             $pg = Get-PrintPage $pd
             $pr = New-StatusPrintDoc -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Title ('HUPilot - Status ' + (Get-Cfg).Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pg.W -PageH $pg.H -Margin $pg.Margin
@@ -4317,7 +4332,7 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         }
     } catch { Out-Log 'Autopilot-Geräte nicht lesbar. 1. Verbindung testen.' 'Fehler' $_.Exception.Message; return $null }
     # Optional: Intune-Geraete (Primaerer Benutzer, Geraetename, letzter Sync) - braucht DeviceManagementManagedDevices.Read.All
-    $md = @{}; $mdCnt = @{}
+    $md = @{}; $mdCnt = @{}; $mdPartial = $false
     try {
         $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime,enrolledDateTime&`$top=999"
         $page = 0
@@ -4328,7 +4343,11 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
             foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $k = 'SN:' + [string]$m.serialNumber; $md[$k] = $m; $mdCnt[$k] = 1 + [int]$mdCnt[$k] } }
             $uri = $r.'@odata.nextLink'
         }
-    } catch { Out-Log 'Benutzer, Gerätename und letzter Sync nicht lesbar. Optional: der App die Berechtigung DeviceManagementManagedDevices.Read.All geben.' 'Hinweis' $_.Exception.Message }
+    } catch {
+        # abgebrochen, nachdem schon Seiten gelesen waren: Liste unvollstaendig, keine Zuordnung ueber die Seriennummer
+        if ($md.Count) { $mdPartial = $true; Out-Log 'Intune-Angaben unvollständig (Liste nicht ganz geladen). Intune-Einträge werden deshalb nicht über die Seriennummer zugeordnet. "Aktualisieren" hilft.' 'Hinweis' $_.Exception.Message }
+        else { Out-Log 'Benutzer, Gerätename und letzter Sync nicht lesbar. Optional: der App die Berechtigung DeviceManagementManagedDevices.Read.All geben.' 'Hinweis' $_.Exception.Message }
+    }
     & $say 'lese Stick-Protokoll ...'
     $proto = Read-Protokoll
     $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
@@ -4357,7 +4376,7 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $lcS = $dt.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { }
         $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
         # Intune-Eintrag: Verknuepfung von Microsoft, sonst nur eindeutig ueber die Seriennummer (Resolve-IntuneLink)
-        $il = Resolve-IntuneLink ([string]$d.managedDeviceId) ([string]$d.serialNumber) $md $mdCnt ([bool]($dm))
+        $il = Resolve-IntuneLink ([string]$d.managedDeviceId) ([string]$d.serialNumber) $md $mdCnt ([bool]($dm)) $mdPartial
         $im = $il.Im
         $sync = ''; $syncS = ''; $reg = ''; $regS = ''
         if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $syncS = $sd.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { } }
@@ -4405,7 +4424,7 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
     $ids = @{}; foreach ($d in $all) { $ids[[string]$d.id] = $true }
     $gone = @($pend.Keys | Where-Object { -not $ids.ContainsKey([string]$_) })
     Out-Log ('Status geladen: ' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus dem Stick-Protokoll') 'OK'
-    return @{ Rows = $rows; Proto = $proto; Gone = $gone }
+    return @{ Rows = $rows; Proto = $proto; Gone = $gone; IntunePartial = $mdPartial }
 }
 $ui.bStatus.Add_Click({
     try { Show-Status } catch { Out-Log 'Das Status-Fenster konnte nicht geöffnet werden.' 'Fehler' $_.Exception.Message; Set-Step 'Status' 'err' $_.Exception.Message }
