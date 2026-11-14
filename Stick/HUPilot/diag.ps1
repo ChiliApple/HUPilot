@@ -30,16 +30,33 @@ try { $Host.UI.RawUI.BackgroundColor = 'Black'; $Host.UI.RawUI.ForegroundColor =
 # Bereinigung fuer Anzeige und Datei am Stick (gleiche Regeln wie der Bericht an den Admin in go.ps1, hier eigenstaendig,
 # weil diag go.ps1 nicht laedt): Geheimnisse aus config.json samt URL- und JSON-Varianten, Host des Webhooks,
 # Tenant-ID ohne Bindestriche, Schluessel auf die letzten 5 Zeichen, signierte Adressen, Tokens, E-Mail-Adressen (UPN).
-function Get-DiagSecrets {
-    param($Cfg)
-    $s = New-Object System.Collections.Generic.List[string]
-    if ($Cfg) {
-        foreach ($k in 'ClientSecret', 'WlanKey', 'AdminPassword', 'Admin2Password', 'TeamsWebhook', 'TenantId', 'ClientId') { $v = ([string]$Cfg.$k).Trim(); if ($v.Length -ge 3) { $s.Add($v) } }
-        $x = $null
-        if ([uri]::TryCreate(([string]$Cfg.TeamsWebhook).Trim(), [UriKind]::Absolute, [ref]$x) -and $x.Host.Length -ge 3) { $s.Add($x.Host) }
-        $tid = (([string]$Cfg.TenantId).Trim()) -replace '-', ''
-        if ($tid.Length -ge 3) { $s.Add($tid) }
+function Get-DiagRawValues {
+    # Rueckfall bei kaputter config.json: Werte der geheimen Felder per Muster aus dem Rohtext, so gut es geht
+    # (auch ohne Doppelpunkt oder ohne Anfuehrungszeichen). Nur zum Ersetzen, nie zur Anzeige.
+    param([string]$Raw)
+    $h = @{}
+    foreach ($k in 'ClientSecret', 'WlanKey', 'AdminPassword', 'Admin2Password', 'TeamsWebhook', 'TenantId', 'ClientId', 'EditionKey') {
+        foreach ($m in [regex]::Matches([string]$Raw, '(?i)"?\b' + $k + '\b"?\s*[:=]?\s*(?:"((?:[^"\\\r\n]|\\.)*)"?|([^,\r\n}\s][^,\r\n}]*))')) {
+            $v = $(if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value })
+            $v = ([string]$v).Trim()
+            if ($v.Length -ge 3) { $h[$k] = $v }
+        }
     }
+    return $h
+}
+function Get-DiagSecrets {
+    # $Cfg = gelesene config.json; ohne $Cfg die Werte aus dem Rohtext ($Raw, Rueckfall)
+    param($Cfg, [string]$Raw = '')
+    $s = New-Object System.Collections.Generic.List[string]
+    $keys = 'ClientSecret', 'WlanKey', 'AdminPassword', 'Admin2Password', 'TeamsWebhook', 'TenantId', 'ClientId', 'EditionKey'
+    $val = @{}
+    if ($Cfg) { foreach ($k in $keys) { $val[$k] = ([string]$Cfg.$k).Trim() } }
+    elseif ($Raw) { $val = Get-DiagRawValues $Raw }
+    foreach ($k in $keys) { $v = [string]$val[$k]; if ($v.Length -ge 3) { $s.Add($v) } }
+    $x = $null
+    if ([uri]::TryCreate(([string]$val['TeamsWebhook']).Trim(), [UriKind]::Absolute, [ref]$x) -and $x.Host.Length -ge 3) { $s.Add($x.Host) }
+    $tid = (([string]$val['TenantId']).Trim()) -replace '-', ''
+    if ($tid.Length -ge 3) { $s.Add($tid) }
     foreach ($v in @($s.ToArray())) {
         try { $e = [uri]::EscapeDataString($v); if ($e -cne $v) { $s.Add($e) } } catch { }
         try { $j = (ConvertTo-Json -InputObject $v -Compress); $j = $j.Substring(1, $j.Length - 2); if ($j -cne $v) { $s.Add($j) } } catch { }
@@ -48,9 +65,19 @@ function Get-DiagSecrets {
     return @($s | Select-Object -Unique | Sort-Object -Property Length -Descending)
 }
 function Protect-DiagText {
-    param([string]$Text, [string[]]$Secrets = @())
+    # -MaskIds: config.json nicht lesbar -> zusaetzlich alle GUIDs (Tenant-ID, App-ID) und 32-stellige Hex-Werte ersetzen
+    param([string]$Text, [string[]]$Secrets = @(), [bool]$MaskIds = $false)
     $t = [string]$Text
     if (-not $t) { return '' }
+    # Grob kappen (lange Zeilen machen Muster langsam): letztes, evtl. angeschnittenes Wort und ein am Ende stehender
+    # Anfang eines Geheimnisses fallen weg, nie ein Teilstueck
+    if ($t.Length -gt 4000) {
+        $t = $t.Substring(0, 4000)
+        $i = $t.LastIndexOfAny([char[]]@(' ', "`t", "`r", "`n"))
+        $t = $(if ($i -ge 0) { $t.Substring(0, $i + 1) } else { '' })
+        foreach ($x in @($Secrets)) { $x = [string]$x; for ($k = [math]::Min($x.Length - 1, $t.Length); $k -ge 3; $k--) { if ($t.EndsWith($x.Substring(0, $k), [StringComparison]::OrdinalIgnoreCase)) { $t = $t.Substring(0, $t.Length - $k); break } } }
+        $t = $t.TrimEnd() + ' ...'
+    }
     $t = [regex]::Replace($t, '[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}', { param($m) '*****-' + $m.Value.Substring($m.Value.Length - 5) })
     foreach ($x in @($Secrets)) { if ([string]$x) { $t = [regex]::Replace($t, [regex]::Escape([string]$x), '***', 'IgnoreCase') } }
     $t = [regex]::Replace($t, '(?i)https://\S*[?&]sig[=]\S*', '(Adresse entfernt)')
@@ -58,11 +85,24 @@ function Protect-DiagText {
     $t = [regex]::Replace($t, '(?i)((?<!\\)"(?:client_secret|clientsecret|access_token|refresh_token|password|adminpassword|admin2password|wlankey|teamswebhook)"\s*:\s*")((?:[^"\\]|\\.)*)', '$1***')
     $t = [regex]::Replace($t, '(?i)(\\"(?:client_secret|clientsecret|access_token|refresh_token|password|adminpassword|admin2password|wlankey|teamswebhook)\\"\s*:\s*\\")((?:(?!\\").)*)', '$1***')
     $t = [regex]::Replace($t, '(?i)(Bearer|client_secret[=:]|access_token["'':= ]+)\s*[^\s"''&]+', '$1 ***')
-    $t = [regex]::Replace($t, '[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}', { param($m) '***@' + $m.Value.Split('@')[1] })
+    # E-Mail: Beginn nur am Anfang eines Namens (Lookbehind), sonst waere das Muster bei langen Zeilen quadratisch
+    $t = [regex]::Replace($t, '(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,}', { param($m) '***@' + $m.Value.Split('@')[1] })
+    if ($MaskIds) {
+        $t = [regex]::Replace($t, '(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '***')
+        $t = [regex]::Replace($t, '(?i)\b[0-9a-f]{32}\b', '***')
+    }
     return $t
 }
+# config.json lesen; nie die Meldung von ConvertFrom-Json weitergeben (unter 5.1 steht der ganze JSON-Text darin)
 $script:DiagSecrets = @()
-try { $script:DiagSecrets = @(Get-DiagSecrets (Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json)) } catch { }
+$script:DiagNoCfg = $true
+$cfgRaw = ''
+try { $cfgRaw = [string](Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 -ErrorAction Stop) } catch { }
+$cfgObj = $null
+if ($cfgRaw) { try { $cfgObj = $cfgRaw | ConvertFrom-Json -ErrorAction Stop } catch { } }
+if ($cfgObj) { $script:DiagNoCfg = $false; try { $script:DiagSecrets = @(Get-DiagSecrets $cfgObj) } catch { } }
+elseif ($cfgRaw) { try { $script:DiagSecrets = @(Get-DiagSecrets $null $cfgRaw) } catch { } }
+$cfgRaw = ''; $cfgObj = $null
 
 function Get-Serial { try { return ([string](Get-CimInstance Win32_BIOS).SerialNumber).Trim() } catch { return '?' } }
 function Head([string]$t) {
@@ -78,7 +118,7 @@ function Tail([string]$File, [int]$N, [string]$Pattern) {
     foreach ($x in @($l | Select-Object -Last $N)) {
         $c = 'Gray'
         if ($x -match 'FEHLER|ERR |Fehler') { $c = 'Red' } elseif ($x -match 'ACHTUNG|OFFLINE|Hinweis|nicht m(ö|oe)glich') { $c = 'Yellow' } elseif ($x -match ' OK|erfolgreich|gespeichert|zugewiesen') { $c = 'Green' }
-        $t = Protect-DiagText $x $script:DiagSecrets; if ($t.Length -gt 150) { $t = $t.Substring(0, 150) }
+        $t = Protect-DiagText $x $script:DiagSecrets $script:DiagNoCfg; if ($t.Length -gt 150) { $t = $t.Substring(0, 150) }
         Write-Host ('  ' + $t) -ForegroundColor $c
     }
 }
@@ -138,7 +178,7 @@ function Show-Net {
             try { $null = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $th -UseBasicParsing -TimeoutSec 8 -Method Head; Write-Host '  OK    Bericht an den Admin: eingetragen, erreichbar' -ForegroundColor Green }
             catch {
                 if ($_.Exception.Response) { Write-Host ('  OK    Bericht an den Admin: eingetragen, erreichbar (HTTP ' + [int]$_.Exception.Response.StatusCode + ')') -ForegroundColor Green }
-                else { Write-Host ('  FEHLT Bericht an den Admin: eingetragen, nicht erreichbar (' + (Protect-DiagText ($_.Exception.Message -replace 'https?://\S+', '(Adresse)') $script:DiagSecrets) + ')') -ForegroundColor Red }
+                else { Write-Host ('  FEHLT Bericht an den Admin: eingetragen, nicht erreichbar (' + (Protect-DiagText ($_.Exception.Message -replace 'https?://\S+', '(Adresse)') $script:DiagSecrets $script:DiagNoCfg) + ')') -ForegroundColor Red }
             }
         }
     } else { Write-Host '  Bericht an den Admin: nicht eingetragen' }
@@ -202,7 +242,8 @@ function Save-All {
     $out += "`r`n===== netsh wlan show interfaces =====`r`n" + (netsh wlan show interfaces 2>&1 | Out-String)
     $out += "`r`n===== ipconfig /all =====`r`n" + (ipconfig /all 2>&1 | Out-String)
     # Vor dem Ablegen am Stick bereinigen (Tenant-ID, App-ID, Secrets, UPN aus Fehlermeldungen)
-    $out = @($out | ForEach-Object { Protect-DiagText ([string]$_) $script:DiagSecrets })
+    # zeilenweise (die Teile sind ganze Logs), dann Datei schreiben
+    $out = @((($out | ForEach-Object { [string]$_ }) -join '') -split "`r?`n" | ForEach-Object { Protect-DiagText $_ $script:DiagSecrets $script:DiagNoCfg })
     try { Set-Content -Path $f -Value $out -Encoding UTF8; Head 'Gespeichert'; Write-Host ('  ' + $f) -ForegroundColor Green; Write-Host '  Stick am PC anstecken und die Datei schicken.' }
     catch { Write-Host ('  FEHLER: ' + $_.Exception.Message) -ForegroundColor Red }
 }

@@ -79,9 +79,11 @@ Describe 'go 2.8.0 B1: nach dem Start des Zuruecksetzens nie "nicht zurueckgeset
         $script:GoTail | Should -Not -Match 'Fail-Reset \$res'
         $script:GoTail | Should -Not -Match "'nicht zurückgesetzt|Nichts, das Gerät"
     }
-    It 'Einbau: Stoppen wird geprueft (Exitcode von schtasks /End, Zustand Running)' {
-        $script:GoTail | Should -Match '\$stopOk = \(\$LASTEXITCODE -eq 0\)'
-        $script:GoTail | Should -Match "State -eq 'Running'"
+    It 'Einbau: Stoppen wird geprueft (Stop-WipeTask: Zustand massgeblich, sonst Exitcode)' {
+        $sw = Get-GoFunctionText 'Stop-WipeTask'
+        $sw | Should -Match "-notin 'Running', 'Queued'"
+        (Get-GoFunctionText 'Invoke-SchtasksEnd') | Should -Match '\$LASTEXITCODE -eq 0'
+        $script:GoTail | Should -Match "\`$stopOk = Stop-WipeTask \`$tn 'keine Rückmeldung nach 5 Min'"
         $script:GoTail | Should -Match 'Get-WipeOutcome \$res \$wipeLines \$stopOk'
     }
 }
@@ -91,7 +93,7 @@ Describe 'go 2.8.0 B3: nur das Wipe-Log dieses Laufs zaehlt' {
         . ([scriptblock]::Create((Get-GoFunctionText 'Get-WipeRunLines', 'Get-WipeOutcome', 'Get-WipeChanges', 'Get-WipeErrText')))
     }
     It 'ein alter Lauf mit WIPE-AUFRUF zaehlt nicht' {
-        $l = @('09:00  LAUF alt111 Start als SYSTEM', '09:01  verschoben: C:\Recovery\OEM\x', '09:02  WIPE-AUFRUF doWipePersistProvisionedDataMethod', '10:00  LAUF neu222 Start als SYSTEM', '10:01  Paket bleibt: a.ppkg')
+        $l = @('09:00  [alt111]  LAUF alt111 Start als SYSTEM', '09:01  [alt111]  verschoben: C:\Recovery\OEM\x', '09:02  [alt111]  WIPE-AUFRUF doWipePersistProvisionedDataMethod', '10:00  [neu222]  LAUF neu222 Start als SYSTEM', '10:01  [neu222]  Paket bleibt: a.ppkg')
         $r = @(Get-WipeRunLines $l 'neu222')
         $r.Count | Should -Be 2
         ($r -join "`n") | Should -Not -Match 'WIPE-AUFRUF'
@@ -99,12 +101,12 @@ Describe 'go 2.8.0 B3: nur das Wipe-Log dieses Laufs zaehlt' {
         @((Get-WipeOutcome '' $r $true).Changes).Count | Should -Be 0
     }
     It 'ohne Marke dieses Laufs: nichts' {
-        @(Get-WipeRunLines @('09:00  LAUF alt111 Start', '09:02  WIPE-AUFRUF') 'neu222').Count | Should -Be 0
+        @(Get-WipeRunLines @('09:00  [alt111]  LAUF alt111 Start', '09:02  [alt111]  WIPE-AUFRUF', '09:03  WIPE-AUFRUF ohne Kennung (alte Version)') 'neu222').Count | Should -Be 0
         @(Get-WipeRunLines @('x') '').Count | Should -Be 0
         @(Get-WipeRunLines @() 'neu222').Count | Should -Be 0
     }
     It 'Kennung als ganzes Wort (neu22 trifft nicht neu222)' {
-        @(Get-WipeRunLines @('LAUF neu222 Start', 'WIPE-AUFRUF') 'neu22').Count | Should -Be 0
+        @(Get-WipeRunLines @('[neu222]  LAUF neu222 Start', '[neu222]  WIPE-AUFRUF') 'neu22').Count | Should -Be 0
     }
     It 'Einbau: altes Log weg, Kennung ins Script, nur dieser Lauf ins Log' {
         $script:GoText | Should -Match "L \('LAUF __RUNID__ Start als "
@@ -410,9 +412,9 @@ Describe 'diag 2.8.0 B11: bereinigt, kein Host, Menue ohne zusaetzliches Enter' 
         (Protect-DiagText '2026-11-14 10:00:00  Schritt 2 von 6: Internet' @()) | Should -Be '2026-11-14 10:00:00  Schritt 2 von 6: Internet'
     }
     It 'Einbau: Datei am Stick und Anzeige bereinigt, Host nicht angezeigt' {
-        $script:DiagText | Should -Match ([regex]::Escape('$out = @($out | ForEach-Object { Protect-DiagText ([string]$_) $script:DiagSecrets })'))
-        $script:DiagText.IndexOf('Protect-DiagText ([string]$_)') | Should -BeLessThan $script:DiagText.IndexOf('Set-Content -Path $f -Value $out')
-        $script:DiagText | Should -Match ([regex]::Escape('$t = Protect-DiagText $x $script:DiagSecrets'))
+        $script:DiagText | Should -Match ([regex]::Escape('-split "`r?`n" | ForEach-Object { Protect-DiagText $_ $script:DiagSecrets $script:DiagNoCfg })'))
+        $script:DiagText.IndexOf('ForEach-Object { Protect-DiagText $_ $script:DiagSecrets') | Should -BeLessThan $script:DiagText.IndexOf('Set-Content -Path $f -Value $out')
+        $script:DiagText | Should -Match ([regex]::Escape('$t = Protect-DiagText $x $script:DiagSecrets $script:DiagNoCfg'))
         $script:DiagText | Should -Not -Match 'Write-Host[^\r\n]*\$x\.Host'
         $script:DiagText | Should -Match 'Bericht an den Admin: eingetragen, erreichbar'
         $script:DiagText | Should -Match 'Bericht an den Admin: eingetragen, nicht erreichbar'
@@ -426,5 +428,265 @@ Describe 'diag 2.8.0 B11: bereinigt, kein Host, Menue ohne zusaetzliches Enter' 
         $tk = $null; $er = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile($script:DiagPath, [ref]$tk, [ref]$er)
         @($er).Count | Should -Be 0
+    }
+}
+
+# ---------- Zweite Runde (Pruefung der Korrekturen) ----------
+
+Describe 'go 2.8.0 M1: Ergebnisdatei nur mit der Kennung dieses Laufs' {
+    BeforeAll { . ([scriptblock]::Create((Get-GoFunctionText 'Get-WipeResult', 'Get-WipeOutcome', 'Get-WipeChanges', 'Get-WipeErrText'))) }
+    It 'eigene Kennung: Ergebnis zaehlt' {
+        Get-WipeResult 'LAUF abc123 OK 0' 'abc123' | Should -Be 'OK 0'
+        Get-WipeResult "LAUF abc123 ERR Wipe: x`r`n" 'abc123' | Should -Be 'ERR Wipe: x'
+    }
+    It 'altes ERR oder altes OK 0 ohne Kennung, fremde Kennung, halbe Zeile: noch keine Rueckmeldung' {
+        Get-WipeResult 'ERR verschieben: alt' 'abc123' | Should -Be ''
+        Get-WipeResult 'OK 0' 'abc123' | Should -Be ''
+        Get-WipeResult 'LAUF alt999 OK 0' 'abc123' | Should -Be ''
+        Get-WipeResult 'LAUF abc1234 OK 0' 'abc123' | Should -Be ''
+        Get-WipeResult 'LAUF abc123' 'abc123' | Should -Be ''
+        Get-WipeResult '' 'abc123' | Should -Be ''
+        Get-WipeResult 'LAUF abc123 OK 0' '' | Should -Be ''
+    }
+    It 'altes ERR fuehrt so nie zu "nicht zurueckgesetzt", solange die Aufgabe nicht nachweislich steht' {
+        $res = Get-WipeResult 'ERR verschieben: alt' 'abc123'
+        (Get-WipeOutcome $res @('[abc123]  LAUF abc123 Start') $false).Kind | Should -Be 'Unklar'
+    }
+    It 'altes OK 0 ergibt nie "angenommen"' {
+        $res = Get-WipeResult 'OK 0' 'abc123'
+        (Get-WipeOutcome $res @('[abc123]  LAUF abc123 Start') $true).Kind | Should -Not -Be 'Ok'
+    }
+    It 'Fehlerzeile ohne Aufruf: Fehler nur, wenn die Aufgabe nicht mehr laeuft' {
+        $l = @('[abc123]  LAUF abc123 Start', '[abc123]  FEHLER verschieben: x')
+        (Get-WipeOutcome 'ERR verschieben: x' $l $true).Kind | Should -Be 'Fehler'
+        $o = Get-WipeOutcome 'ERR verschieben: x' $l $false
+        $o.Kind | Should -Be 'Unklar'
+        $o.Why | Should -Match 'läuft aber noch oder ließ sich nicht stoppen'
+    }
+    It 'Einbau: Kennung im Ergebnis des SYSTEM-Scripts, altes Ergebnis mit Kontrolle geloescht, Stoppen vor Fail-Reset' {
+        $script:GoText | Should -Match ([regex]::Escape("Set-Content -Path `$res -Value ('LAUF __RUNID__ ' + `$v)"))
+        @([regex]::Matches($script:GoText, 'Set-Content -Path \$res')).Count | Should -Be 1
+        @([regex]::Matches($script:GoText, 'Write-WipeRes \(')).Count | Should -Be 6
+        $script:GoText | Should -Not -Match 'function R\('
+        $script:GoText | Should -Match ([regex]::Escape('Remove-Item -LiteralPath $WipeResult -Force -ErrorAction Stop'))
+        $script:GoText | Should -Not -Match 'Remove-Item -Path \$WipeResult -Force -ErrorAction SilentlyContinue'
+        $script:GoTail | Should -Match ([regex]::Escape('$res = Get-WipeResult $raw $WipeRun'))
+        $i = $script:GoTail.IndexOf("if (`$wo.Kind -eq 'Fehler' -and `$res) {")
+        $i | Should -BeGreaterThan 0
+        $script:GoTail.IndexOf("Stop-WipeTask `$tn 'Fehler gemeldet'", $i) | Should -BeLessThan $script:GoTail.IndexOf("if (`$wo.Kind -eq 'Fehler') { Fail-Reset", $i)
+    }
+    It 'Hinweis: r ist ein Alias (Invoke-History), darum heisst die Funktion Write-WipeRes' {
+        (Get-Alias -Name r -ErrorAction SilentlyContinue).Definition | Should -Be 'Invoke-History'
+    }
+}
+
+Describe 'go 2.8.0 G1: Kennung in jeder Zeile des SYSTEM-Scripts' {
+    BeforeAll { . ([scriptblock]::Create((Get-GoFunctionText 'Get-WipeRunLines', 'Get-WipeOutcome', 'Get-WipeChanges', 'Get-WipeErrText'))) }
+    It 'fehlt nur die Startzeile, zaehlen WIPE-AUFRUF und Aenderungen trotzdem' {
+        $l = @('10:01  [neu222]  verschoben: C:\Recovery\OEM\x', '10:02  [neu222]  WIPE-AUFRUF doWipePersistProvisionedDataMethod')
+        $r = @(Get-WipeRunLines $l 'neu222')
+        $r.Count | Should -Be 2
+        $o = Get-WipeOutcome '' $r $true
+        $o.Called | Should -BeTrue
+        $o.Kind | Should -Be 'Unklar'
+    }
+    It 'ERR Wipe und kein Log dieses Laufs: unklar (vor oder nach dem Aufruf)' {
+        (Get-WipeOutcome 'ERR Wipe: x' @() $true).Kind | Should -Be 'Unklar'
+    }
+    It 'Einbau: L schreibt die Kennung in jede Zeile' {
+        $script:GoText | Should -Match ([regex]::Escape("(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  [__RUNID__]  ' + `$m"))
+    }
+}
+
+Describe 'go 2.8.0 G8: Zustand der Aufgabe ist massgeblich' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-GoFunctionText 'Stop-WipeTask', 'Invoke-SchtasksEnd')))
+        function Log([string]$Msg) { $script:LogLines += $Msg }
+    }
+    BeforeEach { $script:LogLines = @(); Mock Start-Sleep { } }
+    It 'beide Befehle scheitern, Zustand Ready: gestoppt' {
+        Mock Stop-ScheduledTask { throw 'Die Aufgabe wird nicht ausgefuehrt' }
+        Mock Invoke-SchtasksEnd { @{ Ok = $false; Out = 'FEHLER'; Code = 1 } }
+        Mock Get-ScheduledTask { [pscustomobject]@{ State = 'Ready' } }
+        Stop-WipeTask 'HUPilot-Wipe' 'Test' | Should -BeTrue
+    }
+    It 'Stoppen meldet Erfolg, Zustand Running oder Queued: nicht gestoppt' {
+        Mock Stop-ScheduledTask { }
+        Mock Get-ScheduledTask { [pscustomobject]@{ State = 'Running' } }
+        Stop-WipeTask 'HUPilot-Wipe' 'Test' | Should -BeFalse
+        Mock Get-ScheduledTask { [pscustomobject]@{ State = 'Queued' } }
+        Stop-WipeTask 'HUPilot-Wipe' 'Test' | Should -BeFalse
+        ($script:LogLines -join "`n") | Should -Match 'ließ sich nicht stoppen'
+    }
+    It 'Zustand nicht lesbar: Ergebnis der Befehle zaehlt' {
+        Mock Get-ScheduledTask { throw 'nicht lesbar' }
+        Mock Stop-ScheduledTask { }
+        Stop-WipeTask 'HUPilot-Wipe' 'Test' | Should -BeTrue
+        Mock Stop-ScheduledTask { throw 'x' }
+        Mock Invoke-SchtasksEnd { @{ Ok = $false; Out = ''; Code = 1 } }
+        Stop-WipeTask 'HUPilot-Wipe' 'Test' | Should -BeFalse
+        Mock Invoke-SchtasksEnd { @{ Ok = $true; Out = 'OK'; Code = 0 } }
+        Stop-WipeTask 'HUPilot-Wipe' 'Test' | Should -BeTrue
+    }
+}
+
+Describe 'go 2.8.0 M2: nie die Meldung von ConvertFrom-Json einer config.json weitergeben' {
+    BeforeAll { . ([scriptblock]::Create((Get-GoFunctionText 'Get-JsonErrPos'))) }
+    It 'nur die Position, kein Inhalt (Meldung dieser PowerShell, unter 5.1 mit dem ganzen JSON-Text)' {
+        $msg = ''
+        try { '{"ClientSecret": "GEHEIM-Wert-123", "WlanKey": "WlanX99" ' | ConvertFrom-Json -ErrorAction Stop } catch { $msg = $_.Exception.Message }
+        $msg | Should -Not -BeNullOrEmpty
+        if ($PSVersionTable.PSVersion.Major -le 5) { $msg | Should -Match 'GEHEIM-Wert-123' }   # belegt das Problem unter 5.1
+        $pos = Get-JsonErrPos $msg
+        $pos | Should -Match '^(Zeile \d+, )?Zeichen \d+$'
+        $pos | Should -Not -Match 'GEHEIM|WlanX'
+    }
+    It 'Formen von 5.1 und 7, sonst leer' {
+        Get-JsonErrPos 'Ein ungültiges Objekt wurde übergeben. Erwartet wurde ":" oder "}". (49): {"a": "geheim"' | Should -Be 'Zeichen 49'
+        Get-JsonErrPos "Unexpected end when deserializing object. Path 'WlanKey', line 1, position 49." | Should -Be 'Zeile 1, Zeichen 49'
+        Get-JsonErrPos 'irgendwas' | Should -Be ''
+    }
+    It 'Einbau go: Meldung wird weder geloggt noch angezeigt, Merkdatei ebenso' {
+        $l = @($script:GoText -split "`r?`n" | Where-Object { $_ -match "\`$cfg = \`$cfgRaw \| ConvertFrom-Json" })
+        $l.Count | Should -Be 1
+        $l[0] | Should -Match 'Get-JsonErrPos \$_\.Exception\.Message'
+        $l[0] | Should -Not -Match "Log \([^)]*\`$_\.Exception\.Message"
+        $l[0] | Should -Not -Match "Fail \([^\r\n]*\`$_\.Exception\.Message"
+        $script:GoText | Should -Not -Match "config\.json lesen: ' \+ \`$_\.Exception\.Message"
+        $m = @($script:GoText -split "`r?`n" | Where-Object { $_ -match "Merkdatei Edition nicht lesbar" })
+        ($m -join "`n") | Should -Not -Match 'Exception'
+    }
+    It 'Einbau diag: config nur ohne Meldung gelesen, Rueckfall auf den Rohtext' {
+        $script:DiagText | Should -Match ([regex]::Escape('elseif ($cfgRaw) { try { $script:DiagSecrets = @(Get-DiagSecrets $null $cfgRaw) } catch { } }'))
+    }
+}
+
+Describe 'diag 2.8.0 M2: Rueckfall bei kaputter config.json' {
+    BeforeAll { . ([scriptblock]::Create((Get-FunctionText $script:DiagPath 'Get-DiagRawValues', 'Get-DiagSecrets', 'Protect-DiagText'))) }
+    It 'Werte aus dem Rohtext, auch ohne Doppelpunkt oder Anfuehrungszeichen' {
+        $raw = "{`n  `"TenantId`": `"11111111-2222-3333-4444-555555555555`",`n  `"ClientId`" `"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`",`n  ClientSecret: Roh+Geheim/77,`n  `"WlanKey`": `"Wlan Kennwort 1`"`n  `"TeamsWebhook`": `"https://h0st.example.invalid/x?sig=q`""
+        $v = Get-DiagRawValues $raw
+        $v['TenantId'] | Should -Be '11111111-2222-3333-4444-555555555555'
+        $v['ClientId'] | Should -Be 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        $v['ClientSecret'] | Should -Be 'Roh+Geheim/77'
+        $v['WlanKey'] | Should -Be 'Wlan Kennwort 1'
+        $sec = Get-DiagSecrets $null $raw
+        $t = Protect-DiagText ("Fehler mit Roh+Geheim/77 und Wlan Kennwort 1 bei h0st.example.invalid, Tenant 11111111222233334444555555555555") $sec $true
+        $t | Should -Not -Match 'Roh\+Geheim|Wlan Kennwort|h0st|1111111122'
+    }
+    It 'config nicht lesbar: GUIDs und 32-stellige Hex-Werte werden maskiert, sonst nicht' {
+        $line = "App 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' im Verzeichnis 0123456789abcdef0123456789abcdef"
+        (Protect-DiagText $line @() $true) | Should -Be "App '***' im Verzeichnis ***"
+        (Protect-DiagText $line @() $false) | Should -Be $line
+    }
+}
+
+Describe 'go und diag 2.8.0 G3: grob kappen vor der Bereinigung, nie ein Teilstueck' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-GoFunctionText 'Protect-ReportText', 'Get-CutText', 'New-GoReport')))
+        . ([scriptblock]::Create((Get-FunctionText $script:DiagPath 'Protect-DiagText')))
+        $ReportTitleMax = 200; $ReportLinesMax = 30; $ReportLineLen = 600; $ReportLogLen = 400; $Ver = '0.0.0'; $StepTotal = 6
+    }
+    It 'Geheimnis ohne Leerzeichen an der Grenze 4000: kein Teilstueck' {
+        foreach ($f in 'Protect-ReportText', 'Protect-DiagText') {
+            $t = & $f ((' x' * 1997) + 'GrenzGeheimnisABC123' + ' danach') @('GrenzGeheimnisABC123')
+            $t | Should -Not -Match 'Grenz' -Because $f
+            $t | Should -Match ' \.\.\.$' -Because $f
+        }
+    }
+    It 'Geheimnis mit Leerzeichen an der Grenze: auch der Anfang faellt weg' {
+        $sec = @('mein langes geheimes Wort')
+        foreach ($f in 'Protect-ReportText', 'Protect-DiagText') {
+            $t = & $f (('y' * 3990) + ' mein langes geheimes Wort und mehr') $sec
+            $t | Should -Not -Match 'mein|langes' -Because $f
+        }
+    }
+    It 'kurze Zeilen bleiben unveraendert, das Log kappt nicht (-Cap 0)' {
+        Protect-ReportText 'kurz' @() | Should -Be 'kurz'
+        (Protect-ReportText ('z ' * 3000) @() -Cap 0).Length | Should -Be 6000
+    }
+    It 'sehr lange Zeilen sind schnell (30000 Zeichen ohne Leerzeichen)' {
+        $long = 'a' * 30000
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        [void](Protect-DiagText $long @('geheim1') $true)
+        [void](Protect-ReportText $long @('geheim1'))
+        [void](New-GoReport -End @{ Was = $long } -SerialNo 'S' -LogTail @($long, $long) -Secrets @('geheim1'))
+        $sw.Elapsed.TotalSeconds | Should -BeLessThan 3
+    }
+    It 'E-Mail-Muster in diag ohne Kappen linear (Lookbehind)' {
+        $rx = [regex]::Match($script:DiagText, "\[regex\]::Replace\(\`$t, '(\(\?<!\[A-Za-z0-9\._%\+-\]\)[^']+)'").Groups[1].Value
+        $rx | Should -Not -BeNullOrEmpty
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        [void][regex]::Replace(('b' * 30000), $rx, 'x')
+        $sw.Elapsed.TotalSeconds | Should -BeLessThan 1
+    }
+}
+
+Describe 'go 2.8.0 G4: hashes.csv mit Umlauten' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-GoFunctionText 'Read-TextAuto', 'Save-HashRow')))
+        $script:Hdr = 'Device Serial Number,Windows Product ID,Hardware Hash,Group Tag,Assigned User'
+    }
+    BeforeEach { $script:F = Join-Path ([IO.Path]::GetTempPath()) ('hup280_' + [guid]::NewGuid().ToString('N') + '.csv') }
+    AfterEach { Remove-Item -LiteralPath $script:F -Force -ErrorAction SilentlyContinue }
+    It 'UPN mit Umlaut bleibt erhalten, auch in der ANSI-Zeile eines anderen Geraets' {
+        $ue = [string][char]0xFC
+        $ansi = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+        [IO.File]::WriteAllText($script:F, ($script:Hdr + "`r`nSN-ALT,,HASHALT,T1,m" + $ue + "ller@example.org`r`n"), $ansi)
+        Save-HashRow $script:F $script:Hdr 'SN-NEU' ('SN-NEU,,HASHNEU,T1,j' + $ue + 'rgen@example.org')
+        $t = [IO.File]::ReadAllText($script:F, (New-Object Text.UTF8Encoding($false, $true)))
+        $t | Should -Match ('SN-ALT,,HASHALT,T1,m' + $ue + 'ller@example\.org')
+        $t | Should -Match ('SN-NEU,,HASHNEU,T1,j' + $ue + 'rgen@example\.org')
+        $b = [IO.File]::ReadAllBytes($script:F); ($b[0] -eq 0xEF) | Should -BeFalse   # ohne BOM
+    }
+    It 'gleiche Seriennummer wird ersetzt, UTF-8 mit BOM wird gelesen' {
+        [IO.File]::WriteAllText($script:F, ($script:Hdr + "`r`nSN1,,ALT,T1,`r`nSN2,,X,T1,`r`n"), (New-Object Text.UTF8Encoding $true))
+        Save-HashRow $script:F $script:Hdr 'SN1' 'SN1,,NEU,T2,'
+        $l = @([IO.File]::ReadAllLines($script:F))
+        $l | Should -Be @($script:Hdr, 'SN2,,X,T1,', 'SN1,,NEU,T2,')
+    }
+    It 'reines ASCII: Byte fuer Byte wie bisher (Set-Content -Encoding ASCII)' {
+        Save-HashRow $script:F $script:Hdr 'SN1' 'SN1,,HASH,T1,a@example.org'
+        $ref = Join-Path ([IO.Path]::GetTempPath()) ('hup280_ref_' + [guid]::NewGuid().ToString('N') + '.csv')
+        try {
+            Set-Content -Path $ref -Value @($script:Hdr, 'SN1,,HASH,T1,a@example.org') -Encoding ASCII
+            [IO.File]::ReadAllBytes($script:F) | Should -Be ([IO.File]::ReadAllBytes($ref))
+        } finally { Remove-Item -LiteralPath $ref -Force -ErrorAction SilentlyContinue }
+    }
+    It 'Einbau: Save-Offline nutzt Save-HashRow, protokoll.csv als UTF-8 ohne BOM' {
+        (Get-GoFunctionText 'Save-Offline') | Should -Match 'Save-HashRow \$f \$OfflineHdr \$Serial'
+        (Get-GoFunctionText 'Save-Offline') | Should -Not -Match 'Encoding ASCII'
+        $pk = Get-GoFunctionText 'Protokoll'
+        $pk | Should -Match 'UTF8Encoding \$false'
+        $pk | Should -Not -Match 'Encoding ASCII'
+    }
+}
+
+Describe 'go 2.8.0 G5 und Log an der Quelle' {
+    BeforeAll { . ([scriptblock]::Create((Get-GoFunctionText 'Log', 'Protect-ReportText', 'Get-ReportSecrets'))) }
+    It 'G5: Bild sagt, dass das Geraet wartet, mit Logzeile beim Wechsel' {
+        $w = Get-GoFunctionText 'Wait-Power'
+        $w | Should -Match 'GERÄT WARTET'
+        $w | Should -Match 'macht erst weiter, wenn J gedrückt ist'
+        $w | Should -Match "Log 'Akku nicht prüfbar - Gerät wartet auf Netzteil und J'"
+        $w | Should -Match "Log 'Akku jetzt nicht prüfbar"
+    }
+    It 'Log ersetzt bekannte Geheimnisse, sobald die config geladen ist, und laesst den Rest lesbar' {
+        $LocalLog = Join-Path ([IO.Path]::GetTempPath()) ('hup280_log_' + [guid]::NewGuid().ToString('N') + '.log')
+        $StickLog = $null
+        function Get-Mono { 1 }
+        try {
+            $script:LogSecrets = @()
+            Log 'vorher ohne config: AppGeheim42'
+            $script:LogSecrets = @(Get-ReportSecrets ([pscustomobject]@{ ClientSecret = 'AppGeheim42'; ClientId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }) '')
+            Log "AADSTS7000215: Invalid client secret provided for app 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' (AppGeheim42)"
+            $t = [IO.File]::ReadAllText($LocalLog)
+            $t | Should -Match 'vorher ohne config: AppGeheim42'
+            $t | Should -Match "AADSTS7000215: Invalid client secret provided for app '\*\*\*' \(\*\*\*\)"
+        } finally { $script:LogSecrets = @(); Remove-Item -LiteralPath $LocalLog -Force -ErrorAction SilentlyContinue }
+    }
+    It 'Einbau: Geheimnisse fuer das Log direkt nach dem Laden der config' {
+        $script:GoText | Should -Match ([regex]::Escape("try { `$script:LogSecrets = @(Get-ReportSecrets `$cfg '') } catch { }"))
+        (Get-GoFunctionText 'Log') | Should -Match 'Protect-ReportText \$Msg \$script:LogSecrets -Cap 0'
     }
 }
