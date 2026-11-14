@@ -91,6 +91,21 @@ function Show-Net {
             else { Write-Host ('  FEHLT ' + $u + '  ' + $m) -ForegroundColor Red }
         }
     }
+    # Bericht an den Admin (config.json "TeamsWebhook"): nur den Host pruefen und anzeigen, nie die Adresse (Geheimnis)
+    $tw = ''; try { $tw = ([string](Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json).TeamsWebhook).Trim() } catch { }
+    if ($tw) {
+        $x = $null
+        if (-not [uri]::TryCreate($tw, [UriKind]::Absolute, [ref]$x) -or $x.Scheme -ne 'https' -or $x.Host -match '(?i)(^|\.)webhook\.office\.com$') { Write-Host '  FEHLT Bericht an den Admin: Feld Teams-Webhook ungültig. Im Setup das Feld Teams-Webhook prüfen und den Stick neu bespielen.' -ForegroundColor Yellow }
+        else {
+            $th = 'https://' + $x.Host
+            try { $null = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $th -UseBasicParsing -TimeoutSec 8 -Method Head; Write-Host ('  OK    Bericht an den Admin ' + $x.Host) -ForegroundColor Green }
+            catch {
+                if ($_.Exception.Response) { Write-Host ('  OK    Bericht an den Admin ' + $x.Host + '  (erreichbar, HTTP ' + [int]$_.Exception.Response.StatusCode + ')') -ForegroundColor Green }
+                else { Write-Host ('  FEHLT Bericht an den Admin ' + $x.Host + '  ' + ($_.Exception.Message -replace 'https?://\S+', '(Adresse)')) -ForegroundColor Red }
+            }
+        }
+    }
+    try { $ob = @(Get-ChildItem -LiteralPath (Join-Path $CfgDir 'logs\outbox') -Filter '*.json' -File -ErrorAction Stop).Count; if ($ob) { Write-Host ('  Berichte an den Admin am Stick, noch nicht gesendet: ' + $ob) -ForegroundColor Yellow } } catch { }
     try {
         $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri 'http://www.msftconnecttest.com/connecttest.txt' -UseBasicParsing -TimeoutSec 5
         $srv = [DateTimeOffset]::Parse([string]$r.Headers['Date'], [Globalization.CultureInfo]::InvariantCulture)

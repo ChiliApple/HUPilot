@@ -42,7 +42,7 @@ BeforeAll {
 
 Describe 'Setup: Fenster (XAML)' {
     It 'alle Fenster-Bloecke werden gefunden' {
-        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'ix', 'dx', 'sx', 'gx', 'hx')
+        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'ix', 'dx', 'lx', 'sx', 'gx', 'hx')
     }
     It 'jedes Fenster laedt mit XamlReader (STA), ohne Theme, dunkel und hell, und schaltet zur Laufzeit um' {
         $get = { param($n) [regex]::Match($script:SetupText, "(?s)\`$script:$n = @'\r?\n(.*?)\r?\n'@").Groups[1].Value }
@@ -225,7 +225,7 @@ Describe 'Setup: Anmeldung und Secret-Ablauf' {
         Get-TokenErrorKind 'Der Remotename konnte nicht aufgelöst werden: login.microsoftonline.com' $false | Should -Be 'net'
         Get-TokenErrorKind 'The operation has timed out.' $false | Should -Be 'net'
         Get-TokenErrorKind 'Der Vorgang hat das Zeitlimit überschritten' $true | Should -Be 'net'
-        Get-TokenErrorKind 'Bad Gateway' $true | Should -Be 'other'
+        Get-TokenErrorKind 'Bad Gateway' $true | Should -Be 'proxy'
     }
     It 'Startpruefung: kein Netz wird neutral gemeldet, nicht als ungueltiges Secret' {
         $script:SetupText | Should -Match "TokenErr -eq 'net'\) \{ Set-SubSecret 'Keine Verbindung - Secret nicht geprüft' \`$false"
@@ -406,7 +406,7 @@ Describe 'Setup: Status in Klartext' {
         Get-DeviceStand 'notAssigned' 'enrolled' $false | Should -Be 'Fertig'
         Get-DeviceStand 'assignedInSync' 'notContacted' $true | Should -Be 'Profil da, Gerät noch nicht angemeldet'
         Get-DeviceStand 'assignedOutOfSync' 'notContacted' $true | Should -Be 'Profil da, Gerät noch nicht angemeldet'
-        Get-DeviceStand 'assignedInSync' 'notContacted' $false | Should -Be 'Wartet auf Profil'
+        Get-DeviceStand 'assignedInSync' 'notContacted' $false | Should -Be 'Profil da, Gerät noch nicht angemeldet'
         Get-DeviceStand 'pending' 'notContacted' $false | Should -Be 'Wartet auf Profil'
         Get-DeviceStand 'unknown' '' $false | Should -Be 'Wartet auf Profil'
         Get-DeviceStand 'notAssigned' 'notContacted' $false | Should -Be 'Kein Profil für diesen Tag'
@@ -443,10 +443,10 @@ Describe 'Setup: Status in Klartext' {
         $x | Should -Match 'r="A3" s="5"'
         $x | Should -Match 'r="A4" s="4"'
     }
-    It 'Aktionen nur mit Rueckfrage, keine Loesch-Aktion, Sync 409/429 kein Fehler' {
+    It 'Aktionen nur mit Rueckfrage, Loeschen nur ueber die doppelte Abfrage, Sync 409/429 kein Fehler' {
         $script:SetupText | Should -Match "Tag `"' \+ \`$pick\.Tag \+ '`" setzen für"
         $script:SetupText | Should -Match "if \(\`$code -in 409, 429\)"
-        $script:SetupText | Should -Not -Match "Method DELETE -Uri \('https://graph\.microsoft\.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/"
+        $script:SetupText | Should -Match 'if \(-not \(Show-DeleteConfirm \$sel \$canI \$sw \$plans\)\)'
     }
     It 'Automatisch aktualisieren: Timer stoppt beim Schliessen, nicht bei offenem Dialog' {
         $script:SetupText | Should -Match 'if \(\$g\.cAuto\.IsChecked -and -not \$sst\.Loading -and -not \$sst\.Dialog\) \{ & \$load \$true \}'

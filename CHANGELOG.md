@@ -1,5 +1,76 @@
 ﻿# Changelog
 
+## v2.7.19 - 2026-11-14
+### 📊 Status
+- **Autopilot-Eintrag löschen:** neuer Knopf im Status-Fenster, zum Beispiel für ein Gerät, das mit neuem Mainboard vom Support zurückkommt.
+  - Nur für markierte Geräte, höchstens 5 auf einmal.
+  - Zwei Abfragen: Die erste nennt je Gerät Seriennummer, Autopilot-ID, Gerätename, Tag, Benutzer, Stand, letzten Kontakt und was verloren geht. Die zweite verlangt die Seriennummer, bei mehreren Geräten das Wort LÖSCHEN. Getippt, Einfügen ist gesperrt.
+  - Zusätzliche Warnung bei fertig eingerichteten Geräten und bei Geräten in Benutzung.
+  - Reihenfolge wie von Microsoft verlangt: Intune-Eintrag, Benutzer-Zuweisung, Autopilot-Eintrag. Direkt vor dem Löschen liest das Setup jeden Eintrag neu. Hat sich etwas geändert, wird das Gerät übersprungen.
+  - Gelöscht wird nur, was in der Abfrage stand. Lässt sich ein Intune-Eintrag nicht eindeutig zuordnen, bleibt er stehen und das Setup sagt es.
+  - Das Ergebnis je Gerät steht im Protokoll und in der Protokolldatei, ein Teilerfolg wird ausdrücklich genannt.
+- **Stand "Wird gelöscht":** Gelöschte Einträge bleiben in der Liste, bis Microsoft sie entfernt hat. Das dauert bis zu 30 Minuten. Auf diesen Zeilen sind keine Aktionen möglich.
+- **Stand "Hardware geändert":** Microsoft meldet einen Hardwaretausch, den es nicht selbst lösen kann. "Was tun": Eintrag löschen, dann mit dem Stick neu registrieren.
+- **Stand "Hardware wird abgeglichen":** Microsoft versucht die Korrektur selbst, abwarten. Ein fertiges Gerät bleibt "Fertig", der Hinweis steht in den Details.
+- **Stand "Doppelt":** mehrere Einträge mit derselben Seriennummer. "Was tun" sagt, welcher der ältere ist. Lässt sich das nicht sicher sagen, steht dort "Alter unklar".
+- **Neue Kacheln:** "Hardware geändert", "Hardware wird abgeglichen", "Doppelt" und "Wird gelöscht" erscheinen nur, wenn es solche Geräte gibt. Filter, Druck, Excel und Details kennen die neuen Stände.
+- **Behoben: Auswahl bei doppelten Seriennummern:** Nach dem Aktualisieren war auch der zweite Eintrag derselben Seriennummer markiert. "Tag ändern" hätte so beide geändert. Die Auswahl bleibt jetzt genau bei den angeklickten Zeilen.
+- **Profil da auch ohne Datum:** Meldet Microsoft das Profil als zugewiesen, trägt aber das Datum nicht ein, zeigt der Status jetzt "Profil da, Gerät noch nicht angemeldet" statt "Wartet auf Profil".
+  - "Was tun" sagt dann: Gerät neu starten, kommt die Anmeldeseite der Schule, passt es.
+- **Löschen ohne Intune-Eintrag:** Gibt es zu einem Gerät in Intune noch keinen Eintrag, sagt die Rückfrage das, statt das Löschen eines Intune-Eintrags anzukündigen.
+
+### 🔐 Secret und MAK
+- **Abgelaufenes Secret geführt erneuern:** deutlicher Hinweis oben im Fenster und der Knopf "Neues Secret anlegen", auch neben "Stick fertig machen".
+  - Der Knopf öffnet die Seite der App-Registrierung im Entra-Portal und setzt den Cursor in das Feld "Secret (Wert)".
+  - Nach dem Einfügen prüft das Setup von selbst und meldet "Neues Secret gültig bis ...".
+  - Danach erinnert es daran, zu speichern und jeden Stick neu zu bespielen.
+  - Wurde die ID statt des Werts eingefügt, sagt das Setup genau das. Ohne Internet heißt es "noch nicht geprüft", nie "ungültig".
+- **Merker "MAK am Stick":** Liegt auf dem gewählten Stick ein MAK, steht das rot neben dem Hauptknopf. Der Tooltip nennt die letzten 5 Zeichen und wie der Stick ohne MAK bespielt wird.
+  - Sind die Einstellungen am Stick nicht lesbar, steht dort gelb "Stick prüfen".
+
+### 📨 Bericht an den Admin
+- **Fehlerbericht per Teams:** Geht am Gerät etwas schief, schickt go von selbst einen Bericht in einen Teams-Kanal. Niemand muss mehr den Bildschirm fotografieren.
+  - Einrichten: im Setup die Adresse eines Teams-Workflows bei "Teams-Webhook" eintragen, "Testnachricht senden", speichern, Stick neu bespielen. Leer heißt aus.
+  - Der Bericht nennt Anzeigename, Seriennummer, Modell, Windows, Version, den Schritt und die drei Sätze vom Bildschirm, dazu das Log des aktuellen Laufs. Meldungen, die sich wiederholen, stehen nur einmal mit Zähler da.
+  - Gesendet wird bei jedem roten Ende, außerdem bei "Secret abgelaufen oder falsch" und wenn nach allen Warterunden kein Profil da ist. Nicht nach einem bewussten Abbruch.
+  - Ohne Internet bleibt der Bericht am Stick. Gesendet wird er beim nächsten Lauf mit Internet oder vom Setup, sobald der Stick am PC steckt.
+  - Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht vorne in jeder Nachricht.
+  - Secret, Kennwörter, MAK, Tenant-ID und App-ID gehen nicht mit. Am Ablauf am Gerät ändert das Senden nichts.
+- **An Admin senden:** Rechtsklick auf eine Protokollzeile im Setup schickt die Meldung mit Details in denselben Kanal. Von selbst sendet das Setup nichts.
+- **Berichte vom Stick senden:** Liegen auf einem Stick noch Berichte, sendet das Setup sie beim Anstecken, nach "Stick fertig machen" und vor dem Formatieren in "Sticks vorbereiten".
+
+### 🎨 Oberfläche
+- **Status: "Was tun" nie abgeschnitten:** Die Spalte war auf eine feste Breite begrenzt, lange Texte endeten mitten im Satz. Sie richtet sich jetzt nach dem längsten Text und bricht nur auf einem zu schmalen Bildschirm um.
+- **Tooltips lesbar:** Alle Tooltips haben eine feste Höchstbreite und brechen um, nichts läuft mehr aus dem Bild.
+  - Antworten von Microsoft stehen gegliedert da: Fehlercode, Beschreibung, Zeitpunkt und Kennungen je in einer Zeile.
+- **Behoben: falsche Verweise in Tooltips:** Der Tooltip von "4. WLAN-Paket bauen" verwies auf die falsche Stelle. Er nennt jetzt selbst, welche ICD.exe benutzt wird. Alle Verweise in Tooltips wurden geprüft.
+- **Hashes importieren zeigt, dass es läuft:** Solange der Import läuft, pulsiert ein grüner Punkt neben dem Hinweis "Import läuft, bitte warten ...".
+- **Knopfzeilen bündig:** Die ersten Knöpfe der Zeilen "Vorbereiten", "Stick" und "Danach" beginnen an derselben Stelle, auch wenn das Fenster schmal ist und Knöpfe in die nächste Zeile rutschen.
+- **Am Gerät immer im großen Fenster:** go öffnet sein Fenster jetzt von selbst so groß wie der Bildschirm.
+
+### 📝 Protokoll
+- **Details kopieren:** Rechtsklick auf eine Protokollzeile legt die gegliederte Meldung in die Zwischenablage, ohne Secret, Kennwörter und Schlüssel. Praktisch für Rückfragen beim Admin.
+
+### 📥 Import
+- **Fehler 806 und 808 in Klartext:** im Setup bei "7. Hashes importieren" und am Gerät, je mit dem nächsten Schritt.
+  - 806: Das Gerät steht schon unter einem alten Eintrag in Autopilot. Den Eintrag im Status löschen, warten, nochmal importieren.
+  - 808: Das Gerät ist noch einer anderen Organisation zugeordnet. Händler oder Vorbesitzer müssen es freigeben.
+
+### ⚠️ Nach dem Update
+- **Kein neues Pflichtrecht.** Das Löschen des Autopilot-Eintrags läuft über das vorhandene `DeviceManagementServiceConfig.ReadWrite.All`.
+- **Optional:** Mit `DeviceManagementManagedDevices.ReadWrite.All` löscht das Setup auch den Intune-Eintrag. Ohne dieses Recht löscht es nur den Autopilot-Eintrag und sagt das vorher. Den Intune-Eintrag entfernt dann ein Admin im Intune-Portal.
+
+- **Teams-Webhook:** Die Adresse liegt im Klartext auf jedem Stick. Wer sie kennt, kann in den Kanal schreiben, lesen kann er nichts. Im Bericht können Seriennummer, Gerätename, Benutzername und WLAN-Name stehen: den Kanal nicht für alle öffnen.
+
+### 🚧 Grenzen
+- **Bericht an den Admin:** Private Kanäle gehen laut Microsoft nicht, ein Standardkanal in einem privaten Team schon. Die Firewall im Einrichtungs-WLAN muss die Adresse des Workflows durchlassen.
+- **Älter oder neuer bei doppelten Einträgen:** Microsoft liefert kein Anlagedatum. Das Setup leitet es aus dem letzten Kontakt und der Profil-Zuweisung ab.
+- **Dauer des Löschens:** Microsoft nennt keine Obergrenze, es kann länger als 30 Minuten dauern.
+- **Adresse im Entra-Portal:** Microsoft kann sie ohne Ankündigung ändern. Dann die App-Registrierung von Hand öffnen.
+
+### ✅ Qualität
+- 341 automatische Tests.
+
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen
 - **Neuer Hauptknopf "Stick fertig machen":** erledigt alles in einem Durchgang und sagt bei einem Fehler in Klartext, was zu tun ist.
@@ -221,7 +292,7 @@
 - diag.ps1: Hersteller-Apps nach `RemoveApps` aus config.json statt fest McAfee; ungültige Menüauswahl wird gemeldet.
 - Update: verständliche Meldung, wenn die GitHub-Abfragegrenze (60/Stunde ohne Token) erreicht ist.
 - CI: neue Prüfungen „Funktionen vor Verwendung definiert“ (go/diag) und „config.json nur mit -Encoding lesen“.
-- Prüfung Grok (Briefkasten 076): Fehler bei kaputter config.json zeigte kein rotes Banner (Live-Anzeige war zu spät definiert) – behoben. config.json wird überall als UTF-8 gelesen (Umlaute in WLAN-Kennwort/Tenant). WLAN-Paket ohne Zurücksetzen mit 2-Min-Zeitlimit und Anzeige. Im OOBE verlängert sich die Wartezeit, damit der Neustart nach 11 Min ohne Datum auch bei spätem Profil greift. Verlauf zeigt bei Statuswechsel den alten Status statt „frage ab“. Startet das Zurücksetzen nach 15 Min nicht, kommt ein rotes Banner. CI-Update-Test auf Umlaut angepasst.
+- Externe Prüfung: Fehler bei kaputter config.json zeigte kein rotes Banner (Live-Anzeige war zu spät definiert) – behoben. config.json wird überall als UTF-8 gelesen (Umlaute in WLAN-Kennwort/Tenant). WLAN-Paket ohne Zurücksetzen mit 2-Min-Zeitlimit und Anzeige. Im OOBE verlängert sich die Wartezeit, damit der Neustart nach 11 Min ohne Datum auch bei spätem Profil greift. Verlauf zeigt bei Statuswechsel den alten Status statt „frage ab“. Startet das Zurücksetzen nach 15 Min nicht, kommt ein rotes Banner. CI-Update-Test auf Umlaut angepasst.
 - Setup Status: Geräte, die noch nicht in Intune registriert sind (gerade in Arbeit), stehen jetzt **oben** statt ganz unten.
 - go.ps1: **Neustart im Einrichtungsbildschirm erzwungen** (`shutdown /r /f /t 0`). Vorher konnte „Program Manager – diese App verhindert den Neustart“ den automatischen Neustart blockieren.
 - Alle Anzeigen (go, diag, Setup, Update) einheitlich mit echten Umlauten und ß statt ae/oe/ue/ss. `protokoll.csv` und `hashes.csv` bleiben ASCII (Umlaute werden dort umgeschrieben). Bei der Warnung „Gerät ist schon eingerichtet“ wird `LÖSCHEN` und `LOESCHEN` akzeptiert (Tastatur im OOBE evtl. englisch).
@@ -253,7 +324,7 @@
 - go.ps1: Registrierte Geräte ohne fertige Zuweisung (z. B. CSV-Import gerade erst verarbeitet) bekommen sofort einen Autopilot-Sync statt erst nach 5 Minuten.
 - go.ps1: Scheitert die erste Autopilot-Abfrage (Netz, 429, 5xx), gilt das Gerät nicht mehr als „nicht registriert“: 3 Versuche, danach Abbruch. Vorher wurde dann ein vorab importiertes Gerät neu importiert und der Import scheiterte irreführend mit 806/808.
 - go.ps1: Vor der Tag-Rückfrage werden alte Tastendrücke verworfen; `;` im Tag wird in `protokoll.csv` durch `,` ersetzt.
-- Geprüft im KI-Briefkasten (Thema 052, Grok und Gemini).
+- Extern geprüft.
 - Setup › Status: Spalte Profil dezent eingefärbt – „zugewiesen“ hellgrün, „ausstehend“, „zugew., Datum fehlt“ und „zugew., nicht synchron“ hellgelb.
 - go.ps1: Protokoll schreibt bei bereits registrierten Geräten „BEREITS REGISTRIERT“ statt „UPLOAD OK“ (Setup › Status, Spalte HUPilot).
 
@@ -278,7 +349,7 @@
 - go.ps1: Läuft die Wartezeit ab, zeigt die gelbe Meldung den letzten Status und empfiehlt N.
 - Setup › Status: Spalte Profil zeigt „zugew., Datum fehlt“ bzw. „zugew., nicht synchron“ (`assignedOutOfSync`).
 - Setup › Status: Datum wird über das Jahr geprüft (robust, egal ob Text oder Datumswert).
-- Geprüft im KI-Briefkasten (Thema 051, Gemini, 2 Runden).
+- Extern geprüft (2 Runden).
 - **Noch nicht an einem Gerät getestet.**
 
 ## v2.6 - 2026-10-20

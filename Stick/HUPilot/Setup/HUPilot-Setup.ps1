@@ -55,7 +55,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.7.18'
+$SetupVer = '2.7.19'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -269,7 +269,12 @@ $script:HuThemeXaml = @'
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
-  <Style TargetType="ToolTip"><Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/></Style>
+  <!-- Tooltips: feste Hoechstbreite, Text bricht um (lange Meldungen von Microsoft liefen sonst ueber den ganzen Bildschirm).
+       Merken: Ein Tooltip mit einem Objekt (kein Text, kein Steuerelement) zeigt hier nur dessen Typnamen. Heute gibt es keinen solchen. -->
+  <Style TargetType="ToolTip"><Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
+    <Setter Property="MaxWidth" Value="520"/>
+    <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></Setter.Value></Setter>
+  </Style>
   <Style TargetType="ContextMenu">
     <Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
@@ -507,6 +512,13 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="{DynamicResource HuMuted}"/>
     </StackPanel>
   </DockPanel>
+  <!-- Secret abgelaufen: deutlicher Hinweis mit Knopf zur richtigen Seite im Entra-Portal (nur sichtbar, wenn noetig) -->
+  <Border x:Name="bdSecret" DockPanel.Dock="Top" Margin="0,0,0,10" Padding="10,6" CornerRadius="4" BorderThickness="2" BorderBrush="{DynamicResource HuErr}" Background="{DynamicResource HuPanel2}" Visibility="Collapsed">
+    <DockPanel>
+      <Button x:Name="bSecNew" DockPanel.Dock="Right" Content="Neues Secret anlegen" Padding="10,4" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Öffnet im Browser die Seite &quot;Zertifikate &amp; Geheimnisse&quot; der App-Registrierung (App-ID oben).&#x0a;Dort ein neues Secret anlegen und den Wert kopieren (Spalte &quot;Wert&quot;, nicht die &quot;Geheimnis-ID&quot;).&#x0a;Danach steht der Cursor im Feld &quot;Secret (Wert)&quot;: einfügen, das Setup prüft von selbst." ToolTipService.ShowDuration="60000"/>
+      <TextBlock x:Name="tSecBanner" TextWrapping="Wrap" VerticalAlignment="Center" FontWeight="SemiBold" ToolTip="Stand des Secrets (geheimer Clientschlüssel) und was jetzt zu tun ist." ToolTipService.ShowDuration="30000"/>
+    </DockPanel>
+  </Border>
   <!-- Protokoll fest unten (nicht im Scrollbereich), Hoehe per Ziehgriff, gemerkt in HUPilot\Config\ui.json -->
   <DockPanel x:Name="pLog" DockPanel.Dock="Bottom" Margin="0,4,0,0">
     <Thumb x:Name="thLog" DockPanel.Dock="Top" Height="10" Cursor="SizeNS" ToolTip="Höhe des Protokolls anpassen (ziehen) - wird gemerkt." ToolTipService.ShowDuration="30000">
@@ -519,7 +531,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <TextBlock x:Name="tLogFile" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource HuMuted}" FontSize="11" ToolTip="Jede Sitzung wird zusätzlich als Datei gespeichert (ohne Kennwörter und Schlüssel). Die letzten 20 Dateien bleiben." ToolTipService.ShowDuration="30000"/>
       <TextBlock Text="Protokoll" FontWeight="SemiBold" VerticalAlignment="Center" ToolTip="Was das Setup in dieser Sitzung gemacht hat: OK (grün), Hinweis (gelb), Fehler (rot)." ToolTipService.ShowDuration="30000"/>
     </DockPanel>
-    <ListBox x:Name="lLog" Height="120" SelectionMode="Extended" FontFamily="Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ToolTip="Protokoll dieser Sitzung. Zeilen mit technischen Details: Maus darüber zeigt das Original, Doppelklick klappt es auf." ToolTipService.ShowDuration="30000"/>
+    <ListBox x:Name="lLog" Height="120" SelectionMode="Extended" FontFamily="Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ToolTip="Protokoll dieser Sitzung. Zeilen mit technischen Details: Maus darüber zeigt die Meldung gegliedert, Doppelklick klappt sie auf, Rechtsklick: Details kopieren." ToolTipService.ShowDuration="30000"/>
   </DockPanel>
   <!-- Hauptknopf: alles in einem Durchgang -->
   <Border x:Name="bdReady" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource HuAccent}" Background="{DynamicResource HuPanel2}">
@@ -532,7 +544,12 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Button x:Name="bReady" DockPanel.Dock="Left" Style="{StaticResource HuMain}" Padding="18,8" FontSize="15" FontWeight="Bold" ToolTip="Macht den gewählten Stick in einem Durchgang fertig:&#x0a;Felder prüfen, Verbindung und Secret prüfen, Tags prüfen (nur Warnung), speichern,&#x0a;WLAN-Paket bauen, wenn es fehlt oder veraltet ist, auf den Stick kopieren und die kopierten Dateien kontrollieren.&#x0a;Bricht beim ersten echten Fehler ab und sagt, was zu tun ist." ToolTipService.ShowDuration="60000">
         <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="13" Height="13" Margin="0,0,8,0" Stroke="White" StrokeThickness="1.5"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
       </Button>
-      <TextBlock x:Name="tReady" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="" ToolTip="Stand für den gewählten Stick: bereit, aktueller Schritt oder Ergebnis des letzten Durchgangs.&#x0a;Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bReadySec" DockPanel.Dock="Left" Content="Neues Secret anlegen" Padding="10,6" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" Foreground="{DynamicResource HuErr}" ToolTip="Das Secret ist abgelaufen oder falsch, damit lädt kein Stick Geräte hoch.&#x0a;Öffnet die Seite &quot;Zertifikate &amp; Geheimnisse&quot; der App-Registrierung im Browser (wie der Knopf oben)." ToolTipService.ShowDuration="30000"/>
+      <!-- Statustext und direkt dahinter die Merker zum gewaehlten Stick (z. B. MAK am Stick). Bei wenig Platz kuerzt der Text, nie ein Merker. -->
+      <DockPanel x:Name="dpReady" Margin="12,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center">
+        <StackPanel x:Name="spFlags" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"/>
+        <TextBlock x:Name="tReady" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="" ToolTip="Stand für den gewählten Stick: bereit, aktueller Schritt oder Ergebnis des letzten Durchgangs.&#x0a;Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
+      </DockPanel>
     </DockPanel>
   </Border>
   <ScrollViewer x:Name="svMain" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -592,27 +609,40 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
         <DockPanel Grid.Row="3" Grid.Column="1"><CheckBox x:Name="cShowAdm2" ToolTip="Kennwort von Admin 2 im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pAdm2Pw" ToolTip="Kennwort des zweiten lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tAdm2Pw" ToolTip="Kennwort von Admin 2 im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
       </Grid>
     </GroupBox>
-    <WrapPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Vorbereiten" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Einzelschritte zum Vorbereiten der Quelle. Der Knopf &quot;Stick fertig machen&quot; unten erledigt sie in einem Durchgang." ToolTipService.ShowDuration="30000"/>
-      <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup läuft).&#x0a;Ungespeicherte Änderungen gehen dabei verloren (mit Rückfrage)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,0,4"/>
-      <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTest" Style="{StaticResource HuLamp}"/><TextBlock Text="1. Verbindung testen"/></StackPanel></Button>
-      <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geräte in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob für einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTags" Style="{StaticResource HuLamp}"/><TextBlock Text="2. Tags prüfen"/></StackPanel></Button>
-      <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eWrite" Style="{StaticResource HuLamp}"/><TextBlock Text="3. Speichern"/></StackPanel></Button>
-      <TextBlock x:Name="tDirty" Text="* ungespeichert" Foreground="{DynamicResource HuWarn}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,0,4" Visibility="Collapsed" ToolTip="Es gibt Änderungen, die noch nicht in config.json stehen.&#x0a;3. Speichern oder Stick fertig machen speichert sie." ToolTipService.ShowDuration="30000"/>
-      <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: die Kopie aus dem Häkchen &quot;Paketbau mit auf den Stick&quot; (Test), oder Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md.&#x0a;Welche ICD.exe benutzt wird, steht im Tooltip der Ampel." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
-      <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="6,0,0,4" Foreground="{DynamicResource HuMuted}" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut&#x0a;unbekannt = gebaut mit einer älteren Version, neu bauen empfohlen" ToolTipService.ShowDuration="30000"/>
-    </WrapPanel>
-    <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Kopieren auf den Stick, der unten beim grünen Knopf ausgewählt ist." ToolTipService.ShowDuration="30000"/>
-      <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen. Danach Kontrolle der kopierten Dateien." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eCopy" Style="{StaticResource HuLamp}"/><TextBlock Text="5. Auf Stick kopieren"/></StackPanel></Button>
-      <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,4"/>
-      <CheckBox x:Name="cIcdStick" Content="Paketbau mit auf den Stick" VerticalAlignment="Center" Margin="12,0,0,4" ToolTipService.ShowDuration="60000" ToolTipService.ShowOnDisabled="True" ContextMenuService.ShowOnDisabled="True" ToolTip="Paketbau mit auf den Stick"/>
-    </WrapPanel>
-    <WrapPanel Grid.Row="7" Orientation="Horizontal" Margin="0,8,0,0">
-      <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Nach dem Einsatz der Sticks: Stand in Autopilot ansehen, offline gespeicherte Hashes hochladen." ToolTipService.ShowDuration="30000"/>
-      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV oder Excel, Drucken (auch als PDF)." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eStatus" Style="{StaticResource HuLamp}"/><TextBlock Text="6. Status"/></StackPanel></Button>
-      <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eHash" Style="{StaticResource HuLamp}"/><TextBlock Text="7. Hashes importieren"/></StackPanel></Button>
-    </WrapPanel>
+    <GroupBox Grid.Row="5" Header="Fehlerberichte per Teams (optional, leer lassen = aus)" Padding="6" Margin="0,6,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <TextBlock Text="Teams-Webhook" VerticalAlignment="Center" ToolTip="Adresse eines Teams-Workflows, an die go bei einem Fehler am Gerät einen Bericht schickt." ToolTipService.ShowDuration="30000"/>
+        <DockPanel Grid.Column="1"><Button x:Name="bHookTest" DockPanel.Dock="Right" Content="Testnachricht senden" Padding="8,2" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Schickt eine kurze Testnachricht an die eingetragene Adresse. Das Ergebnis steht im Protokoll." ToolTipService.ShowDuration="30000"/><CheckBox x:Name="cShowHook" ToolTip="Teams-Webhook im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pHook" ToolTip="Teams-Webhook (optional): Bei einem roten Abschluss am Gerät schickt go einen Fehlerbericht in den Teams-Kanal; ohne Internet holt das Setup ihn später vom Stick nach.&#x0a;Die Adresse steht im Klartext auf jedem Stick. Wer sie kennt, kann in den Kanal schreiben: Stick nicht aus der Hand geben.&#x0a;Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht in jeder Nachricht.&#x0a;Ein Bericht kann Seriennummer, Gerätename, Benutzername und WLAN-Namen enthalten: den Kanal nicht für alle öffnen, nur für die Admins.&#x0a;So anlegen: in Teams die App Workflows öffnen, die Vorlage &quot;Webhookbenachrichtigungen an einen Kanal&quot; wählen, Team und Kanal angeben und die angezeigte Adresse kopieren. Private Kanäle gehen nicht." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tHook" ToolTip="Teams-Webhook im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
+      </Grid>
+    </GroupBox>
+    <DockPanel Grid.Row="6" Margin="0,8,0,0">
+      <TextBlock DockPanel.Dock="Left" Text="Vorbereiten" Width="78" VerticalAlignment="Top" Foreground="{DynamicResource HuMuted}" Margin="0,5,0,4" ToolTip="Einzelschritte zum Vorbereiten der Quelle. Der Knopf &quot;Stick fertig machen&quot; unten erledigt sie in einem Durchgang." ToolTipService.ShowDuration="30000"/>
+      <WrapPanel Orientation="Horizontal">
+      <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup läuft).&#x0a;Ungespeicherte Änderungen gehen dabei verloren (mit Rückfrage)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,8,4"/>
+      <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,8,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTest" Style="{StaticResource HuLamp}"/><TextBlock Text="1. Verbindung testen"/></StackPanel></Button>
+      <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geräte in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob für einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,8,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTags" Style="{StaticResource HuLamp}"/><TextBlock Text="2. Tags prüfen"/></StackPanel></Button>
+      <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,8,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eWrite" Style="{StaticResource HuLamp}"/><TextBlock Text="3. Speichern"/></StackPanel></Button>
+      <TextBlock x:Name="tDirty" Text="* ungespeichert" Foreground="{DynamicResource HuWarn}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="-2,0,8,4" Visibility="Collapsed" ToolTip="Es gibt Änderungen, die noch nicht in config.json stehen.&#x0a;3. Speichern oder Stick fertig machen speichert sie." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: die Kopie aus dem Häkchen &quot;Paketbau mit auf den Stick&quot; (Test), oder Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md." ToolTipService.ShowDuration="60000" Padding="10,4" Margin="0,0,8,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
+      <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="-2,0,8,4" Foreground="{DynamicResource HuMuted}" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut&#x0a;unbekannt = gebaut mit einer älteren Version, neu bauen empfohlen" ToolTipService.ShowDuration="30000"/>
+      </WrapPanel>
+    </DockPanel>
+    <DockPanel Grid.Row="7" Margin="0,8,0,0">
+      <TextBlock DockPanel.Dock="Left" Text="Stick" Width="78" VerticalAlignment="Top" Foreground="{DynamicResource HuMuted}" Margin="0,5,0,4" ToolTip="Kopieren auf den Stick, der unten beim grünen Knopf ausgewählt ist." ToolTipService.ShowDuration="30000"/>
+      <WrapPanel Orientation="Horizontal">
+      <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen. Danach Kontrolle der kopierten Dateien." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,8,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eCopy" Style="{StaticResource HuLamp}"/><TextBlock Text="5. Auf Stick kopieren"/></StackPanel></Button>
+      <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="0,0,8,4"/>
+      <CheckBox x:Name="cIcdStick" Content="Paketbau mit auf den Stick" VerticalAlignment="Center" Margin="4,0,8,4" ToolTipService.ShowDuration="60000" ToolTipService.ShowOnDisabled="True" ContextMenuService.ShowOnDisabled="True" ToolTip="Paketbau mit auf den Stick"/>
+      </WrapPanel>
+    </DockPanel>
+    <DockPanel Grid.Row="8" Margin="0,8,0,0">
+      <TextBlock DockPanel.Dock="Left" Text="Danach" Width="78" VerticalAlignment="Top" Foreground="{DynamicResource HuMuted}" Margin="0,5,0,4" ToolTip="Nach dem Einsatz der Sticks: Stand in Autopilot ansehen, offline gespeicherte Hashes hochladen." ToolTipService.ShowDuration="30000"/>
+      <WrapPanel Orientation="Horizontal">
+      <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV oder Excel, Drucken (auch als PDF)." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,8,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eStatus" Style="{StaticResource HuLamp}"/><TextBlock Text="6. Status"/></StackPanel></Button>
+      <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,8,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eHash" Style="{StaticResource HuLamp}"/><TextBlock Text="7. Hashes importieren"/></StackPanel></Button>
+      </WrapPanel>
+    </DockPanel>
   </Grid>
   </ScrollViewer>
   </DockPanel>
@@ -622,7 +652,7 @@ Add-HuTheme $xaml
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 Register-HuWindow $win
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick','bdSecret','bSecNew','tSecBanner','bReadySec','spFlags','pHook','tHook','cShowHook','bHookTest') { $ui[$n] = $win.FindName($n) }
 
 # Fenster an den Bildschirm anpassen: nie groesser als der Arbeitsbereich (ohne Taskleiste) und ganz sichtbar.
 # Auf kleinen Notebooks (z. B. 1366x768 oder hohe Skalierung) ragte das Fenster sonst unter die Taskleiste.
@@ -664,7 +694,7 @@ function Get-KeptLeft([double]$Left, [double]$Width, [double]$AreaLeft, [double]
 }
 # ---------- Spaltenbreite = breitester Inhalt (Kopf eingeschlossen) plus ein festes Stueck Luft, nie mehr ----------
 #   Gemessen wird der Text selbst ueber ALLE Zeilen (die Auto-Breite der Tabelle misst nur sichtbare Zeilen und wird nie kleiner).
-#   Keine Stern-Breite, keine gemerkten Breiten. Obergrenze je Spalte, darueber Auslassung mit Tooltip auf den vollen Text.
+#   Keine Stern-Breite, keine gemerkten Breiten. Kein fester Deckel (Regel: nie abgeschnitten), nur ausdruecklich je Spalte.
 # $Content/$Header: gemessene Breite in Pixeln. $Air: Zellabstand links und rechts plus Rahmen. Kopf mit Platz fuer den Sortierpfeil.
 function Get-FitWidth([double]$Content, [double]$Header, [double]$Air = 18, [double]$Max = 320) {
     $w = [math]::Max($Content, $Header + 12) + $Air
@@ -694,41 +724,80 @@ function Measure-TextWidthRaw([string]$Text, $Typeface, [double]$Size) {
 $script:TrimStyles = @{}
 function Get-TrimStyle([string]$Path) {
     if (-not $script:TrimStyles.ContainsKey($Path)) {
-        $script:TrimStyles[$Path] = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding Path=' + $Path + '}"/></Style>')
+        $script:TrimStyles[$Path] = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="Margin" Value="2,0,2,0"/><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding Path=' + $Path + '}"/></Style>')
     }
     return $script:TrimStyles[$Path]
 }
-# Alle Spalten einer Tabelle setzen. $Max: Obergrenze je Bindungspfad (Standard 320), $Extra: Zusatz je Pfad (z. B. Schild),
+# Umbrechende Zelle (nur fuer Spalten, die schmaler sein muessen als ihr Text): ganzer Text, Zeile wird hoeher
+$script:WrapStyles = @{}
+function Get-WrapStyle([string]$Path) {
+    if (-not $script:WrapStyles.ContainsKey($Path)) {
+        $script:WrapStyles[$Path] = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="Margin" Value="2,0,2,0"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="TextTrimming" Value="None"/></Style>')
+    }
+    return $script:WrapStyles[$Path]
+}
+# Alle Spalten einer Tabelle setzen: jede so breit wie der breiteste angezeigte Text plus Luft, OHNE festen Deckel
+# (Regel: nie abgeschnitten). $Max: Obergrenze nur fuer ausdruecklich genannte Pfade, $Extra: Zusatz je Pfad (z. B. Schild),
 # $Bold: Pfade, deren Inhalt halbfett steht. $Skip: Pfade, die unveraendert bleiben (von Hand gezogen).
+# $Avail: Platz fuer alle Spalten zusammen (0 = unbegrenzt). Waere die Summe breiter, werden nur die Spalten aus $Wrap
+# schmaler (nie unter ihr laengstes Wort, mindestens 200 px) und brechen dann in der Zelle um. Reicht auch das nicht,
+# bleibt der waagrechte Bildlauf. Abgeschnittener Text ohne Umbruch kommt so nicht vor.
 # $rows: genau die ANGEZEIGTEN Zeilen (nach allen Filtern). Ist eine Spalte darin leer, ist sie so breit wie ihre Ueberschrift.
-function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Extra = @{}, [string[]]$Bold = @(), [string[]]$Skip = @()) {
+# Ergebnis fuer Tests und Fensterbreite in $script:LastGridFit (Wrapped, Sum, Natural).
+function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Extra = @{}, [string[]]$Bold = @(), [string[]]$Skip = @(), [double]$Avail = 0, [string[]]$Wrap = @()) {
     try {
+        if ($null -eq $script:TrimStyles) { $script:TrimStyles = @{} }; if ($null -eq $script:WrapStyles) { $script:WrapStyles = @{} }
         $ff = $grid.FontFamily; $fs = $grid.FontSize
         $tfN = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
         $tfB = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::SemiBold, [System.Windows.FontStretches]::Normal)
         $rows = @($rows)
+        $plan = @(); $fixed = 0.0
         foreach ($c in @($grid.Columns)) {
             $path = ''; try { $path = [string]$c.Binding.Path.Path } catch { }
-            if (-not $path -or $Skip -contains $path) { continue }
+            if (-not $path -or $Skip -contains $path) { try { $fixed += [double]$c.Width.Value } catch { }; continue }
             $tf = $(if ($Bold -contains $path) { $tfB } else { $tfN })
-            $m = 0.0; $seen = @{}
+            $m = 0.0; $mw = 0.0; $seen = @{}
             foreach ($r in $rows) {
                 $v = [string]$r.$path
                 if (-not $v -or $seen.ContainsKey($v)) { continue }
                 $seen[$v] = $true
                 $x = Measure-TextWidth $v $tf $fs
                 if ($x -gt $m) { $m = $x }
+                if ($Wrap -contains $path) { foreach ($w in @($v -split '\s+')) { $y = Measure-TextWidth $w $tf $fs; if ($y -gt $mw) { $mw = $y } } }
             }
             $h = Measure-TextWidth ([string]$c.Header) $tfN $fs
-            $mx = $(if ($Max.ContainsKey($path)) { [double]$Max[$path] } else { 320 })
+            $mx = $(if ($Max.ContainsKey($path)) { [double]$Max[$path] } else { [double]::MaxValue })
             $ex = $(if ($Extra.ContainsKey($path)) { [double]$Extra[$path] } else { 0 })
             # Luft: Zellabstand 8 + 8, Rahmen 1 + 1 und der feste Textrand der Textspalte 2 + 2 (gilt auch mit eigenem Stil)
-            $c.Width = New-Object System.Windows.Controls.DataGridLength((Get-FitWidth ($m + $ex) $h 22 $mx))
-            if ($c -is [System.Windows.Controls.DataGridTextColumn] -and $null -eq $c.ElementStyle) { $c.ElementStyle = Get-TrimStyle $path }
+            $nat = Get-FitWidth ($m + $ex) $h 22 $mx
+            $minW = [math]::Min($nat, [math]::Max(200, [math]::Ceiling($mw + $ex + 22)))
+            $plan += [pscustomobject]@{ Col = $c; Path = $path; W = [double]$nat; Nat = [double]$nat; MinW = [double]$minW; Wrap = $false }
         }
+        $sum = $fixed + ($plan | Measure-Object -Property W -Sum).Sum
+        $natural = $sum
+        if ($Avail -gt 0 -and $sum -gt $Avail) {
+            $over = $sum - $Avail
+            foreach ($p in @($plan | Where-Object { $Wrap -contains $_.Path })) {
+                if ($over -le 0) { break }
+                $take = [math]::Min($over, $p.W - $p.MinW)
+                if ($take -gt 0) { $p.W -= $take; $over -= $take; $p.Wrap = $true }
+            }
+            $sum = $fixed + ($plan | Measure-Object -Property W -Sum).Sum
+        }
+        foreach ($p in $plan) {
+            $p.Col.Width = New-Object System.Windows.Controls.DataGridLength($p.W)
+            if ($p.Col -is [System.Windows.Controls.DataGridTextColumn]) {
+                # eigener Stil der Spalte (z. B. Schild "Stand") bleibt; sonst gekuerzt mit Tooltip oder umbrechend
+                $es = $p.Col.ElementStyle
+                # Achtung: ElementStyle ist nie leer, WPF setzt DefaultElementStyle. Der alte Vergleich mit $null griff deshalb nie,
+                # Zellen wurden ohne "..." und ohne Umbruch hart abgeschnitten (Befund aus dem echten Fenster, v2.7.19).
+                $mine = ($null -eq $es -or $es -eq [System.Windows.Controls.DataGridTextColumn]::DefaultElementStyle -or ($script:TrimStyles.ContainsKey($p.Path) -and $es -eq $script:TrimStyles[$p.Path]) -or ($script:WrapStyles.ContainsKey($p.Path) -and $es -eq $script:WrapStyles[$p.Path]))
+                if ($mine) { $p.Col.ElementStyle = $(if ($p.Wrap) { Get-WrapStyle $p.Path } else { Get-TrimStyle $p.Path }) }
+            }
+        }
+        $script:LastGridFit = [pscustomobject]@{ Wrapped = @($plan | Where-Object { $_.Wrap } | ForEach-Object { $_.Path }); Sum = $sum; Natural = $natural; Plan = $plan }
     } catch { }
-}
-# Fenster so breit wie die Spalten der Tabelle (Inhalt plus Luft aus dem Zellabstand), mindestens $Min, hoechstens der
+}# Fenster so breit wie die Spalten der Tabelle (Inhalt plus Luft aus dem Zellabstand), mindestens $Min, hoechstens der
 # Arbeitsbereich; danach wieder ganz in den Bildschirm. Nur wenn der Bildschirm zu schmal ist, bleibt der Querbalken.
 function Set-GridWindowWidth($w, $grid, [double]$Min = 0) {
     try {
@@ -797,10 +866,62 @@ function Split-LogLevel([string]$m) {
 function Hide-LogSecrets([string]$Text, [string[]]$Values) {
     if (-not $Text) { return $Text }
     foreach ($v in @($Values | Where-Object { $_ -and $_.Length -ge 4 } | Sort-Object Length -Descending)) { $Text = $Text.Replace($v, '***') }
+    # Webhook-Adressen (mit Signatur sig=) nie ausgeben, auch wenn sie nicht als Wert bekannt sind
+    $Text = [regex]::Replace($Text, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
     return [regex]::Replace($Text, '\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-([A-Za-z0-9]{5})\b', '*****-*****-*****-*****-$1')
 }
+# Technische Meldung lesbar machen (Tooltip, Doppelklick, Details kopieren): JSON-Fehler von Graph und vom Anmeldedienst
+# werden gegliedert, je Angabe eine Zeile (Fehlercode, Beschreibung, Zeitpunkt, Kennungen). Alles andere bleibt Klartext
+# und bricht im Tooltip um (Hoechstbreite im Theme). Den Text vorher mit Hide-LogSecrets bereinigen.
+function Format-TechDetail([string]$Text) {
+    if (-not $Text) { return '' }
+    $t = $Text.Trim()
+    $i = $t.IndexOf('{'); $j = $t.LastIndexOf('}')
+    if ($i -lt 0 -or $j -le $i) { return $t }
+    $o = $null
+    try { $o = $t.Substring($i, $j - $i + 1) | ConvertFrom-Json -ErrorAction Stop } catch { return $t }
+    if ($null -eq $o -or $o -isnot [System.Management.Automation.PSCustomObject]) { return $t }
+    $lines = New-Object System.Collections.Generic.List[string]
+    # PowerShell 7 macht aus Datumstexten ein DateTime: wieder als ISO-Text ausgeben
+    $add = { param($k, $v) if ($v -is [datetime]) { $v = $v.ToString('yyyy-MM-ddTHH:mm:ss') }; $v = ([string]$v).Trim(); if ($v) { $lines.Add($k + ': ' + $v) } }
+    $names = @($o.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($names -contains 'error' -and $o.error -is [System.Management.Automation.PSCustomObject]) {
+        # Graph: {"error":{"code","message","innerError":{"date","request-id","client-request-id"}}}
+        $e = $o.error
+        $msg = [string]$e.message
+        # Intune legt manchmal eine zweite Meldung als JSON in message (mit "Message")
+        if ($msg.TrimStart().StartsWith('{')) { try { $m2 = $msg | ConvertFrom-Json -ErrorAction Stop; if ($m2.Message) { $msg = [string]$m2.Message } } catch { } }
+        & $add 'Fehlercode' $e.code
+        & $add 'Beschreibung' $msg
+        $ie = $e.innerError
+        if ($ie) { & $add 'Zeitpunkt' $ie.date; & $add 'Request-ID' $ie.'request-id'; & $add 'Client-Request-ID' $ie.'client-request-id' }
+    } elseif ($names -contains 'error_description' -or ($names -contains 'error' -and $o.error -is [string])) {
+        # Anmeldedienst: {"error","error_description","error_codes","timestamp","trace_id","correlation_id"}
+        $desc = [string]$o.error_description
+        $aad = ''
+        if ($desc -match '^\s*(AADSTS\d+)\s*:\s*') { $aad = $Matches[1]; $desc = $desc.Substring($Matches[0].Length) }
+        # Kennungen und Zeit stehen am Ende der Beschreibung noch einmal: dort abschneiden, sie kommen in eigene Zeilen
+        $desc = [regex]::Replace($desc, '(?s)\s*Trace ID:.*$', '')
+        $code = [string]$o.error
+        & $add 'Fehlercode' $(if ($code -and $aad) { $code + ' (' + $aad + ')' } elseif ($aad) { $aad } else { $code })
+        & $add 'Beschreibung' $desc
+        & $add 'Zeitpunkt' $o.timestamp
+        & $add 'Trace-ID' $o.trace_id
+        & $add 'Correlation-ID' $o.correlation_id
+    } else { return $t }
+    if (-not $lines.Count) { return $t }
+    $pre = $t.Substring(0, $i).Trim()
+    if ($pre) { $lines.Insert(0, 'Meldung: ' + $pre.TrimEnd(':').Trim()) }
+    return ($lines -join "`r`n")
+}
+# Text fuer "Details kopieren": Protokollzeile, Leerzeile, gegliederte Meldung. Secrets werden (nochmal) ausgeblendet.
+function Get-DetailCopyText([string]$Text, [string]$Detail, $Secrets = $null) {
+    if ($null -eq $Secrets) { $Secrets = Get-LogSecretValues }
+    $s = @($Secrets)
+    return ((Hide-LogSecrets $Text $s) + "`r`n`r`n" + (Hide-LogSecrets (Format-TechDetail (Hide-LogSecrets $Detail $s)) $s))
+}
 function Get-LogSecretValues {
-    try { return @((Get-Secret), (Get-Masked 'Key'), (Get-Masked 'AdmPw'), (Get-Masked 'Adm2Pw'), (Get-EdKey)) } catch { return @() }
+    try { return @((Get-Secret), (Get-Masked 'Key'), (Get-Masked 'AdmPw'), (Get-Masked 'Adm2Pw'), (Get-EdKey), ([string](Get-Masked 'Hook')).Trim()) } catch { return @() }
 }
 function Write-LogFile([string]$Line) {
     if ($SmokeTest -or $script:LogFileFailed) { return }
@@ -824,15 +945,46 @@ function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '',
     if ($script:LogColor.ContainsKey($Level)) { try { $tb.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $script:LogColor[$Level]) } catch { } }
     [void]$sp.Children.Add($tb)
     if ($Detail) {
+        # gegliedert (Fehlercode, Beschreibung, Zeitpunkt, Kennungen je eine Zeile), Tooltip mit fester Hoechstbreite (Theme)
+        # nach dem Gliedern nochmal ausblenden: aufgeloeste JSON-Escapes koennten sonst ein vorher nicht erkanntes Geheimnis zeigen
+        $fmt = Hide-LogSecrets (Format-TechDetail $Detail) (Get-LogSecretValues)
         $dt = New-Object System.Windows.Controls.TextBlock
-        $dt.Text = 'Details: ' + $Detail; $dt.TextWrapping = 'Wrap'; $dt.Visibility = 'Collapsed'; $dt.Margin = '70,0,0,2'
+        $dt.Text = 'Details:' + "`r`n" + $fmt; $dt.TextWrapping = 'Wrap'; $dt.Visibility = 'Collapsed'; $dt.Margin = '70,0,0,2'
         $dt.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, 'HuMuted')
         [void]$sp.Children.Add($dt)
-        $it.ToolTip = $Detail
+        $it.ToolTip = $fmt
+        [System.Windows.Controls.ToolTipService]::SetShowDuration($it, 60000)
+        # Rechtsklick: gegliederte Meldung (wie im Tooltip) ohne Secrets in die Zwischenablage, z. B. fuer eine Mail an den Admin
+        $cm = New-Object System.Windows.Controls.ContextMenu
+        $mi = New-Object System.Windows.Controls.MenuItem
+        $mi.Header = 'Details kopieren'; $mi.Uid = 'copy'
+        $mi.ToolTip = 'Diese Zeile mit der gegliederten Meldung von Microsoft in die Zwischenablage kopieren (ohne Kennwörter und Schlüssel).'
+        $mi.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail }
+        $mi.Add_Click({ try { [System.Windows.Clipboard]::SetText((Get-DetailCopyText $this.Tag.Text $this.Tag.Detail)); $this.Header = 'Details kopiert' } catch { $this.Header = 'Kopieren fehlgeschlagen' } })
+        [void]$cm.Items.Add($mi)
+        $it.ContextMenu = $cm
         $it.Add_MouseDoubleClick({ $d = $this.Content.Children[1]; $d.Visibility = $(if ([string]$d.Visibility -eq 'Visible') { 'Collapsed' } else { 'Visible' }) })
     }
+    # Rechtsklick "An Admin senden" auf jeder Zeile (sichtbar nur mit eingetragenem Teams-Webhook, nichts wird von selbst gesendet)
+    if (-not $it.ContextMenu) { $it.ContextMenu = New-Object System.Windows.Controls.ContextMenu }
+    $ms = New-Object System.Windows.Controls.MenuItem
+    $ms.Header = 'An Admin senden'; $ms.Uid = 'send'; $ms.Tag = $it
+    $ms.ToolTip = 'Diese Zeile mit ihren Details, den letzten Protokollzeilen und den Angaben zu Version und Windows in den Teams-Kanal des Admins schicken (ohne Kennwörter und Schlüssel).'
+    $ms.Add_Click({ Send-LogItemToAdmin $this.Tag })
+    [void]$it.ContextMenu.Items.Add($ms)
+    # nur im Hauptfenster: liegen gebliebene Berichte an den Admin vom Stick auf Klick senden (bis zu 10)
+    if ($List -eq $ui.lLog) {
+        $mo = New-Object System.Windows.Controls.MenuItem
+        $mo.Header = 'Berichte vom Stick senden'; $mo.Uid = 'outbox'
+        $mo.ToolTip = 'Berichte an den Admin, die go am Stick abgelegt hat (Gerät ohne Internet), jetzt in den Teams-Kanal schicken. Bis zu 10 auf einmal.'
+        $mo.Add_Click({ try { Invoke-OutboxSendAll -Force } catch { } })
+        [void]$it.ContextMenu.Items.Add($mo)
+    }
+    # beim Oeffnen: "Details kopieren" wieder mit urspruenglichem Text, "An Admin senden" nur mit Webhook, ohne sichtbaren Eintrag kein Menue
+    $it.ContextMenu.Add_Opened({ foreach ($x in @($this.Items)) { try { if ($x.Uid -eq 'copy') { $x.Header = 'Details kopieren' } } catch { } } })
+    $it.Add_ContextMenuOpening({ param($s, $e) try { $any = $false; foreach ($x in @($s.ContextMenu.Items)) { if ($x.Uid -eq 'send') { $x.Visibility = $(if (Get-TeamsWebhook) { 'Visible' } else { 'Collapsed' }) }; if ($x.Uid -eq 'outbox') { $n = $(if (Get-TeamsWebhook) { Get-OutboxPending } else { 0 }); $x.Visibility = $(if ($n) { 'Visible' } else { 'Collapsed' }); $x.Header = 'Berichte vom Stick senden (' + $n + ')' }; if ([string]$x.Visibility -eq 'Visible') { $any = $true } }; if (-not $any) { $e.Handled = $true } } catch { } })
     $it.Content = $sp; $it.Padding = '4,1'
-    $it.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail }
+    $it.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail; Level = $Level }
     if ($Top) { $List.Items.Insert(0, $it) } else { [void]$List.Items.Add($it) }
     try { $List.ScrollIntoView($it) } catch { }
 }
@@ -925,7 +1077,7 @@ $script:Busy = $false; $script:BusyDepth = 0
 function Set-UiBusy([bool]$On) {
     if ($On) { $script:BusyDepth++ } else { $script:BusyDepth = [math]::Max(0, $script:BusyDepth - 1) }
     $script:Busy = ($script:BusyDepth -gt 0)
-    foreach ($n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd', 'bStatus', 'bHash', 'bReload', 'cDrive', 'bLnk') { try { $ui[$n].IsEnabled = -not $script:Busy } catch { } }
+    foreach ($n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd', 'bStatus', 'bHash', 'bReload', 'cDrive', 'bLnk', 'bSecNew', 'bReadySec') { try { $ui[$n].IsEnabled = -not $script:Busy } catch { } }
     # Haekchen Paketbau: grau auch ohne Herkunft (kein ADK, keine Kopie)
     try { $ui.cIcdStick.IsEnabled = (-not $script:Busy) -and $script:IcdCanUse } catch { }
 }
@@ -1022,7 +1174,392 @@ function Get-ReadyHintKey([string]$Drive) {
     if (-not $x) { return $Drive }
     return ($x.Letter + '|' + $x.Size + '|' + $x.Serial)
 }
+# ---------- Fehlerberichte per Teams (Workflow-Webhook) ----------
+#   Vertrag mit go.ps1: Feld TeamsWebhook in config.json (leer = aus, nur https, keine alte Connector-Adresse).
+#   Nicht gesendete Berichte an den Admin am Stick: HUPilot\logs\outbox\<yyyyMMdd-HHmmss>_<Seriennummer>.json, UTF-8 ohne
+#   BOM, { v = 1, created (UTC), source, level, title, lines, log }, schon bereinigt. Nach dem Senden geloescht. Gueltige
+#   Berichte werden nie wegen ihres Alters verworfen (die Geraeteuhr kann weit zurueckliegen), nur ueber 50 Dateien hinaus
+#   (aelteste zuerst, nach dem Senden). Unlesbar, ueber 256 KB oder unbekanntes v: liegen lassen, Hinweis; erst nach 30 Tagen
+#   (Aenderungszeit) verworfen.
+#   Karte: Adaptive Card 1.4 (Vorlage _Werkzeuge\Handover_TeamsNotify.md), Titel mit dem Anzeigenamen (ein Kanal fuer
+#   mehrere Schulen), Log als ein Textblock in Festbreite (Zeilen mit Leerzeile getrennt wie in go), Fusszeile
+#   "Anzeigename | Datum Zeit | HUPilot <Quelle> <Version>", immer unter 24 KB. Gesendet ohne Weiterleitung.
+#   Die Adresse ist ein Geheimnis: nie im Protokoll, in der Datei oder in einer Karte (auch nicht ihr Hostname).
+#   Gesendet wird im Setup nur auf Klick (Testnachricht, An Admin senden, Berichte vom Stick senden) und beim Nachsenden
+#   der Berichte, die go am Stick abgelegt hat.
+$script:TeamsMaxBytes = 24000
+$script:OutboxMaxFiles = 50; $script:OutboxBadDays = 30; $script:OutboxMaxBytes = 256KB
+$script:OutboxPerRun = 3; $script:OutboxPerManual = 10; $script:OutboxRetryMin = 5
+$script:TeamsMaxTitle = 200; $script:TeamsMaxLines = 30; $script:TeamsMaxLine = 600; $script:TeamsMaxLogLine = 400
+# Host der abgeschalteten Office-365-Connectors (Muster an einer Stelle, Tests setzen es auf einen erfundenen Host)
+$script:HuOldHookHostRx = '(?i)(^|\.)webhook\.office\.com$'
+# '' = in Ordnung, sonst Grund
+function Test-HuWebhookUrl([string]$Url) {
+    $u = ([string]$Url).Trim()
+    if (-not $u) { return 'leer' }
+    $x = $null
+    if (-not [uri]::TryCreate($u, [UriKind]::Absolute, [ref]$x) -or $x.Scheme -ne 'https') { return 'keine https-Adresse' }
+    if ($x.Host -match $script:HuOldHookHostRx) { return 'alte Office-365-Adresse, diese Connectors sind abgeschaltet. Bitte in Teams einen Workflow anlegen' }
+    return ''
+}
+# nur Hinweis: Host stammt erkennbar aus Teams-Workflows bzw. Power Automate
+function Test-HuWebhookHostKnown([string]$Url) {
+    $x = $null
+    if (-not [uri]::TryCreate(([string]$Url).Trim(), [UriKind]::Absolute, [ref]$x)) { return $false }
+    return ($x.Host -match '(?i)(\.logic\.azure\.com|\.powerplatform\.com|\.powerautomate\.com|\.azure-apim\.net)$')
+}
+function Get-TeamsWebhook { try { return ([string](Get-Masked 'Hook')).Trim() } catch { return '' } }
+# Werte fuer die Bereinigung, einmal je Durchgang berechnet: Geheimnisse (mit Hostname der Webhook-Adresse) und Kennungen
+function Get-TeamsProtectSet {
+    $s = @(); try { $s = @(Get-LogSecretValues) } catch { }
+    $i = @(); try { $c = Get-Cfg; $i = @([string]$c.TenantId, [string]$c.ClientId) } catch { }
+    return [pscustomobject]@{ S = $s; I = $i }
+}
+# Text fuer eine Karte bereinigen: Secret, Kennwoerter, MAK (bis auf 5 Zeichen), Webhook-Adresse samt Hostname, Tokens,
+# https-Adressen mit sig=, Tenant-ID und App-ID (auch ohne Bindestriche). $Secrets/$Ids: vorberechnet (Get-TeamsProtectSet).
+function Protect-TeamsText([string]$Text, $Secrets = $null, $Ids = $null) {
+    if (-not $Text) { return '' }
+    if ($null -eq $Secrets -or $null -eq $Ids) { $ps = Get-TeamsProtectSet; if ($null -eq $Secrets) { $Secrets = $ps.S }; if ($null -eq $Ids) { $Ids = $ps.I } }
+    $t = Hide-LogSecrets $Text @($Secrets)
+    foreach ($v in @($Secrets)) { $x = $null; if ([string]$v -match '^https://' -and [uri]::TryCreate([string]$v, [UriKind]::Absolute, [ref]$x) -and $x.Host.Length -ge 4) { $t = [regex]::Replace($t, [regex]::Escape($x.Host), '(Webhook)', 'IgnoreCase') } }
+    $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*', '***')
+    $t = [regex]::Replace($t, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
+    foreach ($i in @($Ids | Where-Object { $_ -and ([string]$_).Length -ge 8 })) {
+        $t = [regex]::Replace($t, [regex]::Escape([string]$i), '(Kennung)', 'IgnoreCase')
+        $t = [regex]::Replace($t, [regex]::Escape((([string]$i) -replace '-', '')), '(Kennung)', 'IgnoreCase')
+    }
+    return $t
+}
+# Titel: Anzeigename vorne (mehrere Schulen in einem Kanal), leer = "HUPilot"
+function Get-TeamsTitle([string]$What, $Name = $null) {
+    if ($null -eq $Name) { try { $Name = [string](Get-Cfg).Tenant } catch { $Name = '' } }
+    $n = ([string]$Name).Trim()
+    return ($(if ($n) { $n } else { 'HUPilot' }) + ': ' + $What)
+}
+function Get-TeamsFooter([string]$Source = 'Setup', $When = $null, $Name = $null, [string]$Version = $SetupVer) {
+    if ($null -eq $Name) { try { $Name = [string](Get-Cfg).Tenant } catch { $Name = '' } }
+    if ($null -eq $When) { $When = Get-Date }
+    $p = @(); if (([string]$Name).Trim()) { $p += ([string]$Name).Trim() }
+    $p += ([datetime]$When).ToString('dd.MM.yyyy HH:mm')
+    $p += ('HUPilot ' + $Source + $(if ($Version) { ' ' + $Version } else { '' }))
+    return ($p -join '  |  ')
+}
+function Limit-TeamsText([string]$s, [int]$Max) { if ($s.Length -gt $Max) { return ($s.Substring(0, $Max) + ' (gekürzt)') }; return $s }
+# Adaptive Card 1.4 als JSON, immer unter 24 KB: Titel farbig je Stufe (hoechstens 200 Zeichen), hoechstens 30 Zeilen zu je
+# 600 Zeichen, Log in Festbreite (Zeilen je 400 Zeichen, mit Leerzeile getrennt wie in go), Fusszeile.
+# Zu gross: zuerst das Log von vorne kuerzen (das Neueste bleibt, erste Zeile "(gekürzt)"), dann die Zeilen von hinten.
+function New-TeamsCard([string]$Title, [string[]]$Lines = @(), [string[]]$Log = @(), [string]$Level = 'Info', [string]$Footer = '') {
+    $color = switch ($Level) { 'Error' { 'Attention' } 'Warning' { 'Warning' } 'OK' { 'Good' } default { 'Accent' } }
+    $title2 = Limit-TeamsText ([string]$Title) $script:TeamsMaxTitle
+    $lines2 = @($Lines | Where-Object { ([string]$_).Trim() } | Select-Object -First $script:TeamsMaxLines | ForEach-Object { Limit-TeamsText ([string]$_) $script:TeamsMaxLine })
+    $log2 = @($Log | ForEach-Object { Limit-TeamsText ([string]$_) $script:TeamsMaxLogLine })
+    $cut = $false; $cutLines = $false
+    while ($true) {
+        $body = New-Object System.Collections.Generic.List[object]
+        $body.Add([ordered]@{ type = 'TextBlock'; text = $title2; weight = 'Bolder'; size = 'Medium'; wrap = $true; color = $color })
+        foreach ($l in $lines2) { $body.Add([ordered]@{ type = 'TextBlock'; text = $l; wrap = $true; spacing = 'Small' }) }
+        if ($cutLines) { $body.Add([ordered]@{ type = 'TextBlock'; text = '(weitere Zeilen gekürzt)'; wrap = $true; spacing = 'Small'; isSubtle = $true }) }
+        if ($log2.Count) { $body.Add([ordered]@{ type = 'TextBlock'; text = ((@($(if ($cut) { '(gekürzt)' })) + $log2 | Where-Object { $null -ne $_ }) -join "`n`n"); fontType = 'Monospace'; size = 'Small'; wrap = $true; spacing = 'Medium' }) }
+        if ($Footer) { $body.Add([ordered]@{ type = 'TextBlock'; text = $Footer; isSubtle = $true; size = 'Small'; wrap = $true; spacing = 'Medium' }) }
+        $card = [ordered]@{ '$schema' = 'http://adaptivecards.io/schemas/adaptive-card.json'; type = 'AdaptiveCard'; version = '1.4'; body = $body.ToArray() }
+        $msg = [ordered]@{ type = 'message'; attachments = @([ordered]@{ contentType = 'application/vnd.microsoft.card.adaptive'; contentUrl = $null; content = $card }) }
+        $json = $msg | ConvertTo-Json -Depth 10 -Compress
+        if ([System.Text.Encoding]::UTF8.GetByteCount($json) -le $script:TeamsMaxBytes) { return $json }
+        if ($log2.Count) { $n = [math]::Max(1, [int]($log2.Count / 10)); $log2 = @($log2 | Select-Object -Skip $n); $cut = $true; continue }
+        if ($lines2.Count) { $lines2 = @($lines2 | Select-Object -First ($lines2.Count - 1)); $cutLines = $true; continue }
+        # nur noch Titel und Fusszeile: notfalls Fusszeile weglassen
+        if ($Footer) { $Footer = ''; continue }
+        return $json
+    }
+}
+# Eigentlicher Aufruf an einer Stelle (Tests ersetzen ihn, beim Entwickeln wird nie an einen echten Webhook gesendet).
+# Ohne Weiterleitung: eine Antwort 3xx zaehlt als Fehlschlag.
+function Invoke-HuWebPost([string]$Url, [byte[]]$Body, [int]$TimeoutSec) {
+    $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $Url -Method Post -Body $Body -ContentType 'application/json; charset=utf-8' -UseBasicParsing -TimeoutSec $TimeoutSec -MaximumRedirection 0 -ErrorAction Stop
+    if ($r -and [int]$r.StatusCode -ge 300) { throw ('Weiterleitung abgelehnt (' + [int]$r.StatusCode + ')') }
+}
+# '' = gesendet, sonst Grund. Wirft nie, weder die Adresse noch ihr Hostname erscheinen im Grund.
+function Send-TeamsCard([string]$Url, [string]$Json, [int]$TimeoutSec = 20) {
+    $u = ([string]$Url).Trim()
+    try {
+        if (-not $u) { return 'kein Teams-Webhook eingetragen' }
+        $why = Test-HuWebhookUrl $u
+        if ($why) { return ('Adresse ungültig: ' + $why) }
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+        Invoke-HuWebPost $u ([System.Text.Encoding]::UTF8.GetBytes([string]$Json)) $TimeoutSec
+        return ''
+    } catch {
+        $m = ''; try { $m = [string]$_.Exception.Message } catch { }
+        $m = $m -replace 'https://\S+', '(Webhook)'
+        try { $x = [uri]$u; if ($x.Host) { $m = [regex]::Replace($m, [regex]::Escape($x.Host), '(Webhook)', 'IgnoreCase') } } catch { }
+        return ('Senden fehlgeschlagen: ' + $m)
+    }
+}
+# Statustext neben dem Hauptknopf merken und wiederherstellen (ein Ergebnis von "Stick fertig machen" darf nicht verschwinden)
+function Get-ReadyState { try { return @{ Text = [string]$ui.tReady.Text; Tip = [string]$ui.tReady.ToolTip; Color = [string]$script:ReadyColor } } catch { return $null } }
+function Restore-ReadyState($Prev) {
+    try {
+        if ($Prev -and $Prev.Text) { Set-ReadyText $Prev.Text $(if ($Prev.Color) { $Prev.Color } else { 'HuText' }) $Prev.Tip }
+        else { $script:HintDrive = '?'; Update-ReadyHint }
+    } catch { }
+}
+# Knopf "Testnachricht senden"
+function Send-TeamsTest {
+    $prev = $null; $busy = $false
+    try {
+        $u = Get-TeamsWebhook
+        if (-not $u) { Out-Log 'Kein Teams-Webhook eingetragen. Die Adresse aus dem Teams-Workflow bei "Teams-Webhook" einfügen.' 'Hinweis'; return }
+        $why = Test-HuWebhookUrl $u
+        if ($why) { Out-Log ('Teams-Webhook ungültig: ' + $why + '. Die Adresse aus dem Teams-Workflow vollständig einfügen (beginnt mit https://).') 'Fehler'; return }
+        if (-not (Test-HuWebhookHostKnown $u)) { Out-Log 'Die Adresse sieht nicht nach einem Teams-Workflow aus. Gesendet wird trotzdem, bitte im Kanal nachsehen.' 'Hinweis' }
+        $prev = Get-ReadyState
+        Set-UiBusy $true; $busy = $true
+        Set-ReadyText 'Sende Testnachricht an Teams ...'; Step-Ui
+        $c = Get-Cfg
+        $json = New-TeamsCard (Get-TeamsTitle 'Testnachricht' ([string]$c.Tenant)) @('Testnachricht aus dem HUPilot-Setup.', 'Kommt sie an, funktionieren die Berichte an den Admin.') @() 'Info' (Get-TeamsFooter 'Setup' (Get-Date) ([string]$c.Tenant))
+        $r = Send-TeamsCard $u $json 15
+        if ($r) { Out-Log ('Testnachricht nicht gesendet: ' + $r + '. Prüfen: Adresse vollständig kopiert, Workflow in Teams eingeschaltet, Internet da.') 'Fehler' }
+        else { Out-Log 'Testnachricht gesendet, bitte im Teams-Kanal nachsehen.' 'OK' }
+    } catch { try { Out-Log 'Testnachricht nicht gesendet. Internet und Teams-Webhook prüfen, dann nochmal versuchen.' 'Fehler' $_.Exception.Message } catch { } }
+    finally { if ($busy) { Set-UiBusy $false; Restore-ReadyState $prev } }
+}
+# Dateien in der Ablage (ohne die in dieser Sitzung schon gesendeten, die nicht loeschbar waren)
+function Get-OutboxFiles([string]$Dir, $Skip = $null) {
+    try {
+        if (-not [System.IO.Directory]::Exists($Dir)) { return @() }
+        return @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue | Where-Object { -not ($Skip -and $Skip.Contains($_.FullName)) } | Sort-Object Name)
+    } catch { return @() }
+}
+# Ueber 50 Dateien hinaus die aeltesten verwerfen (nach dem Senden). Rueckgabe: Zahl der verworfenen Dateien
+function Remove-OutboxOld([string]$Dir, [datetime]$NowUtc) {
+    $files = @(Get-OutboxFiles $Dir)
+    $gone = 0
+    if ($files.Count -gt $script:OutboxMaxFiles) {
+        foreach ($f in @($files | Select-Object -First ($files.Count - $script:OutboxMaxFiles))) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $gone++ } catch { } }
+    }
+    return $gone
+}
+# Berichte aus einem Ablageordner senden (ohne Oberflaeche, fuer Tests): hoechstens $Max, je Bericht $TimeoutSec,
+# Abbruch beim ersten Sendefehler (meist kein Netz). Erst senden, dann aufraeumen.
+# $Protect: Get-TeamsProtectSet (einmal je Durchgang), $Skip: HashSet der schon gesendeten, nicht loeschbaren Dateien.
+# Rueckgabe Sent, Bad, BadOld (unlesbar und aelter als 30 Tage, verworfen), Pruned (ueber 50), Undeletable, Reason, Left
+function Send-OutboxCore([string]$Dir, [string]$Url, [datetime]$NowUtc, [int]$Max = 3, [int]$TimeoutSec = 8, [scriptblock]$Tick = $null, $Protect = $null, $Skip = $null) {
+    $res = [pscustomobject]@{ Sent = 0; Bad = 0; BadOld = 0; Pruned = 0; Undeletable = 0; Reason = ''; Left = 0 }
+    if (-not [System.IO.Directory]::Exists($Dir)) { return $res }
+    if ($null -eq $Protect) { $Protect = Get-TeamsProtectSet }
+    $pt = { param($s) Protect-TeamsText ([string]$s) $Protect.S $Protect.I }
+    $n = 0
+    foreach ($f in @(Get-OutboxFiles $Dir $Skip)) {
+        if ($n -ge $Max) { break }
+        $o = $null
+        if ($f.Length -le $script:OutboxMaxBytes) { try { $o = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop } catch { $o = $null } }
+        if ($null -eq $o -or $o -isnot [System.Management.Automation.PSCustomObject] -or [string]$o.v -ne '1') {
+            # unlesbar, zu gross oder unbekanntes v: liegen lassen; erst nach 30 Tagen verwerfen
+            if (($NowUtc - $f.LastWriteTimeUtc).TotalDays -gt $script:OutboxBadDays) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $res.BadOld++ } catch { $res.Bad++ } }
+            else { $res.Bad++ }
+            continue
+        }
+        $n++
+        $when = $null; try { $w = ConvertTo-UtcDate $o.created; if ($w) { $when = $w.ToLocalTime() } } catch { }
+        $title = & $pt $o.title
+        if (-not $title) { $title = 'Bericht an den Admin' }
+        $src = (& $pt $(if ($o.source) { $o.source } else { 'go' })); if ($src.Length -gt 20) { $src = $src.Substring(0, 20) }
+        $json = New-TeamsCard $title @($o.lines | ForEach-Object { & $pt $_ }) @($o.log | ForEach-Object { & $pt $_ }) ([string]$o.level) (Get-TeamsFooter ($src + ', nachgesendet vom Setup') $when)
+        $r = Send-TeamsCard $Url $json $TimeoutSec
+        if ($r) { $res.Reason = $r; break }
+        $res.Sent++
+        try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { $res.Undeletable++; if ($Skip) { [void]$Skip.Add($f.FullName) } }
+        if ($Tick) { & $Tick }
+    }
+    $res.Pruned = Remove-OutboxOld $Dir $NowUtc
+    $res.Left = @(Get-OutboxFiles $Dir $Skip).Count
+    return $res
+}
+# Merker je Ablage: Zustand (Zahl und juengster Name), Zeit eines Fehlschlags, schon gesendete nicht loeschbare Dateien.
+# Neuer Versuch, wenn sich der Zustand aendert (neue Berichte), nach einem Fehlschlag fruehestens nach 5 Minuten,
+# beim naechsten Anstecken (Clear-OutboxState) oder auf Klick (-Force).
+$script:OutboxState = @{}; $script:OutboxRunning = $false
+function Get-OutboxSig($Files) { $f = @($Files); if (-not $f.Count) { return '' }; return ('' + $f.Count + '|' + $f[-1].Name) }
+function Test-OutboxDue($State, [string]$Sig, [datetime]$Now, [bool]$Force) {
+    if (-not $Sig) { return $false }
+    if ($Force -or -not $State -or $State.Sig -ne $Sig) { return $true }
+    if ($State.FailedAt -and ($Now - $State.FailedAt).TotalMinutes -ge $script:OutboxRetryMin) { return $true }
+    return $false
+}
+# Neu angesteckt oder gewaehlt: wieder faellig. Schon gesendete, nicht loeschbare Dateien bleiben gemerkt (nie doppelt senden)
+function Clear-OutboxState([string]$Letter) {
+    if (-not $Letter) { return }
+    foreach ($k in @($script:OutboxState.Keys)) { if ($k.StartsWith($Letter.TrimEnd(':').ToLower() + ':')) { $script:OutboxState[$k].Sig = ''; $script:OutboxState[$k].FailedAt = $null } }
+}
+# Nachsenden: beim Waehlen oder Erkennen eines Sticks, beim Start und am Ende von "Stick fertig machen" (auch fuer die Quelle,
+# wenn das Setup vom Stick laeuft), auf Klick "Berichte vom Stick senden". Nie waehrend eines laufenden Vorgangs, nie vor dem
+# Anzeigen des Fensters, nie doppelt gleichzeitig. Automatisch hoechstens 3 je Durchgang, auf Klick 10.
+#   -Retry: nach "Stick fertig machen" erneut versuchen (automatisch, hoechstens 3). -Force: auf Klick (hoechstens 10).
+function Invoke-OutboxSend([string]$Drive = '', [switch]$Force, [switch]$Retry, [string]$Dir = '', [int]$Max = 0) {
+    if ($script:OutboxRunning -or $script:Busy) { return }
+    try { if (-not $win.IsVisible) { return } } catch { return }
+    if (-not $Dir) { if (-not $Drive) { return }; $Dir = $Drive.TrimEnd('\') + '\HUPilot\logs\outbox' }
+    if (-not $Drive) { $Drive = $Dir.Substring(0, 2) }
+    $u = Get-TeamsWebhook
+    if (-not $u -or (Test-HuWebhookUrl $u)) { return }
+    $key = $Dir.ToLower()
+    $st = $script:OutboxState[$key]
+    if (-not $st) { $st = @{ Sig = ''; FailedAt = $null; Skip = (New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)) }; $script:OutboxState[$key] = $st }
+    $files = @(Get-OutboxFiles $Dir $st.Skip)
+    $sig = Get-OutboxSig $files
+    if (-not (Test-OutboxDue $st $sig (Get-Date) ([bool]($Force -or $Retry)))) { return }
+    if ($Max -le 0) { $Max = $(if ($Force) { $script:OutboxPerManual } else { $script:OutboxPerRun }) }
+    $script:OutboxRunning = $true
+    $prev = Get-ReadyState
+    Set-UiBusy $true
+    try {
+        Set-ReadyText ('Sende ' + $(if ($files.Count -gt $Max) { '' + $Max + ' von ' + $files.Count + ' Berichten' } elseif ($files.Count -eq 1) { '1 Bericht' } else { '' + $files.Count + ' Berichte' }) + ' an den Admin vom Stick ' + $Drive + ' ...'); Step-Ui
+        $r = Send-OutboxCore $Dir $u ([datetime]::UtcNow) $Max 8 { Step-Ui } (Get-TeamsProtectSet) $st.Skip
+        $st.Sig = Get-OutboxSig @(Get-OutboxFiles $Dir $st.Skip)
+        $st.FailedAt = $(if ($r.Reason) { Get-Date } else { $null })
+        $pl = { param($n) '' + $n + ' Bericht' + $(if ($n -ne 1) { 'e' } else { '' }) }
+        if ($r.Sent) { Out-Log ((& $pl $r.Sent) + ' an den Admin vom Stick ' + $Drive + ' gesendet.' + $(if ($r.Left -and -not $r.Reason) { ' ' + (& $pl $r.Left) + ' noch am Stick, sie folgen beim nächsten Anstecken oder per Rechtsklick im Protokoll "Berichte vom Stick senden".' } else { '' })) 'OK' }
+        if ($r.Undeletable) { Out-Log ((& $pl $r.Undeletable) + ' gesendet, Datei am Stick ' + $Drive + ' nicht löschbar (Stick schreibgeschützt?). In dieser Sitzung nicht noch einmal gesendet.') 'Hinweis' }
+        if ($r.Reason) { Out-Log ('Berichte an den Admin vom Stick ' + $Drive + ' nicht gesendet: ' + $r.Reason + '. Sie bleiben am Stick und werden beim nächsten Anstecken oder nach "Stick fertig machen" erneut versucht.') 'Hinweis' }
+        if ($r.Bad) { Out-Log ((& $pl $r.Bad) + ' am Stick ' + $Drive + ' nicht lesbar oder aus einer neueren Version, nicht gesendet. Sie bleiben liegen. Setup aktualisieren (Knopf Update), dann nochmal.') 'Hinweis' }
+        if ($r.BadOld) { Out-Log ('' + $r.BadOld + ' unlesbare Berichte am Stick ' + $Drive + ' verworfen (älter als 30 Tage).') 'Hinweis' }
+        if ($r.Pruned) { Out-Log ('' + $r.Pruned + ' älteste Berichte am Stick ' + $Drive + ' verworfen (mehr als 50).') 'Hinweis' }
+    } catch { try { Out-Log 'Berichte an den Admin vom Stick konnten nicht nachgesendet werden. Stick neu anstecken, sonst den Admin fragen.' 'Hinweis' $_.Exception.Message } catch { } }
+    finally { $script:OutboxRunning = $false; Set-UiBusy $false; Restore-ReadyState $prev }
+}
+# Gewaehlter Stick und, wenn das Setup vom Stick laeuft, die Quelle selbst (Get-UsbDriveList laesst die Quelle aus)
+function Invoke-OutboxSendAll([switch]$Force, [switch]$Retry) {
+    try { $d = Get-Drive; if ($d) { Invoke-OutboxSend $d -Force:$Force -Retry:$Retry } } catch { }
+    try { if ($srcDrive) { Invoke-OutboxSend $srcDrive -Force:$Force -Retry:$Retry -Dir (Join-Path $srcHU 'logs\outbox') } } catch { }
+}
+# Zahl der liegenden Berichte (ohne die schon gesendeten, nicht loeschbaren) fuer den Rechtsklick
+function Get-OutboxPending {
+    $n = 0; $dirs = @()
+    try { $d = Get-Drive; if ($d) { $dirs += ($d + '\HUPilot\logs\outbox') } } catch { }
+    try { if ($srcDrive) { $dirs += (Join-Path $srcHU 'logs\outbox') } } catch { }
+    foreach ($x in $dirs) { try { $st = $script:OutboxState[$x.ToLower()]; $n += @(Get-OutboxFiles $x $(if ($st) { $st.Skip } else { $null })).Count } catch { } }
+    return $n
+}
+# Rechtsklick "An Admin senden" auf einer Protokollzeile (Hauptfenster und Unterfenster)
+function Get-TeamsLevel([string]$LogLevel) { switch ($LogLevel) { 'Fehler' { return 'Error' } 'Hinweis' { return 'Warning' } 'OK' { return 'OK' } }; return 'Info' }
+function Get-TeamsLogTitle([string]$LogLevel) { switch ($LogLevel) { 'Fehler' { return 'Fehler im Setup' } 'Hinweis' { return 'Hinweis aus dem Setup' } }; return 'Meldung aus dem Setup' }
+function Send-LogItemToAdmin($Item) {
+    $list = $null
+    # Ergebnis ins Protokoll und, aus einem Unterfenster, auch dort
+    $say = { param($m, $lv) try { Out-Log $m $lv } catch { }; try { if ($list -and $list -ne $ui.lLog) { Add-LogItem $list $lv ((Get-Date -Format 'HH:mm:ss') + '  ' + $(if ($lv) { $lv + ': ' } else { '' }) + $m) '' $false } } catch { } }
+    try {
+        $list = [System.Windows.Controls.ItemsControl]::ItemsControlFromItemContainer($Item)
+        if ($script:Busy -or $script:OutboxRunning) { & $say 'Gerade läuft ein Vorgang. Danach nochmal "An Admin senden".' 'Hinweis'; return }
+        $u = Get-TeamsWebhook
+        if (-not $u) { & $say 'Kein Teams-Webhook eingetragen, nichts gesendet.' 'Hinweis'; return }
+        $tag = $Item.Tag
+        $all = @(); if ($list) { $all = @($list.Items | ForEach-Object { [string]$_.Tag.Text }) }
+        # neueste oben im Hauptfenster: fuer die Karte in zeitliche Reihenfolge bringen, die letzten rund 40 Zeilen
+        if ($list -eq $ui.lLog -and $script:LogTop) { [array]::Reverse($all) }
+        $log = @($all | Select-Object -Last 40)
+        $iv = @{}; try { $iv = Get-InfoValues } catch { }
+        $lines = @([string]$tag.Text)
+        if ($tag.Detail) { $lines += @((Format-TechDetail ([string]$tag.Detail)) -split "`r?`n") }
+        $lines += ('HUPilot-Setup ' + $SetupVer + '  |  Quelle ' + $srcStick + '  |  ' + [string]$iv.Windows + '  |  PowerShell ' + [string]$PSVersionTable.PSVersion)
+        $c = Get-Cfg
+        $ps = Get-TeamsProtectSet
+        $json = New-TeamsCard (Get-TeamsTitle (Get-TeamsLogTitle ([string]$tag.Level)) ([string]$c.Tenant)) @($lines | ForEach-Object { Protect-TeamsText $_ $ps.S $ps.I }) @($log | ForEach-Object { Protect-TeamsText $_ $ps.S $ps.I }) (Get-TeamsLevel ([string]$tag.Level)) (Get-TeamsFooter 'Setup' (Get-Date) ([string]$c.Tenant))
+        Set-UiBusy $true
+        try { Step-Ui; $r = Send-TeamsCard $u $json 10 } finally { Set-UiBusy $false }
+        if ($r) { & $say ('Bericht an den Admin nicht gesendet: ' + $r + '. Internet und Teams-Webhook prüfen, dann nochmal versuchen.') 'Hinweis' } else { & $say 'Bericht an den Admin gesendet (Teams).' 'OK' }
+    } catch { & $say 'Bericht an den Admin nicht gesendet. Internet und Teams-Webhook prüfen, dann nochmal versuchen.' 'Hinweis' }
+}
+
+# Vor dem Formatieren ("Sticks vorbereiten"): Berichte an den Admin je Stick senden (mit Teams-Webhook, Abbruch beim ersten
+# Sendefehler), Rueckgabe: je Stick mit uebrigen Berichten ein Satz fuer die Rueckfrage. Aendert nichts am Stick-Vergleich.
+function Send-OutboxBeforeFormat([string[]]$Letters, [scriptblock]$Log = $null, [scriptblock]$Tick = $null) {
+    $warn = @()
+    $u = Get-TeamsWebhook; $can = ($u -and -not (Test-HuWebhookUrl $u)); $ps = $null; $down = $false
+    foreach ($l in @($Letters | Where-Object { $_ })) {
+        $dl = ([string]$l).TrimEnd(':', '\') + ':'
+        $dir = $dl + '\HUPilot\logs\outbox'
+        $st = $script:OutboxState[$dir.ToLower()]
+        $skip = $(if ($st) { $st.Skip } else { $null })
+        if (-not @(Get-OutboxFiles $dir $skip).Count) { continue }
+        if ($can -and -not $down) {
+            if (-not $ps) { $ps = Get-TeamsProtectSet }
+            $r = Send-OutboxCore $dir $u ([datetime]::UtcNow) $script:OutboxMaxFiles 8 $Tick $ps $skip
+            if ($r.Sent -and $Log) { & $Log ('' + $r.Sent + ' Bericht' + $(if ($r.Sent -ne 1) { 'e' } else { '' }) + ' an den Admin vom Stick ' + $dl + ' gesendet.') 'OK' }
+            if ($r.Reason) { $down = $true; if ($Log) { & $Log ('Berichte an den Admin vom Stick ' + $dl + ' nicht gesendet: ' + $r.Reason + '.') 'Hinweis' } }
+        }
+        $n = @(Get-OutboxFiles $dir $skip).Count
+        if ($n -eq 1) { $warn += ('Auf Stick ' + $dl + ' liegt 1 nicht gesendeter Bericht an den Admin, er geht beim Formatieren verloren.') }
+        elseif ($n) { $warn += ('Auf Stick ' + $dl + ' liegen ' + $n + ' nicht gesendete Berichte an den Admin, sie gehen beim Formatieren verloren.') }
+    }
+    return $warn
+}
+
+# ---------- Merker zum gewaehlten Stick (direkt hinter dem Statustext), z. B. "MAK am Stick" ----------
+#   Gelesen wird nur, ob EditionKey in HUPilot\config.json am Stick gefuellt ist, und die letzten 5 Zeichen. Der ganze
+#   Schluessel verlaesst Get-StickMakInfo nie (nicht in Oberflaeche, Protokoll oder Protokolldatei).
+#   Kein Stick, Stick nicht bereit, keine config.json: kein Merker, kein Fehler. Zu grosse oder kaputte config.json:
+#   Merker "Stick prüfen" (ein fehlender Merker darf nicht "kein MAK" heissen, wenn die Datei nicht lesbar war).
+#   Weitere Merker (z. B. Secret abgelaufen) kommen spaeter als weiterer Eintrag in Get-StickFlags dazu.
+function Get-StickMakInfo([string]$Drive) {
+    if (-not $Drive) { return $null }
+    try {
+        $p = $Drive.TrimEnd('\') + '\HUPilot\config.json'
+        if (-not [System.IO.File]::Exists($p)) { return $null }
+        $bad = [pscustomobject]@{ HasMak = $false; Tail = ''; Unreadable = $true }
+        if ((New-Object System.IO.FileInfo($p)).Length -gt 1MB) { return $bad }
+        $o = $null
+        try { $o = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8) | ConvertFrom-Json } catch { return $bad }
+        if ($null -eq $o -or $o -isnot [System.Management.Automation.PSCustomObject]) { return $bad }
+        $k = ([string]$o.EditionKey).Trim()
+        $tail = $(if ($k.Length -ge 5) { $k.Substring($k.Length - 5) } else { '' })
+        $o = $null; $has = [bool]$k; $k = $null
+        return [pscustomobject]@{ HasMak = $has; Tail = $tail; Unreadable = $false }
+    } catch { return $null }
+}
+# Merker aus den gelesenen Angaben (ohne Oberflaeche, fuer Tests): Liste von @{ Key; Text; Color; Tip }
+function Get-StickFlags($MakInfo) {
+    $f = @()
+    if ($MakInfo -and $MakInfo.Unreadable) {
+        $f += [pscustomobject]@{ Key = 'pruefen'; Text = 'Stick prüfen'; Color = 'HuStandWarnBg'; Tip = 'Die Einstellungen am Stick sind nicht lesbar. Stick fertig machen wiederholen.' }
+    }
+    if ($MakInfo -and $MakInfo.HasMak) {
+        $f += [pscustomobject]@{ Key = 'mak'; Text = 'MAK am Stick'; Color = 'HuStandErrBg'
+            Tip = ('Auf diesem Stick liegt der MAK (Volumenlizenz-Schlüssel) im Klartext' + $(if ($MakInfo.Tail) { ', er endet auf ' + $MakInfo.Tail } else { '' }) + '. Gedacht nur für Geräte mit Windows Home.' + "`n" +
+                'Stick ohne MAK: nochmal Stick fertig machen und bei der Frage, ob der MAK mit auf den Stick soll, Nein wählen. Ist das Feld MAK (Pro) leer, kommt keine Frage und der Stick wird ohne MAK bespielt.') }
+    }
+    return $f
+}
+$script:FlagKey = '?'
+function Update-StickFlags([switch]$Force) {
+    try {
+        $d = Get-Drive
+        $key = Get-ReadyHintKey $d
+        if (-not $Force -and $key -eq [string]$script:FlagKey) { return }
+        $changed = ($key -ne [string]$script:FlagKey)
+        $script:FlagKey = $key
+        $info = $null
+        if ($d -and @($script:DriveList | Where-Object { $_.Letter -eq $d }).Count) { $info = Get-StickMakInfo $d }
+        $ui.spFlags.Children.Clear()
+        $sendDrive = $(if ($d -and @($script:DriveList | Where-Object { $_.Letter -eq $d }).Count) { $d } else { '' })
+        # neu angesteckt oder gewaehlt: Berichte vom Stick wieder faellig (auch nach einem Fehlschlag)
+        if ($sendDrive -and $changed) { Clear-OutboxState $sendDrive }
+        foreach ($fl in @(Get-StickFlags $info)) {
+            $bd = New-Object System.Windows.Controls.Border
+            $bd.CornerRadius = New-Object System.Windows.CornerRadius(3); $bd.Padding = New-Object System.Windows.Thickness(6, 1, 6, 1); $bd.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
+            $bd.SetResourceReference([System.Windows.Controls.Border]::BackgroundProperty, $fl.Color)
+            $tb = New-Object System.Windows.Controls.TextBlock
+            $tb.Text = $fl.Text; $tb.FontWeight = [System.Windows.FontWeights]::Bold; $tb.TextWrapping = 'NoWrap'
+            $tb.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, 'HuStandText')
+            $bd.Child = $tb; $bd.ToolTip = $fl.Tip; $bd.Tag = $fl.Key
+            [System.Windows.Controls.ToolTipService]::SetShowDuration($bd, 60000)
+            [void]$ui.spFlags.Children.Add($bd)
+        }
+    } catch { }
+    # Stick gewaehlt oder neu erkannt: Berichte vom Stick nachsenden (hoechstens 3, nie waehrend eines Vorgangs, nie zweimal fuer denselben Stand)
+    if ($sendDrive) { try { Invoke-OutboxSend $sendDrive } catch { } }
+}
 function Update-ReadyHint {
+    Update-StickFlags
     $d = Get-Drive
     $key = Get-ReadyHintKey $d
     if ($key -eq [string]$script:HintDrive) { return }
@@ -1063,7 +1600,7 @@ function Get-Cfg {
         WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = (Get-Masked 'Key'); WlanPackage = 'HUPilot-WLAN.ppkg'
         AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = (Get-Masked 'AdmPw')
         Admin2Name = $ui.tAdm2Name.Text.Trim(); Admin2Password = (Get-Masked 'Adm2Pw'); AskUser = [bool]$ui.cAskUser.IsChecked; RemoveOtherPackages = [bool]$ui.cRmPkg.IsChecked
-        EditionKey = (Get-EdKey)
+        EditionKey = (Get-EdKey); TeamsWebhook = ([string](Get-Masked 'Hook')).Trim()
     }
     foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
     return $o
@@ -1128,7 +1665,7 @@ function Set-EdKey([string]$v) { $ui.pEdKey.Password = $v; $ui.tEdKey.Text = $v 
 $ui.cShowEd.Add_Checked({ $ui.tEdKey.Text = $ui.pEdKey.Password; $ui.pEdKey.Visibility = 'Collapsed'; $ui.tEdKey.Visibility = 'Visible' })
 $ui.cShowEd.Add_Unchecked({ $ui.pEdKey.Password = $ui.tEdKey.Text; $ui.tEdKey.Visibility = 'Collapsed'; $ui.pEdKey.Visibility = 'Visible' })
 # WLAN-Kennwort und Admin-Kennwoerter: gleiches Muster wie Secret und MAK (Kennwortfeld + Klartextfeld + "anzeigen"), Wert ungekuerzt
-$script:Masked = @{ Key = 'cShowKey'; AdmPw = 'cShowAdm'; Adm2Pw = 'cShowAdm2' }
+$script:Masked = @{ Key = 'cShowKey'; AdmPw = 'cShowAdm'; Adm2Pw = 'cShowAdm2'; Hook = 'cShowHook' }
 function Get-Masked([string]$Id) { if ($ui[$script:Masked[$Id]].IsChecked) { return [string]$ui['t' + $Id].Text } return [string]$ui['p' + $Id].Password }
 function Set-Masked([string]$Id, [string]$v) { $ui['p' + $Id].Password = $v; $ui['t' + $Id].Text = $v }
 foreach ($mk in @($script:Masked.Keys)) {
@@ -1326,7 +1863,9 @@ function Show-PrepSticks {
         if (-not $pre) { & $plog 'Abgebrochen.'; return }
         # Rueckfrage nennt je Stick Buchstabe, Name, Dateisystem, Groesse und Modell
         $list = ($sel | ForEach-Object { '   ' + $_.Text }) -join "`r`n"
-        $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning')
+        # Berichte an den Admin, die go am Stick abgelegt hat: vorher senden, sonst in der Rueckfrage nennen (gehen beim Formatieren verloren)
+        $obw = @(); try { $obw = @(Send-OutboxBeforeFormat @($sel | ForEach-Object { $_.Letter }) $plog { try { $pw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) } catch { } }) } catch { }
+        $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + $(if ($obw.Count) { "`r`n`r`n" + ($obw -join "`r`n") } else { '' }) + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning')
         if ($q -ne 'Yes') { return }
         $ok = 0
         foreach ($st in $sel) {
@@ -1667,6 +2206,7 @@ function Get-InfoLines([hashtable]$I) {
     $l += ('Quelle: ' + $I.Source)
     $l += ('PowerShell ' + $I.PS + ', ' + $I.Windows)
     $l += ('Paketbau: ' + $I.Adk + '; Kopie: ' + $I.IcdCopy)
+    if ($I.ContainsKey('Teams')) { $l += ('Teams-Webhook: ' + $I.Teams) }
     $l += ('Protokolldatei: ' + $(if ($I.Log) { $I.Log } else { 'noch keine' }))
     $l += ('Repo: ' + $script:RepoUrl)
     return $l
@@ -1693,9 +2233,11 @@ function Get-InfoValues {
         Source = $srcStick; PS = [string]$PSVersionTable.PSVersion; Windows = $win10
         Adk = $(if ($instRaw) { 'Windows ADK am PC, Version ' + $instRaw } else { 'kein Windows ADK am PC' })
         IcdCopy = (Get-IcdStateText $cp); Log = [string]$script:LogFile
+        # nur ob eingetragen, nie die Adresse
+        Teams = $(if (([string](Get-Masked 'Hook')).Trim()) { 'eingetragen' } else { 'nicht eingetragen' })
     }
 }
-function Open-InfoLink([string]$Target) { try { Start-Process -FilePath $Target } catch { Out-Log 'Link konnte nicht geöffnet werden.' 'Hinweis' ($Target + ': ' + $_.Exception.Message) } }
+function Open-InfoLink([string]$Url) { try { Start-Process -FilePath $Url } catch { Out-Log 'Link konnte nicht geöffnet werden.' 'Hinweis' ($Url + ': ' + $_.Exception.Message) } }
 $script:InfoOpen = $false
 function Show-Info {
     # nicht waehrend eines Vorgangs, nie ein zweites Info-Fenster
@@ -1737,7 +2279,7 @@ function Show-InfoCore {
     $v = Get-InfoValues
     $lines = @(Get-InfoLines $v)
     $g.tVer.Text = $lines[0] + "`n" + $lines[1]
-    $g.tDet.Text = ($lines[2..5] -join "`n")
+    $g.tDet.Text = ($lines[2..($lines.Count - 2)] -join "`n")
     $g.lRepo.Text = $script:RepoUrl -replace '^https://', ''
     $g.lRepo.Add_MouseLeftButtonUp({ Open-InfoLink $script:RepoUrl })
     $g.lHelp.Add_MouseLeftButtonUp({ & $ShowHelp })
@@ -1780,7 +2322,7 @@ $cmU.Add_Opened({
 })
 $ui.bUpd.ContextMenu = $cmU
 $win.Add_KeyDown({ if ($_.Key -eq 'F1') { & $ShowHelp } })
-$ui.bReload.Add_Click({ Update-Drives })
+$ui.bReload.Add_Click({ Update-Drives; Update-StickFlags -Force })
 
 $ui.bLoad.Add_Click({
     $p = $srcCfg
@@ -1799,17 +2341,19 @@ $ui.bLoad.Add_Click({
         $ui.tSsid.Text = [string]$c.WlanSsid; Set-Masked 'Key' ([string]$c.WlanKey)
         $ui.tAdmName.Text = [string]$c.AdminName; Set-Masked 'AdmPw' ([string]$c.AdminPassword); $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
         $ui.tAdm2Name.Text = [string]$c.Admin2Name; Set-Masked 'Adm2Pw' ([string]$c.Admin2Password); $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -eq $true)
-        Set-EdKey ([string]$c.EditionKey)
+        Set-EdKey ([string]$c.EditionKey); Set-Masked 'Hook' ([string]$c.TeamsWebhook)
         # Ablaufdatum des Secrets gilt nur fuer genau dieses Secret (bei geaendertem Secret: unbekannt).
         # Immer ins Vertragsformat bringen: PS 7 liefert aus ConvertFrom-Json ein DateTime, [string] davon waere ein anderes Format.
         $script:SecretExpLoaded = Format-UtcText (ConvertTo-UtcDate $c.SecretExpires); $script:SecretExpLoadedFor = Get-StrHash ([string]$c.ClientSecret).Trim()
         $script:Extra = @{}
-        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages','EditionKey','SecretExpires') { $script:Extra[$pr.Name] = $pr.Value } }
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages','TeamsWebhook','EditionKey','SecretExpires') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log 'Einstellungen geladen (config.json)' 'OK' $p
     } catch { Out-Log 'Einstellungen konnten nicht übernommen werden. Felder prüfen, neu ausfüllen und speichern.' 'Fehler' ($p + ': ' + $_.Exception.GetType().Name) }
     finally { $script:Loading = $false }
     $script:SavedSnap = Get-CfgSnap
     Update-Dirty
+    # Hinweis zum Secret gilt fuer das geladene Secret neu (abgelaufen laut gespeichertem Datum, sonst kein Hinweis)
+    try { $script:SecAwait = $false; $script:SecCheckedFor = Get-StrHash (Get-Secret); Set-SecretMode ''; Test-SecretDateExpired } catch { }
 })
 
 # config.json lesen. Rueckgabe @{ Cfg; Error; Detail }. Bei kaputtem JSON nie die Meldung des Parsers weitergeben:
@@ -1838,8 +2382,8 @@ function Update-Dirty {
     $win.Title = 'HUPilot-Setup v' + $SetupVer + $(if ($d) { '  * (ungespeichert)' } else { '' })
     [void](Update-PkgState)
 }
-foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','tEdKey','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw') { $ui[$n].Add_TextChanged({ Update-Dirty }) }
-foreach ($n in 'pSecret','pEdKey','pKey','pAdmPw','pAdm2Pw') { $ui[$n].Add_PasswordChanged({ Update-Dirty }) }
+foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','tEdKey','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','tHook') { $ui[$n].Add_TextChanged({ Update-Dirty }) }
+foreach ($n in 'pSecret','pEdKey','pKey','pAdmPw','pAdm2Pw','pHook') { $ui[$n].Add_PasswordChanged({ Update-Dirty }) }
 foreach ($n in 'cAskUser','cRmPkg') { $ui[$n].Add_Click({ Update-Dirty }) }
 
 # ---------- Hilfen: SHA256, Datum in UTC ----------
@@ -2232,6 +2776,65 @@ function Get-SecretExpiresValue([string]$Secret) {
     return ''
 }
 
+# ---------- Secret abgelaufen: gefuehrt erneuern (Hinweis im Kopf, Knopf zum Entra-Portal, Pruefung nach dem Einfuegen) ----------
+#   Modus fuer das eingetragene Secret: '' (kein Hinweis), expired, awaiting (Seite geoeffnet, wartet auf den neuen Wert),
+#   checking, net (keine Verbindung: nicht geprueft, nie "ungueltig"), wrong, fail, ok, okNoEnd (Ablauf unbekannt), saved.
+#   Nach "abgelaufen" oder einem Klick auf "Neues Secret anlegen" prueft das Setup jede Aenderung im Feld von selbst
+#   (kurz nach dem Einfuegen oder wenn das Feld den Fokus verliert, nie nach Tipp-Pausen). Keine Vorwarnung vor dem Ablauf (nicht gewaehlt).
+$script:SecMode = ''; $script:SecEndText = ''; $script:SecAwait = $false; $script:SecChecking = $false; $script:SecCheckedFor = ''
+# Text, Farbe und Knopf je Modus (ohne Oberflaeche, fuer Tests)
+function Get-SecretBanner([string]$Mode, [string]$EndText = '') {
+    $save = 'Jetzt speichern ("3. Speichern" oder "Stick fertig machen") und danach jeden Stick neu bespielen: Stick anstecken, "Stick fertig machen". Alte Sticks laden keine Geräte mehr hoch.'
+    switch ($Mode) {
+        'expired'  { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das Secret ist abgelaufen' + $(if ($EndText) { ' (seit ' + $EndText + ')' } else { '' }) + '. Damit lädt kein Stick Geräte hoch. Klick auf "Neues Secret anlegen" und den neuen Wert bei "Secret (Wert)" einfügen.' } }
+        'awaiting' { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Im Browser: "Neuer geheimer Clientschlüssel", Ablauf wählen (möglichst kurz, über "Benutzerdefiniert"), "Hinzufügen". Dann den Wert aus der Spalte "Wert" kopieren (nicht die "Geheimnis-ID") und hier bei "Secret (Wert)" einfügen. Das Setup prüft dann von selbst.' } }
+        'checking' { return @{ Show = $true; Color = 'HuRun'; Button = $false; Text = 'Prüfe das neue Secret ...' } }
+        'net'      { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Keine Verbindung zu Microsoft. Das neue Secret ist noch nicht geprüft, ungültig ist es deshalb nicht. Internet prüfen, dann "1. Verbindung testen".' } }
+        'wrong'    { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das eingefügte Secret ist falsch. Oft ist die "Geheimnis-ID" statt des Werts kopiert. Im Portal den Wert aus der Spalte "Wert" kopieren und bei "Secret (Wert)" einfügen.' } }
+        'fail'     { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Microsoft lehnt die Anmeldung ab. Tenant-ID und App-ID (Client) prüfen, Details im Protokoll.' } }
+        'ok'       { return @{ Show = $true; Color = 'HuOk'; Button = $false; Text = 'Neues Secret gültig bis ' + $EndText + '. ' + $save } }
+        'okNoEnd'  { return @{ Show = $true; Color = 'HuOk'; Button = $false; Text = 'Neues Secret gültig, Ablauf unbekannt. ' + $save } }
+        'saved'    { return @{ Show = $true; Color = 'HuOk'; Button = $false; Text = 'Neues Secret gespeichert. Jetzt jeden Stick neu bespielen: Stick anstecken, "Stick fertig machen". Alte Sticks laden keine Geräte mehr hoch.' } }
+    }
+    return @{ Show = $false; Color = 'HuMuted'; Button = $false; Text = '' }
+}
+# Seite "Zertifikate und Geheimnisse" der App-Registrierung im Entra Admin Center (ohne gueltige App-ID: Liste der App-Registrierungen)
+function Get-SecretPortalUrl([string]$ClientId) {
+    if ($ClientId -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') { return ('https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/' + $ClientId.ToLower()) }
+    return 'https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade'
+}
+function Update-SecretBanner {
+    try {
+        $b = Get-SecretBanner $script:SecMode $script:SecEndText
+        $ui.bdSecret.Visibility = $(if ($b.Show) { 'Visible' } else { 'Collapsed' })
+        $ui.tSecBanner.Text = $b.Text
+        $ui.tSecBanner.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $b.Color)
+        $ui.bdSecret.SetResourceReference([System.Windows.Controls.Border]::BorderBrushProperty, $b.Color)
+        $ui.bSecNew.Visibility = $(if ($b.Button) { 'Visible' } else { 'Collapsed' })
+        $ui.bReadySec.Visibility = $(if ($b.Button) { 'Visible' } else { 'Collapsed' })
+    } catch { }
+}
+# Nach JEDER erfolgreichen Anmeldung mit dem eingetragenen Secret (Get-ApiToken, egal welcher Knopf): steht ein Hinweis
+# auf ein Problem (abgelaufen, wartet, ohne Netz, falsch, abgelehnt, prueft), wird er zu "gültig" (mit Datum, wenn bekannt).
+# Ohne Hinweis bleibt es ohne Hinweis; "gültig" und "gespeichert" bleiben, damit die Erinnerung an die Sticks bleibt.
+function Set-SecretLoginOk([string]$Secret) {
+    try { $script:SecCheckedFor = Get-StrHash $Secret } catch { }
+    if ($script:SecMode -notin 'expired', 'awaiting', 'net', 'wrong', 'fail', 'checking') { return }
+    $end = $null; try { $end = ConvertTo-UtcDate (Get-SecretExpiresValue $Secret) } catch { }
+    if ($end -and $end -gt [datetime]::UtcNow) { Set-SecretMode 'ok' $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } else { Set-SecretMode 'okNoEnd' }
+}
+# Fehlgeschlagene Anmeldung mit dem eingetragenen Secret: einen SICHTBAREN Hinweis passend umstellen (falsch, abgelehnt,
+# kein Netz). Ohne Hinweis bleibt es ohne Hinweis (abgelaufen stellt Get-ApiToken selbst ein). Fehlende Felder sind keine Anmeldung.
+function Set-SecretLoginFail([string]$Kind) {
+    if (-not $script:SecMode -or $Kind -in 'expired', 'fields', '') { return }
+    switch ($Kind) { 'wrong' { Set-SecretMode 'wrong' } 'config' { Set-SecretMode 'fail' } 'net' { Set-SecretMode 'net' } 'proxy' { Set-SecretMode 'net' } default { Set-SecretMode 'fail' } }
+}
+function Set-SecretMode([string]$Mode, [string]$EndText = '') {
+    $script:SecMode = $Mode; $script:SecEndText = $EndText
+    if ($Mode -in 'expired', 'awaiting', 'wrong', 'net', 'fail') { $script:SecAwait = $true }
+    Update-SecretBanner
+}
+
 # ---------- Anmeldung: Fehlerart unterscheiden (kein Netz / Secret abgelaufen / Secret falsch / sonst) ----------
 function Get-TokenErrorKind([string]$Message, [bool]$HasResponse) {
     if ($Message -match 'AADSTS7000222') { return 'expired' }
@@ -2239,9 +2842,12 @@ function Get-TokenErrorKind([string]$Message, [bool]$HasResponse) {
     if ($Message -match 'AADSTS\d+') { return 'config' }
     if (-not $HasResponse) { return 'net' }
     if ($Message -match 'Remotename|remote name|No such host|nicht aufgel|timed out|Zeitüberschreitung|Zeitlimit|timeout|Unable to connect|Verbindung mit dem Remoteserver|actively refused') { return 'net' }
-    return 'other'
+    # Antwort ohne AADSTS-Code (Anmeldeseite eines Gastnetzes, Proxy, Stoerung): kam nicht vom Anmeldedienst, wie kein Netz
+    return 'proxy'
 }
 $script:TokenErr = ''; $script:TokenMsg = ''
+# Zeitlimit der Anmeldung: 30 s, waehrend der Pruefung nach dem Einfuegen $script:TokenTimeoutSec (kuerzer, sie laeuft ungefragt)
+$script:TokenTimeoutSec = 0
 function Get-ApiToken {
     if (-not (Test-Fields @('TenantId', 'ClientId', 'ClientSecret'))) { $script:TokenErr = 'fields'; $script:TokenMsg = $script:FieldErr; return $null }
     $c = Get-Cfg
@@ -2249,23 +2855,31 @@ function Get-ApiToken {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $body = @{ grant_type = 'client_credentials'; client_id = $c.ClientId; client_secret = $c.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
-        $tr = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 30
+        $tr = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded' -TimeoutSec $(if ($script:TokenTimeoutSec -gt 0) { $script:TokenTimeoutSec } else { 30 })
         # fuer Get-ApiTokenCached merken (5 Minuten Reserve vor dem Ablauf)
         $sec = 3600; try { $sec = [int]$tr.expires_in } catch { }
         $script:TokCache = @{ Token = [string]$tr.access_token; Until = (Get-Date).AddSeconds([math]::Max(0, $sec - 300)); For = (Get-StrHash ($c.TenantId + '|' + $c.ClientId + '|' + $c.ClientSecret)) }
+        # zentral fuer alle Knoepfe: Anmeldung mit dem eingetragenen Secret klappt, Hinweis zum Secret richtigstellen
+        Set-SecretLoginOk ([string]$c.ClientSecret)
         return $tr.access_token
     } catch {
         $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }
         $hasResp = $false; try { $hasResp = ($null -ne $_.Exception.Response) } catch { }
         $kind = Get-TokenErrorKind $m $hasResp
-        $script:TokenErr = $kind
+        $script:TokenErr = $(if ($kind -eq 'proxy') { 'net' } else { $kind })
+        try { $script:SecCheckedFor = Get-StrHash ([string]$c.ClientSecret) } catch { }
+        # abgelaufen: deutlicher Hinweis mit Knopf "Neues Secret anlegen" (ohne Netz nie, dann ist nichts geprueft)
+        if ($kind -eq 'expired') { Set-SecretMode 'expired' }
+        # Gegenstueck zu Set-SecretLoginOk: ein sichtbarer Hinweis zeigt nie "gültig", wenn die letzte Anmeldung scheiterte
+        Set-SecretLoginFail $kind
         $txt = 'Anmeldung bei Microsoft fehlgeschlagen. Später nochmal versuchen, Details im Protokoll.'
-        if ($kind -eq 'expired') { $txt = 'Das Secret ist abgelaufen. In Entra bei der App-Registrierung ein neues Geheimnis anlegen und den Wert bei "Secret (Wert)" eintragen.' }
-        elseif ($kind -eq 'wrong') { $txt = 'Das Secret ist falsch, oft ist die Geheimnis-ID statt des Werts kopiert. Den Wert bei "Secret (Wert)" eintragen.' }
+        if ($kind -eq 'expired') { $txt = 'Das Secret ist abgelaufen. Oben auf "Neues Secret anlegen" klicken und den neuen Wert bei "Secret (Wert)" einfügen.' }
+        elseif ($kind -eq 'wrong') { $txt = 'Das Secret ist falsch, oft ist die "Geheimnis-ID" statt des Werts kopiert. Den Wert bei "Secret (Wert)" einfügen.' }
         elseif ($kind -eq 'config') { $txt = 'Microsoft lehnt die Anmeldung ab. Tenant-ID und App-ID (Client) prüfen.' }
         elseif ($kind -eq 'net') { $txt = 'Keine Verbindung zu Microsoft. Internet prüfen. Das Secret wurde nicht geprüft.' }
+        elseif ($kind -eq 'proxy') { $txt = 'Die Antwort kam nicht von Microsoft (Gastnetz oder Proxy?). Internet prüfen. Das Secret wurde nicht geprüft.' }
         $script:TokenMsg = $txt
-        Out-Log $txt $(if ($kind -eq 'net') { 'Hinweis' } else { 'Fehler' }) $m
+        Out-Log $txt $(if ($kind -in 'net', 'proxy') { 'Hinweis' } else { 'Fehler' }) $m
         return $null
     }
 }
@@ -2283,12 +2897,12 @@ function Format-Rest([TimeSpan]$Span) {
     $d = [int][Math]::Floor($Span.TotalDays)
     return ('noch ' + $(if ($d) { '' + $d + ' Tag' + $(if ($d -ne 1) { 'e' } else { '' }) + ' ' } else { '' }) + $Span.Hours + ' Std')
 }
-function Show-SecretExpiry([string]$Token) {
+function Show-SecretExpiry([string]$Token, [int]$TimeoutSec = 30) {
     # Secret-Ablauf (optional: braucht Application.Read.All fuer die App). Merkt das Ablaufdatum des verwendeten Secrets fuer SecretExpires.
     $h = @{ Authorization = 'Bearer ' + $Token }
     try {
         $c = Get-Cfg
-        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h -TimeoutSec 30
+        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h -TimeoutSec $TimeoutSec
         $hint = $c.ClientSecret.Substring(0, [Math]::Min(3, $c.ClientSecret.Length))
         $mine = @($app.passwordCredentials | Where-Object { $_.hint -ceq $hint })
         $list = $(if ($mine.Count) { $mine } else { @($app.passwordCredentials) })
@@ -2303,14 +2917,16 @@ function Show-SecretExpiry([string]$Token) {
             # Die ersten Zeichen des Secrets (hint) nur im Fenster, nicht in der Protokolldatei
             $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + ', ' + (Format-Rest $span)
             $ftx = 'Secret "' + $pc.displayName + '" gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + ', ' + (Format-Rest $span)
-            if ($days -lt 0) { $sfx = '. Abgelaufen: in Entra ein neues Geheimnis anlegen und eintragen.'; Out-Log ($txt + $sfx) 'Fehler' '' ($ftx + $sfx) }
-            elseif ($days -lt 3) { $sfx = '. Läuft bald ab: rechtzeitig ein neues Geheimnis anlegen.'; Out-Log ($txt + $sfx) 'Hinweis' '' ($ftx + $sfx) }
+            if ($days -lt 0) { $sfx = '. Abgelaufen: oben auf "Neues Secret anlegen" klicken.'; Out-Log ($txt + $sfx) 'Fehler' '' ($ftx + $sfx) }
+            elseif ($days -lt 3) { $sfx = '. Läuft bald ab: rechtzeitig ein neues Secret anlegen.'; Out-Log ($txt + $sfx) 'Hinweis' '' ($ftx + $sfx) }
             else { Out-Log $txt 'OK' '' $ftx }
         }
         if (-not $mine.Count) { Out-Log 'Das verwendete Secret ist nicht eindeutig erkannt, deshalb stehen alle Secrets der App oben.' }
         if ($mine.Count -and $null -ne $minDays) {
             $script:SecretEnd = $minUtc; $script:SecretEndFor = Get-StrHash $c.ClientSecret
             Set-SubSecret ('Secret gültig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (' + (Format-Rest ($minEnd - (Get-Date))) + ')') ($minDays -lt 1)
+            if ($minDays -lt 0) { Set-SecretMode 'expired' $minEnd.ToString('dd.MM.yyyy HH:mm') }
+            elseif ($script:SecMode -in 'ok', 'okNoEnd') { Set-SecretMode 'ok' $minEnd.ToString('dd.MM.yyyy HH:mm') }
         }
     } catch {
         Out-Log 'Ablaufdatum des Secrets nicht lesbar. Optional: der App die Berechtigung Application.Read.All geben.' 'Hinweis' $_.Exception.Message
@@ -2339,8 +2955,94 @@ $ui.bTest.Add_Click({
     if ($apErr) { Set-Step 'Test' 'err' 'kein Zugriff auf Autopilot' } else { Set-Step 'Test' 'ok' }
 })
 
+# Knopf "Neues Secret anlegen" (Kopf und neben dem Hauptknopf): Entra-Portal oeffnen, Cursor ins Feld "Secret (Wert)"
+function Open-SecretPortal {
+    $c = Get-Cfg
+    $script:SecAwait = $true
+    if ($c.ClientId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+        Out-Log 'App-ID (Client) fehlt oder ist unvollständig, deshalb öffnet sich die Liste der App-Registrierungen. Dort die App öffnen, die Anwendungs-ID bei "App-ID (Client)" eintragen und nochmal "Neues Secret anlegen" klicken.' 'Hinweis'
+        Open-InfoLink (Get-SecretPortalUrl '')
+        try { $ui.tClientId.Focus() | Out-Null } catch { }
+        return
+    }
+    Open-InfoLink (Get-SecretPortalUrl $c.ClientId)
+    Out-Log 'Seite "Zertifikate & Geheimnisse" der App-Registrierung im Browser geöffnet. Dort ein neues Secret anlegen, den Wert kopieren und bei "Secret (Wert)" einfügen.' 'Hinweis'
+    Set-SecretMode 'awaiting'
+    # Cursor ins Feld, alter Wert markiert: Einfuegen ersetzt ihn
+    try {
+        $script:SecCheckedFor = Get-StrHash (Get-Secret)
+        if ($ui.cShow.IsChecked) { [void]$ui.tSecret.Focus(); $ui.tSecret.SelectAll() } else { [void]$ui.pSecret.Focus(); $ui.pSecret.SelectAll() }
+    } catch { }
+}
+$ui.bSecNew.Add_Click({ Open-SecretPortal })
+$ui.bHookTest.Add_Click({ if (-not $script:Busy) { Send-TeamsTest } })
+$ui.bReadySec.Add_Click({ Open-SecretPortal })
+
+# Pruefung nach dem Einfuegen: nur im Ablauf "Secret erneuern", nur fuer einen neuen, vollstaendig wirkenden Wert,
+# nie parallel zu einer laufenden Pruefung oder zu "Stick fertig machen" (dann spaeter nochmal)
+function Invoke-SecretAutoCheck {
+    $sec = Get-Secret
+    $hh = Get-StrHash $sec
+    if ($hh -eq $script:SecCheckedFor) { return }
+    if ($sec.Length -lt 20 -or $sec.StartsWith('<')) { return }
+    if ($script:Busy -or $script:SecChecking) { $script:SecTimer.Stop(); $script:SecTimer.Start(); return }
+    $c = Get-Cfg
+    $script:SecCheckedFor = $hh
+    if ($c.TenantId -notmatch '^[0-9a-fA-F-]{36}$' -or $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'Neues Secret eingetragen. Zum Prüfen fehlen Tenant-ID oder App-ID (Client), bitte oben eintragen. Danach "1. Verbindung testen".' 'Hinweis'; return }
+    $script:SecChecking = $true
+    Set-UiBusy $true
+    try {
+        # Zustand sicher sichtbar, bevor die (kurze) Anmeldung das Fenster kurz festhaelt
+        Set-SecretMode 'checking'; Set-Step 'Test' 'run'; try { $win.UpdateLayout() } catch { }; Step-Ui
+        Out-Log 'Prüfe das neue Secret ...'
+        $script:TokenTimeoutSec = 10
+        try { $tok = Get-ApiToken } finally { $script:TokenTimeoutSec = 0 }
+        if (-not $tok) {
+            switch ($script:TokenErr) {
+                'net'     { Set-SecretMode 'net'; Set-Step 'Test' 'warn' 'keine Verbindung, Secret nicht geprüft' }
+                'expired' { Set-SecretMode 'expired'; Set-Step 'Test' 'err' $script:TokenMsg }
+                'wrong'   { Set-SecretMode 'wrong'; Set-Step 'Test' 'err' $script:TokenMsg }
+                default   { Set-SecretMode 'fail'; Set-Step 'Test' 'err' $script:TokenMsg }
+            }
+            return
+        }
+        Out-Log 'Anmeldung mit dem neuen Secret OK' 'OK'
+        Show-SecretExpiry -Token $tok -TimeoutSec 10
+        if ($script:SecretEnd -and $script:SecretEndFor -eq $hh) {
+            $endL = $script:SecretEnd.ToLocalTime()
+            if ($script:SecretEnd -le [datetime]::UtcNow) { Set-SecretMode 'expired' $endL.ToString('dd.MM.yyyy HH:mm'); Set-Step 'Test' 'err' 'Secret abgelaufen'; return }
+            Set-SecretMode 'ok' $endL.ToString('dd.MM.yyyy HH:mm')
+            Out-Log ('Secret gültig bis ' + $endL.ToString('dd.MM.yyyy HH:mm') + '. Jetzt speichern und jeden Stick neu bespielen ("Stick fertig machen").') 'Hinweis'
+        } else {
+            Set-SubSecret 'Secret gültig, Ablauf unbekannt' $false
+            Set-SecretMode 'okNoEnd'
+            Out-Log 'Secret gültig, Ablauf unbekannt. Jetzt speichern und jeden Stick neu bespielen ("Stick fertig machen").' 'Hinweis'
+        }
+        Set-Step 'Test' 'ok' 'neues Secret gültig'
+    } finally { $script:SecChecking = $false; Set-UiBusy $false }
+}
+$script:SecTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:SecTimer.Interval = [TimeSpan]::FromMilliseconds(400)
+$script:SecTimer.Add_Tick({ param($s, $e) try { $s.Stop(); Invoke-SecretAutoCheck } catch { try { $script:SecChecking = $false } catch { } } })
+# Automatisch geprueft wird nur nach dem Einfuegen (Zwischenablage, Ziehen) oder wenn das Feld den Fokus verliert,
+# nie nach einer Tipp-Pause (jede Pause waere sonst eine echte, meist fehlgeschlagene Anmeldung bei Microsoft).
+$reqSecCheck = { if ($script:Loading -or -not $script:SecAwait) { return }; $script:SecTimer.Stop(); $script:SecTimer.Start() }
+foreach ($sf in @($ui.pSecret, $ui.tSecret)) {
+    [System.Windows.DataObject]::AddPastingHandler($sf, [System.Windows.DataObjectPastingEventHandler]$reqSecCheck)
+    $sf.Add_PreviewDrop($reqSecCheck)
+    $sf.Add_LostKeyboardFocus($reqSecCheck)
+}
+# Abgelaufen laut gespeichertem Ablaufdatum (gilt nur fuer genau dieses Secret, kein Netz noetig)
+function Test-SecretDateExpired {
+    $end = ConvertTo-UtcDate (Get-SecretExpiresValue (Get-Secret))
+    if ($end -and $end -le [datetime]::UtcNow) { Set-SecretMode 'expired' $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') }
+}
+
 function Save-Cfg {
     if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey') -Admin)) { Set-Step 'Write' 'err' $script:FieldErr; return $false }
+    # Teams-Webhook nur beim Speichern (und bei der Testnachricht) pruefen, nicht in Test-Fields fuer alle Aufrufer
+    $hookV = Get-TeamsWebhook
+    if ($hookV) { $why = Test-HuWebhookUrl $hookV; if ($why) { [void](Stop-Field ('Teams-Webhook ungültig: ' + $why + '. Adresse aus dem Teams-Workflow vollständig einfügen oder das Feld leeren.')); Set-Step 'Write' 'err' $script:FieldErr; return $false } }
     try {
         $o = Get-Cfg
         $expUtc = ConvertTo-UtcDate (Get-SecretExpiresValue ([string]$o.ClientSecret))
@@ -2351,6 +3053,8 @@ function Save-Cfg {
         $script:SavedSnap = Get-CfgSnap
         Update-Dirty
         Set-Step 'Write' 'ok'
+        # neues Secret gespeichert: Erinnerung, die Sticks neu zu bespielen
+        if ($script:SecMode -in 'ok', 'okNoEnd') { Set-SecretMode 'saved'; Out-Log 'Neues Secret gespeichert. Jetzt jeden Stick neu bespielen: Stick anstecken, "Stick fertig machen".' 'Hinweis' }
         return $true
     } catch { $script:FieldErr = 'Speichern fehlgeschlagen. Ist die Quelle schreibgeschützt oder der Stick voll?'; Out-Log $script:FieldErr 'Fehler' ($srcCfg + ': ' + $_.Exception.Message); Set-Step 'Write' 'err' $_.Exception.Message; return $false }
 }
@@ -2398,9 +3102,12 @@ function Update-PkgState {
     # Ist der letzte Bau gescheitert, bleibt die Ampel rot mit dem Grund, bis wieder gebaut wird
     [void](Test-IcdHere)
     if ($script:PkgBuildErr) { Set-Step 'Pkg' 'err' ($script:PkgBuildErr + '; ' + (Get-IcdText $script:Icd)) } else { Set-Step 'Pkg' $t[2] (Get-IcdText $script:Icd) }
+    # Tooltip des Knopfs nennt die ICD.exe, die gerade benutzt wuerde, direkt (statt eines Verweises auf die kleine Ampel)
+    try { if ($null -eq $script:PkgTipBase) { $script:PkgTipBase = [string]$ui.bPkg.ToolTip }; $ui.bPkg.ToolTip = $script:PkgTipBase + "`n" + 'Benutzt wird: ' + (Get-IcdText $script:Icd) + '.' } catch { }
     return $s
 }
 $script:PkgBuildErr = ''
+$script:PkgTipBase = $null
 
 # Kopierte Dateien kontrollieren: SHA256 von go.cmd, go.ps1, config.json, WLAN-Paket. Rueckgabe: Liste der Abweichungen
 function Test-StickCopy([string]$dr, [byte[]]$CfgBytes, [string]$PkgName) {
@@ -2447,7 +3154,7 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         # auch nicht kurz und auch nicht, wenn das Kopieren danach abbricht (eine alte config.json wird sofort ersetzt)
         $cfgBytes = $(if ($WithMak) { [System.IO.File]::ReadAllBytes($srcCfg) } else { Get-CfgBytesNoMak $srcCfg })
         [System.IO.File]::WriteAllBytes((Join-Path $dst 'config.json'), $cfgBytes)
-        if (-not $WithMak) { Out-Log ('Stick ' + $dr + ': ohne MAK') }
+        # "ohne MAK" steht schon einmal im Protokoll (Entscheidung in Confirm-CopyPrereqs), hier nicht noch einmal
         foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { -not (Test-SkipForStick $_.Name) })) {
             Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force -ErrorAction Stop
         }
@@ -2455,8 +3162,8 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         foreach ($x in @(Get-ChildItem -Path $dst -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'GitHubToken_*.xml' -or $_.Name -eq 'pull-journal.json' -or $_.Name -match '\.(pullold|pulltmp)$' })) { Remove-Item -LiteralPath $x.FullName -Force -ErrorAction SilentlyContinue }
         # Altes WLAN-Paket, Katalog oder Pruefmerkmal, die nicht aus der Quelle stammen, entfernen (sonst nimmt go ein falsches Paket)
         foreach ($x in @(Get-StaleStickPkg $dr)) {
-            try { Remove-Item -LiteralPath (Join-Path $dst $x) -Force -ErrorAction Stop; Out-Log ('Stick ' + $dr + ': altes ' + $x + ' entfernt, es gehörte nicht zur Quelle') 'Hinweis' }
-            catch { Out-Log ('Stick ' + $dr + ': altes ' + $x + ' konnte nicht entfernt werden. Bitte von Hand löschen.') 'Fehler' $_.Exception.Message }
+            try { Remove-Item -LiteralPath (Join-Path $dst $x) -Force -ErrorAction Stop; Out-Log ('Stick ' + $dr + ' altes ' + $x + ' entfernt, es gehörte nicht zur Quelle') 'Hinweis' }
+            catch { Out-Log ('Stick ' + $dr + ' altes ' + $x + ' konnte nicht entfernt werden. Bitte von Hand löschen.') 'Fehler' $_.Exception.Message }
         }
         Out-Log ('Auf Stick ' + $dr + ' kopiert') '' ($srcStick + ' nach ' + $dr + '\, ohne logs, Ordner mit _ und ohne die Kopie des Paketbaus')
         # Kopie des Paketbaus nur mit Haekchen (Fehler dabei machen den Stick nicht unbrauchbar, sie stehen rot im Protokoll)
@@ -2466,7 +3173,7 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         # Schreibcache leeren, dann kontrollieren
         try { Write-VolumeCache -DriveLetter $dr.Substring(0, 1) -ErrorAction Stop } catch { }
         $bad = @(Test-StickCopy $dr $cfgBytes ([string](Get-Cfg).WlanPackage))
-        if ($bad.Count) { $script:CopyErr = 'Kontrolle nicht bestanden: ' + ($bad -join ', '); Out-Log ('Stick ' + $dr + ': ' + $script:CopyErr + '. Stick neu anstecken und nochmal kopieren.') 'Fehler'; return $false }
+        if ($bad.Count) { $script:CopyErr = 'Kontrolle nicht bestanden: ' + ($bad -join ', '); Out-Log ('Stick ' + $dr + ' ' + $script:CopyErr + '. Stick neu anstecken und nochmal kopieren.') 'Fehler'; return $false }
         Out-Log ('Stick ' + $dr + ' kontrolliert: alle Dateien stimmen mit der Quelle überein') 'OK' ('SHA256: go.cmd, go.ps1, config.json' + $(if ((Get-Cfg).WlanPackage -and (Test-Path $srcPkg)) { ', WLAN-Paket' } else { '' }))
         return $true
     } catch { $script:CopyErr = $_.Exception.Message; Out-Log ('Kopieren auf ' + $dr + ' fehlgeschlagen. Stick neu anstecken und nochmal versuchen.') 'Fehler' $_.Exception.Message; return $false }
@@ -2506,7 +3213,9 @@ function Confirm-CopyPrereqs([string]$Target, $Owner) {
     $end = ConvertTo-UtcDate $endTxt
     $lvl = Get-SecretWarnLevel $end ([datetime]::UtcNow)
     if ($lvl -eq 'expired') {
-        $q = [System.Windows.MessageBox]::Show($Owner, ('Das Secret ist am ' + $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ' abgelaufen.' + "`r`n" + 'Mit diesem Stick kann go.ps1 keine Geräte hochladen.' + "`r`n`r`n" + 'Besser: in Entra ein neues Geheimnis anlegen, bei "Secret" eintragen, speichern.' + "`r`n`r`n" + 'Trotzdem kopieren?'), 'HUPilot - Secret abgelaufen', 'YesNo', 'Warning')
+        # Knopf "Neues Secret anlegen" sichtbar machen, auf den die Meldung verweist
+        if ($script:SecMode -ne 'expired') { Set-SecretMode 'expired' $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') }
+        $q = [System.Windows.MessageBox]::Show($Owner, ('Das Secret ist am ' + $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ' abgelaufen.' + "`r`n" + 'Mit diesem Stick kann go.ps1 keine Geräte hochladen.' + "`r`n`r`n" + 'Besser: oben auf "Neues Secret anlegen" klicken, den neuen Wert bei "Secret (Wert)" einfügen und speichern.' + "`r`n`r`n" + 'Trotzdem kopieren?'), 'HUPilot - Secret abgelaufen', 'YesNo', 'Warning')
         if ($q -ne 'Yes') { Out-Log 'Kopieren abgebrochen, das Secret ist abgelaufen.'; return $null }
         Out-Log 'Secret abgelaufen, trotzdem kopiert. Mit diesem Stick lädt go.ps1 keine Geräte hoch.' 'Hinweis'
     } elseif ($lvl -eq 'soon') {
@@ -2520,7 +3229,7 @@ function Confirm-CopyPrereqs([string]$Target, $Owner) {
         $q = [System.Windows.MessageBox]::Show($Owner, ('Im Feld "MAK (Pro)" steht ein Schlüssel (endet auf ' + $tail + ').' + "`r`n`r`n" + 'MAK mit auf ' + $Target + '?' + "`r`n`r`n" + 'Ja = mit MAK (nur für Geräte mit Windows Home nötig)' + "`r`n" + 'Nein = ohne MAK, die Quelle bleibt unverändert' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - MAK auf den Stick?', 'YesNoCancel', 'Question')
         if ($q -eq 'Cancel' -or $q -eq 'None') { Out-Log 'Kopieren abgebrochen'; return $null }
         $withMak = ($q -eq 'Yes')
-        Out-Log ($Target + ': ' + $(if ($withMak) { 'mit MAK' } else { 'ohne MAK' }))
+        Out-Log ($Target + ' ' + $(if ($withMak) { 'mit MAK' } else { 'ohne MAK' }))
     }
     return @{ WithMak = $withMak }
 }
@@ -2536,7 +3245,7 @@ $ui.bCopy.Add_Click({
         if (-not $pre) { Set-Step 'Copy' 'open'; return }
         Set-Step 'Copy' 'run'; Step-Ui
         if (Copy-ToStick $dr $pre.WithMak) { Set-Step 'Copy' 'ok' ('Stick ' + $dr) } else { Set-Step 'Copy' 'err' $script:CopyErr }
-    } finally { Set-UiBusy $false }
+    } finally { Set-UiBusy $false; Update-StickFlags -Force }
 })
 
 # ICD-Ausgabe fuer Protokoll und Datei: Kennwoerter (roh und XML-escapt) und den Base64-Block der -EncodedCommand-Zeile ausblenden
@@ -2699,9 +3408,9 @@ function Update-IcdUi([switch]$Report) {
         $(if ($script:IcdSelf) { 'Das Setup läuft von diesem Stick: Häkchen setzen holt die Kopie auf diesen Stick, Häkchen entfernen fragt, ob sie gelöscht werden soll.' } else { 'Stick fertig machen, 5. Auf Stick kopieren und Sticks vorbereiten prüfen den Ziel-Stick und kopieren nur, was fehlt oder veraltet ist.' }) + $nl + $nl +
         'Am PC: ' + $(if ($pc) { 'Windows ADK, Version ' + $pc } elseif ($instRaw) { 'Windows ADK ' + $instRaw + ' (dem Setup nicht bekannt, wird nicht verwendet)' } else { 'kein Windows ADK' }) + $nl +
         $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) +
-        $(if ($dst) { $nl + 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText $dst) + ' (ungeprüft, geprüft wird beim Kopieren)' } else { '' }) + $nl + $nl +
+        $(if ($dst) { $nl + 'Am gewählten Stick ' + $dr + ' ' + (Get-IcdStateText $dst) + ' (ungeprüft, geprüft wird beim Kopieren)' } else { '' }) + $nl + $nl +
         $(if (-not $script:IcdCanUse) { 'Kein Windows ADK an diesem PC und keine Kopie vorhanden.' + $nl } else { '' }) +
-        'Rechtsklick: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Test: geprüft mit ICD 10.0.28000.1 unter Windows 11.'
+        'Rechtsklick: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Diese Möglichkeit ist noch im Test.'
     $ui.cIcdStick.ToolTip = $tip
     if ($Report) {
         if ($instRaw -and -not $pc) { Out-Log ('Am PC ist ICD.exe ' + $instRaw + ' installiert. Diese Version kennt das Setup noch nicht, der Paketbau wird daraus nicht mitgenommen.') 'Hinweis' $icdInst }
@@ -2727,7 +3436,7 @@ function Invoke-IcdAction([scriptblock]$Body) {
     if ($script:Busy) { return }
     Set-UiBusy $true
     try { & $Body } catch { Out-Log 'Paketbau: Vorgang abgebrochen.' 'Fehler' $_.Exception.Message }
-    finally { Set-UiBusy $false; $script:IcdMB = 0; try { Update-IcdUi } catch { }; [void](Update-PkgState); $script:HintDrive = '?'; try { Update-ReadyHint } catch { } }
+    finally { Set-UiBusy $false; $script:IcdMB = 0; try { Update-IcdUi } catch { }; [void](Update-PkgState); $script:HintDrive = '?'; try { Update-ReadyHint } catch { }; Update-StickFlags -Force }
 }
 $ui.cIcdStick.Add_Click({
     if ($script:IcdUiSet) { return }
@@ -2749,7 +3458,7 @@ $addI = { param($h, $sb) $mi = New-Object System.Windows.Controls.MenuItem; $mi.
         $dr = Get-ReadyDrive
         $t = 'Am PC: ' + $(if ($instRaw) { 'Windows ADK, Version ' + $instRaw + $(if (-not (Get-IcdPcVersion)) { ' (dem Setup nicht bekannt)' } else { '' }) } else { 'kein Windows ADK' }) + $nl +
             $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) + $nl
-        if ($dr -and -not $script:IcdSelf) { $t += 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText (Get-IcdState (Join-Path ($dr + '\') 'HUPilot\ADK-ICD') -Full)) + $nl }
+        if ($dr -and -not $script:IcdSelf) { $t += 'Am gewählten Stick ' + $dr + ' ' + (Get-IcdStateText (Get-IcdState (Join-Path ($dr + '\') 'HUPilot\ADK-ICD') -Full)) + $nl }
         $t += $nl + 'Geprüft: Prüfsummen, fremde Dateien und Signaturen.'
         Show-Msg $t 'HUPilot - Paketbau'
     }
@@ -2794,27 +3503,99 @@ function Read-Protokoll {
 }
 
 # ---------- Status: Stand und naechster Schritt in Klartext (aus Profilstatus und Intune-Status) ----------
-#   ProfileStatus = deploymentProfileAssignmentStatus, EnrollState = enrollmentState (Graph, Autopilot-Geraet)
-function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate) {
+#   ProfileStatus = deploymentProfileAssignmentStatus, EnrollState = enrollmentState, Remediation = remediationState (Graph beta)
+#   Rangfolge der Staende (der erste passende gilt):
+#     1. Wird gelöscht (in diesem Fenster geloescht, Microsoft hat den Eintrag noch nicht entfernt)
+#     2. Doppelt (mehrere Autopilot-Eintraege mit derselben Seriennummer)
+#     3. Hardware geändert (remediationState manualRemediationRequired: Hash passt nicht mehr, nicht von selbst loesbar)
+#     4. Fertig (auch mit automaticRemediationRequired: laufendes Geraet nie ohne Not loeschen, Zusatz in den Details)
+#     5. Fehler, 6. Kein Profil für diesen Tag
+#     7. Hardware wird abgeglichen (automaticRemediationRequired: Microsoft versucht die Korrektur selbst)
+#     8. Profil da, Gerät noch nicht angemeldet, 9. Wartet auf Profil
+#   1 und 2 setzt Get-StatusData (brauchen alle Eintraege bzw. die Sitzung), 3 bis 9 diese Funktion.
+#   Microsoft Learn (Windows Autopilot motherboard replacement, Fix pending and Attention required): bei "Fix pending"
+#   versucht Autopilot die Registrierung selbst, abmelden und neu registrieren erst, wenn es so bleibt oder auf
+#   "Attention required" wechselt. ANNAHME (so nicht auf Learn): automaticRemediationRequired = Fix pending,
+#   manualRemediationRequired = Attention required.
+function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate, [string]$Remediation = '') {
+    if ($Remediation -eq 'manualRemediationRequired') { return 'Hardware geändert' }
     if ($EnrollState -eq 'enrolled') { return 'Fertig' }
     if ($EnrollState -in 'failed', 'blocked' -or $ProfileStatus -eq 'failed') { return 'Fehler' }
     if ($ProfileStatus -eq 'notAssigned') { return 'Kein Profil für diesen Tag' }
-    if ($ProfileStatus -in 'assignedInSync', 'assignedUnkownSyncState', 'assignedUnknownSyncState', 'assignedOutOfSync' -and $HasAssignedDate) { return 'Profil da, Gerät noch nicht angemeldet' }
+    if ($Remediation -eq 'automaticRemediationRequired') { return 'Hardware wird abgeglichen' }
+    # zugewiesen ohne Zuweisungsdatum zaehlt als Profil da (am Geraet belegt: Anmeldeseite der Schule kam ohne Datum); nur die Anzeige,
+    # go wartet vor dem Zuruecksetzen weiter auf das Datum. Nicht synchron ohne Datum bleibt Warten (Sync anstossen).
+    if ($ProfileStatus -in 'assignedInSync', 'assignedUnkownSyncState', 'assignedUnknownSyncState') { return 'Profil da, Gerät noch nicht angemeldet' }
+    if ($ProfileStatus -eq 'assignedOutOfSync' -and $HasAssignedDate) { return 'Profil da, Gerät noch nicht angemeldet' }
     return 'Wartet auf Profil'
 }
-function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollState) {
+function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate = $true) {
     switch ($Stand) {
         'Fertig' { return 'Nichts, das Gerät ist fertig.' }
         'Wartet auf Profil' { if ($ProfileStatus -eq 'assignedOutOfSync') { return 'Autopilot-Sync anstoßen und ein paar Minuten warten.' } return 'Nichts, läuft. Das Profil kommt meist in 5 bis 15 Minuten.' }
-        'Profil da, Gerät noch nicht angemeldet' { return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
+        'Profil da, Gerät noch nicht angemeldet' { if (-not $HasAssignedDate) { return 'Profil ist zugewiesen, das Datum von Microsoft fehlt noch. Gerät neu starten: Kommt die Anmeldeseite der Schule, passt es.' } return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
         'Kein Profil für diesen Tag' { return 'Tag prüfen: kein Profil zugewiesen ("2. Tags prüfen"), oder mit "Tag ändern" einen Tag mit Profil wählen.' }
         'Fehler' { if ($EnrollState -eq 'blocked') { return 'Gerät ist in Intune blockiert. Admin fragen.' } return 'Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen.' }
+        'Hardware geändert' { return 'Mit "Autopilot-Eintrag löschen" entfernen, mit Stick neu registrieren.' }
+        'Hardware wird abgeglichen' { return 'Microsoft gleicht selbst ab, warten. Bleibt es: löschen, neu registrieren.' }
     }
     return ''
 }
+# Doppelte Seriennummern: welcher Eintrag ist der aeltere? Graph hat kein Anlagedatum (Microsoft Learn, Ressource
+# windowsAutopilotDeviceIdentity). Genommen wird die juengste Spur je Eintrag: letzter Kontakt mit Intune
+# (lastContactedDateTime) oder Zuweisung des Profils (deploymentProfileAssignedDateTime, kommt kurz nach dem Import).
+# Der Eintrag mit der juengsten Spur gilt als der neuere, alle anderen als aelter. Gleich alt oder ohne jede Spur = unklar.
+# Leere Seriennummern sind nie doppelt. Rueckgabe: Hashtabelle id -> @{ Count; Rank = 'älter' | 'neuer' | 'unklar'; Seen }
+function Get-DuplicateMarks($Records) {
+    $res = @{}
+    $groups = @{}
+    foreach ($d in @($Records)) {
+        $sn = ([string]$d.serialNumber).Trim()
+        if (-not $sn -or -not $d.id) { continue }
+        $k = $sn.ToUpperInvariant()
+        if (-not $groups.ContainsKey($k)) { $groups[$k] = New-Object System.Collections.ArrayList }
+        [void]$groups[$k].Add($d)
+    }
+    foreach ($k in $groups.Keys) {
+        $g = @($groups[$k])
+        if ($g.Count -lt 2) { continue }
+        $seen = @{}
+        foreach ($d in $g) {
+            $best = $null
+            foreach ($p in 'lastContactedDateTime', 'deploymentProfileAssignedDateTime') {
+                try { $t = ConvertTo-UtcDate $d.$p; if ($t -and $t.Year -gt 2000 -and (-not $best -or $t -gt $best)) { $best = $t } } catch { }
+            }
+            $seen[[string]$d.id] = $best
+        }
+        $sorted = @($g | Sort-Object { $v = $seen[[string]$_.id]; if ($v) { $v.Ticks } else { 0 } } -Descending)
+        $top = $seen[[string]$sorted[0].id]; $second = $seen[[string]$sorted[1].id]
+        # eindeutig nur, wenn JEDER Eintrag eine Spur hat und die juengste klar vorn liegt. Ein frisch hochgeladener Eintrag
+        # hat einige Minuten weder Kontakt noch Profil-Datum: dann nie raten, sondern "Alter unklar" fuer alle.
+        $noTrace = @($g | Where-Object { -not $seen[[string]$_.id] }).Count
+        $clear = ($noTrace -eq 0 -and $top -and $second -and $top -gt $second)
+        foreach ($d in $g) {
+            $id = [string]$d.id
+            $rank = $(if (-not $clear) { 'unklar' } elseif ($id -eq [string]$sorted[0].id) { 'neuer' } else { 'älter' })
+            $res[$id] = @{ Count = $g.Count; Rank = $rank; Seen = $seen[$id] }
+        }
+    }
+    return $res
+}
+function Get-DuplicateTodo([int]$Count, [string]$Rank) {
+    switch ($Rank) {
+        'älter' { return ('Älterer von ' + $Count + ' Einträgen: diesen löschen, der neuere bleibt.') }
+        'neuer' { return ('Neuester von ' + $Count + ' Einträgen: behalten, den älteren löschen.') }
+    }
+    return ('' + $Count + ' Einträge, Alter unklar: in den Details vergleichen.')
+}
+# Geloeschte Eintraege (laufende Sitzung des Status-Fensters): Microsoft entfernt sie nach einiger Zeit, bis zu 30 Minuten
+function Get-PendingTodo([datetime]$Since, [datetime]$Now) {
+    if (($Now - $Since).TotalMinutes -le 30) { return 'Nichts tun. Microsoft entfernt ihn in bis zu 30 Minuten.' }
+    return 'Dauert über 30 Minuten. Später aktualisieren, sonst Admin fragen.'
+}
 # Farbe und Kachel je Stand: ok (gruen) / warn (gelb) / err (rot)
-$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err' }
-$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob' }
+$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err'; 'Hardware geändert' = 'err'; 'Hardware wird abgeglichen' = 'warn'; 'Doppelt' = 'err'; 'Wird gelöscht' = 'warn' }
+$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob'; 'Hardware geändert' = 'hw'; 'Hardware wird abgeglichen' = 'hwa'; 'Doppelt' = 'dup'; 'Wird gelöscht' = 'del' }
 
 # Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Fenster, CSV, Excel und Druck
 $script:StatusCols = @(
@@ -3119,7 +3900,8 @@ function Show-DeviceDetail($Row, $Owner) {
     $dw.Title = 'HUPilot - Gerät ' + $Row.Seriennr
     # Profil live nachladen (optional)
     $prof = ''; $profAt = ''
-    $id = $script:ApIds[[string]$Row.Seriennr]
+    # Kennung der Zeile selbst (bei doppelten Seriennummern waere die Zuordnung ueber die Seriennummer mehrdeutig)
+    $id = $(if ($Row.Id) { [string]$Row.Id } else { $script:ApIds[[string]$Row.Seriennr] })
     if ($id) {
         $tok = Get-ApiToken
         if ($tok) {
@@ -3146,6 +3928,9 @@ function Show-DeviceDetail($Row, $Owner) {
         ('Benutzer:          ' + $(if ($Row.Benutzer) { $Row.Benutzer } else { '-' })),
         ('Gerätename:        ' + $(if ($Row.Name) { $Row.Name } else { '-' })),
         ('Modell:            ' + $Row.Modell),
+        ('Hardware:          ' + $(switch ([string]$Row.Remediation) { 'automaticRemediationRequired' { 'geändert, Microsoft versucht die Korrektur selbst' + $(if ([string]$Row.Stand -eq 'Fertig') { ' (Gerät läuft, nicht ohne Not löschen; bleibt es länger so: Admin fragen)' } else { '' }) } 'manualRemediationRequired' { 'geändert, Microsoft meldet: nicht von selbst lösbar' } 'noRemediationRequired' { 'keine Änderung erkannt' } default { '-' } })),
+        ('Doppelt:           ' + $(if ([int]$Row.DupCount -gt 1) { '' + $Row.DupCount + ' Einträge mit dieser Seriennummer, dieser ist ' + $(switch ([string]$Row.DupRank) { 'älter' { 'der ältere' } 'neuer' { 'der neueste' } default { 'nicht sicher einzuordnen' } }) + ' (jüngste Spur: ' + $(if ($Row.DupSeen) { $Row.DupSeen } else { 'keine' }) + ', aus letztem Kontakt und Profil-Zuweisung)' } else { 'nein' })),
+        ('Autopilot-ID:      ' + $(if ($Row.Id) { $Row.Id } else { '-' })),
         '',
         'Verlauf am Stick (protokoll.csv):'
     )
@@ -3159,6 +3944,294 @@ function Show-DeviceDetail($Row, $Owner) {
     $c.bCopy.Add_Click({ try { [System.Windows.Clipboard]::SetText($c.tDet.Text); $c.bCopy.Content = 'Kopiert' } catch { $c.bCopy.Content = 'Kopieren fehlgeschlagen' } })
     $c.bClose.Add_Click({ $dw.Close() })
     [void]$dw.ShowDialog()
+}
+
+# ---------- Autopilot-Eintrag loeschen (Status): nur markierte Zeilen, hoechstens 5, doppelte Abfrage ----------
+#   Reihenfolge wie in go.ps1 und von Microsoft verlangt (Learn, Deregister a device: "Before you deregister a device
+#   from Windows Autopilot, delete it from Intune"): Intune-Eintrag, Benutzer-Zuweisung aufheben, Autopilot-Eintrag.
+#   Direkt vor jedem Loeschaufruf wird der Eintrag per Kennung neu gelesen und die Seriennummer verglichen (wie der
+#   Vergleich des Sticks vor dem Formatieren). Stimmt etwas nicht, wird dieses Geraet uebersprungen und gemeldet.
+$script:DelMax = 5
+$script:DelGB = 'https://graph.microsoft.com/beta/deviceManagement'
+# Ein Graph-Aufruf an einer Stelle (Tests ersetzen ihn, beim Entwickeln wird nie live geloescht)
+function Invoke-HuGraph([string]$Method, [string]$Uri, [string]$Token) {
+    return (Microsoft.PowerShell.Utility\Invoke-RestMethod -Method $Method -Uri $Uri -Headers @{ Authorization = 'Bearer ' + $Token } -TimeoutSec 30)
+}
+# HTTP-Code eines Fehlers: aus der Antwort, sonst aus dem Text (PowerShell 7: "... 404 (Not Found)")
+function Get-ErrCode($Err) {
+    $c = 0; try { $c = [int]$Err.Exception.Response.StatusCode } catch { }
+    if (-not $c) { $m = [string]$Err; try { $m += ' ' + $Err.Exception.Message } catch { }; if ($m -match '\b(400|401|403|404|409|429|500|503)\b') { $c = [int]$Matches[1] } elseif ($m -match 'NotFound|ResourceNotFound') { $c = 404 } }
+    return $c
+}
+function Get-ErrText($Err) { $m = ''; try { $m = $Err.Exception.Message } catch { }; try { if ($Err.ErrorDetails -and $Err.ErrorDetails.Message) { $m = $Err.ErrorDetails.Message } } catch { }; if (-not $m) { $m = [string]$Err }; return $m }
+# Rechte (roles) aus dem Zugriffstoken lesen, ohne Netz (Teil 2 des Tokens, Base64url).
+# Leere Liste heisst "unbekannt": Token unlesbar ODER kein roles-Anspruch (z. B. ohne Anwendungsrechte). Der Aufrufer
+# entscheidet nur bei einer lesbaren, nicht leeren Liste anhand der Rechte, sonst laesst er es auf den Versuch ankommen.
+function Get-TokenRoles([string]$Token) {
+    try {
+        $p = $Token.Split('.')[1].Replace('-', '+').Replace('_', '/')
+        switch ($p.Length % 4) { 2 { $p += '==' } 3 { $p += '=' } }
+        $j = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($p)) | ConvertFrom-Json
+        return @($j.roles | Where-Object { $_ } | ForEach-Object { [string]$_ })
+    } catch { return @() }
+}
+# Seriennummern, die Hersteller als Platzhalter eintragen (an EINER Stelle): darueber nie einen Intune-Eintrag zuordnen
+$script:SerialPlaceholders = @('To be filled by O.E.M.', 'To Be Filled By O.E.M.', 'System Serial Number', 'Default string', 'None', '0', 'Not Specified', 'Not Applicable', 'Chassis Serial Number', 'Base Board Serial Number', 'Invalid', '123456789', '0123456789')
+function Test-SerialPlaceholder([string]$Serial) {
+    $s = ([string]$Serial).Trim()
+    if ($s.Length -lt 5) { return $true }
+    if ($s -match '^(.)\1*$') { return $true }
+    foreach ($p in $script:SerialPlaceholders) { if ($s -ieq $p) { return $true } }
+    return $false
+}
+# Intune-Eintrag zu einem Autopilot-Eintrag. Link 'ms' = Verknuepfung von Microsoft (managedDeviceId), 'sn' = Rueckfall ueber
+# die Seriennummer, nur wenn eindeutig: keine Doppel-Seriennummer in Autopilot, kein Platzhalter, genau ein Intune-Geraet.
+# Ambig = es gibt passende Intune-Geraete, aber keine eindeutige Zuordnung. SnCount = Intune-Geraete mit dieser Seriennummer.
+# -Partial: Intune-Liste nur teilweise geladen: dann nie Rueckfall ueber die Seriennummer (nicht eindeutig, bleibt stehen).
+# SnCount zaehlt bei Verknuepfung mindestens 2, wenn der einzige Treffer ueber die Seriennummer ein ANDERER Eintrag ist.
+function Resolve-IntuneLink([string]$ManagedDeviceId, [string]$Serial, [hashtable]$Md, [hashtable]$MdCount, [bool]$IsDup = $false, [bool]$Partial = $false) {
+    $mid = [string]$ManagedDeviceId
+    if ($mid -match '^0{8}-0{4}-0{4}-0{4}-0{12}$') { $mid = '' }
+    $k = 'SN:' + [string]$Serial
+    $cnt = $(if ($Serial -and $MdCount -and $MdCount.ContainsKey($k)) { [int]$MdCount[$k] } else { 0 })
+    # 4: verknuepfter Eintrag ist ein anderer als der einzige Treffer ueber die Seriennummer = es gibt einen zweiten
+    if ($mid -and $cnt -eq 1 -and $Md -and $Md.ContainsKey($k) -and [string]$Md[$k].id -ne $mid) { $cnt = 2 }
+    if ($mid) { return [pscustomobject]@{ Id = $mid; Link = 'ms'; Ambig = $false; SnCount = $cnt; Im = $(if ($Md -and $Md.ContainsKey($mid)) { $Md[$mid] } else { $null }) } }
+    if ($Partial) { return [pscustomobject]@{ Id = ''; Link = ''; Ambig = $true; SnCount = $cnt; Im = $null } }
+    if (-not $cnt) { return [pscustomobject]@{ Id = ''; Link = ''; Ambig = $false; SnCount = 0; Im = $null } }
+    if ($cnt -eq 1 -and -not $IsDup -and -not (Test-SerialPlaceholder $Serial)) { $im = $Md[$k]; return [pscustomobject]@{ Id = [string]$im.id; Link = 'sn'; Ambig = $false; SnCount = 1; Im = $im } }
+    return [pscustomobject]@{ Id = ''; Link = ''; Ambig = $true; SnCount = $cnt; Im = $null }
+}
+# Plan fuer den Intune-Eintrag einer Zeile, EINE Quelle fuer Rueckfrage und Ausfuehrung:
+#   delete = Eintrag Id wird geloescht, right = bleibt (Recht fehlt), ambig = nicht eindeutig zuordenbar, none = keiner bekannt
+function Get-IntunePlan($Row, [bool]$CanIntune) {
+    $id = [string]$Row.IntuneId; $link = [string]$Row.IntuneLink; $more = ([int]$Row.IntuneSnCount -gt 1)
+    if ($id -and ($link -eq 'ms' -or $link -eq 'sn')) {
+        if (-not $CanIntune) { return [pscustomobject]@{ Kind = 'right'; Id = $id; Link = $link; More = $more; Text = 'Eintrag bleibt stehen (Recht fehlt)' } }
+        # Microsoft nennt eine Kennung, zu der es in der vollstaendig geladenen Intune-Liste keinen Eintrag gibt (frisch importiertes Geraet):
+        # Ausfuehrung unveraendert (liest den Eintrag frisch, loescht ihn, falls es ihn doch gibt), die Rueckfrage verspricht aber nichts.
+        if ($Row.IntuneMissing) { return [pscustomobject]@{ Kind = 'delete'; Id = $id; Link = $link; More = $more; Missing = $true; Text = 'kein Eintrag gefunden. Gibt es ihn doch, wird er mit gelöscht.' } }
+        return [pscustomobject]@{ Kind = 'delete'; Id = $id; Link = $link; More = $more; Text = ('Eintrag ' + $id + ' wird gelöscht') }
+    }
+    if ($Row.IntuneAmbig) { return [pscustomobject]@{ Kind = 'ambig'; Id = ''; Link = ''; More = $more; Text = 'Intune-Eintrag nicht eindeutig zuordenbar, bleibt stehen, Admin im Intune-Portal' } }
+    return [pscustomobject]@{ Kind = 'none'; Id = ''; Link = ''; More = $false; Text = 'kein Eintrag bekannt' }
+}
+# Auswahl pruefen: nur ausdruecklich markierte Zeilen, hoechstens 5, keine Zeile "Wird gelöscht", nur mit Kennung und Seriennummer.
+# Rows = genau die Zeilen, aus denen Rueckfrage, Abfrage und Ausfuehrung abgeleitet werden.
+function Test-DeleteSelection($Rows) {
+    $Rows = @($Rows | Where-Object { $_ })
+    if (-not $Rows.Count) { return @{ Ok = $false; Rows = @(); Msg = 'Bitte zuerst die Geräte markieren, deren Autopilot-Eintrag gelöscht werden soll (Klick, mehrere mit Strg+Klick).' } }
+    if ($Rows.Count -gt $script:DelMax) { return @{ Ok = $false; Rows = @(); Msg = ('Höchstens ' + $script:DelMax + ' Geräte auf einmal. Markiert sind ' + $Rows.Count + '. Bitte weniger markieren. Es wurde nichts gelöscht.') } }
+    $pend = @($Rows | Where-Object { [string]$_.Stand -eq 'Wird gelöscht' })
+    if ($pend.Count) { return @{ Ok = $false; Rows = @(); Msg = ((@($pend | ForEach-Object { $_.Seriennr }) -join ', ') + ' wird schon gelöscht. Bitte nur Geräte markieren, die noch nicht gelöscht werden. Es wurde nichts gelöscht.') } }
+    if (@($Rows | Where-Object { -not ([string]$_.Seriennr).Trim() }).Count) { return @{ Ok = $false; Rows = @(); Msg = 'Eintrag ohne Seriennummer: löschen geht hier nicht, bitte den Admin im Intune-Portal. Es wurde nichts gelöscht.' } }
+    $noId = @($Rows | Where-Object { -not $_.Id })
+    if ($noId.Count) { return @{ Ok = $false; Rows = @(); Msg = ((@($noId | ForEach-Object { $_.Seriennr }) -join ', ') + ': Kennung fehlt. Bitte "Aktualisieren" und nochmal versuchen. Es wurde nichts gelöscht.') } }
+    return @{ Ok = $true; Rows = $Rows; Msg = '' }
+}
+# Zweite Abfrage: ein Geraet = Seriennummer genau so eintippen, mehrere = das Wort LÖSCHEN (Gross- und Kleinschreibung zaehlt)
+function Test-DeleteConfirm([string]$Typed, [string[]]$Serials) {
+    $Serials = @($Serials | Where-Object { $_ })
+    if (-not $Typed -or -not $Serials.Count) { return $false }
+    if ($Serials.Count -eq 1) { return ($Typed -ceq $Serials[0]) }
+    return ($Typed -ceq 'LÖSCHEN')
+}
+# Text der zweiten Abfrage aus derselben Liste wie Test-DeleteConfirm
+function Get-DeleteAskText([string[]]$Serials) {
+    $Serials = @($Serials | Where-Object { $_ })
+    if ($Serials.Count -eq 1) { return ('Zweite Bestätigung: die Seriennummer ' + $Serials[0] + ' genau so eintippen.') }
+    return 'Zweite Bestätigung: das Wort LÖSCHEN in Großbuchstaben eintippen.'
+}
+# Zusaetzliche Warnungen: eingerichtet, in Benutzung, alle Eintraege einer Seriennummer markiert
+function Get-DeleteWarnings($Row, [datetime]$Now, $AllRows = $null) {
+    $w = @()
+    if ([string]$Row.Stand -eq 'Fertig' -or [string]$Row.EnrollState -eq 'enrolled') { $w += 'ACHTUNG: Das Gerät ist fertig eingerichtet. Ohne Intune-Eintrag bekommt es keine Richtlinien und Apps mehr, bis es neu eingerichtet ist.' }
+    $ls = [datetime]::MinValue
+    if ([datetime]::TryParseExact([string]$Row.SyncSort, 'yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$ls) -and ($Now - $ls).TotalDays -le 30) { $w += ('ACHTUNG: Das Gerät ist in Benutzung (letzter Sync mit Intune am ' + $ls.ToString('dd.MM.yyyy HH:mm') + ').') }
+    if ($AllRows -and [int]$Row.DupCount -gt 1) {
+        $same = @(@($AllRows) | Where-Object { ([string]$_.Seriennr).Trim().ToUpperInvariant() -eq ([string]$Row.Seriennr).Trim().ToUpperInvariant() }).Count
+        if ($same -ge [int]$Row.DupCount) { $w += ('ACHTUNG: ' + $(if ($same -eq 2) { 'Beide Einträge' } else { 'Alle ' + $same + ' Einträge' }) + ' dieser Seriennummer sind markiert. Danach ist das Gerät nicht mehr in Autopilot.') }
+    }
+    return $w
+}
+# Text der ersten Rueckfrage: je Geraet Seriennummer, Autopilot-ID, Geraetename, Tag, Benutzer, Stand, letzter Kontakt,
+# Rang bei Doppel, Intune-Plan (Get-IntunePlan), Warnungen; danach, was verloren geht
+# -Plans: die im Klick festgehaltenen Plaene (eine Berechnung fuer Rueckfrage und Ausfuehrung); ohne: hier berechnet (Tests, Demo)
+function Get-DeletePlanText($Rows, [bool]$CanIntune, [datetime]$Now, $Plans = $null) {
+    $Rows = @($Rows); $nl = "`r`n"
+    $plans = $(if ($Plans -and @($Plans).Count -eq $Rows.Count) { @($Plans) } else { @($Rows | ForEach-Object { Get-IntunePlan $_ $CanIntune }) })
+    $nDel = @($plans | Where-Object { $_.Kind -eq 'delete' -and -not $_.Missing }).Count
+    $nRight = @($plans | Where-Object { $_.Kind -eq 'right' }).Count
+    $nAmbig = @($plans | Where-Object { $_.Kind -eq 'ambig' }).Count
+    $geraet = { param($n) '' + $n + ' Gerät' + $(if ($n -ne 1) { 'en' } else { '' }) }
+    $t = 'Autopilot-Eintrag löschen: ' + $Rows.Count + ' Gerät' + $(if ($Rows.Count -ne 1) { 'e' } else { '' }) + $nl + $nl
+    # Feldnamen auf gleiche Breite (Consolas): alle Werte beginnen in derselben Spalte
+    $fld = { param([string]$pre, [string]$n, $v) $pre.PadRight(3) + ($n + ':').PadRight(17) + [string]$v }
+    for ($i = 0; $i -lt $Rows.Count; $i++) {
+        $r = $Rows[$i]; $p = $plans[$i]
+        $t += (& $fld ('' + ($i + 1) + ')') 'Seriennummer' $r.Seriennr) + $nl
+        $t += (& $fld '' 'Autopilot-ID' $r.Id) + $nl
+        $t += (& $fld '' 'Gerätename' $(if ($r.Name) { $r.Name } else { '-' })) + $nl
+        $t += (& $fld '' 'Tag' $(if ($r.Tag) { $r.Tag } else { '-' })) + $nl
+        $t += (& $fld '' 'Benutzer' $(if ($r.Benutzer) { $r.Benutzer } else { '-' })) + $nl
+        $t += (& $fld '' 'Stand' $r.Stand) + $nl
+        $t += (& $fld '' 'Letzter Kontakt' $(if ($r.LetzterKontakt) { $r.LetzterKontakt } else { '-' })) + $nl
+        if ([int]$r.DupCount -gt 1) { $t += (& $fld '' 'Doppelt' $(switch ([string]$r.DupRank) { 'älter' { 'älterer von ' + $r.DupCount } 'neuer' { 'neuerer von ' + $r.DupCount } default { 'Alter unklar (' + $r.DupCount + ' Einträge)' } })) + $nl }
+        $t += (& $fld '' 'Intune' $p.Text) + $nl
+        if ($p.More -and $p.Kind -eq 'delete') { $t += '   Es gibt weitere Intune-Einträge mit dieser Seriennummer, die bleiben stehen (Admin).' + $nl }
+        foreach ($w in @(Get-DeleteWarnings $r $Now $Rows)) { $t += ('   ' + $w) + $nl }
+        $t += $nl
+    }
+    $t += 'Was verloren geht:' + $nl
+    $t += '- Der Autopilot-Eintrag mit Hardware-Hash, Group Tag und Benutzer-Zuweisung. Beim nächsten Zurücksetzen bekommt das Gerät kein Autopilot-Profil, bis es mit dem Stick neu registriert ist.' + $nl
+    if ($nDel) { $t += '- Der Intune-Eintrag (bei ' + (& $geraet $nDel) + '): Das Gerät verschwindet aus Intune, Richtlinien und Apps kommen nicht mehr, bis es neu eingerichtet ist.' + $nl }
+    if ($nRight) { $t += '- Nicht gelöscht wird der Intune-Eintrag (bei ' + (& $geraet $nRight) + '): Der App fehlt das Recht DeviceManagementManagedDevices.ReadWrite.All. Das Gerät bleibt in Intune verwaltet. Microsoft empfiehlt, zuerst den Intune-Eintrag zu löschen, sonst können verwaiste Einträge bleiben. Den Intune-Eintrag dann ein Admin im Intune-Portal löschen lassen.' + $nl }
+    if ($nAmbig) { $t += '- Nicht angefasst wird der Intune-Eintrag (bei ' + (& $geraet $nAmbig) + '): nicht eindeutig zuordenbar. Ein Admin prüft und löscht ihn im Intune-Portal.' + $nl }
+    $t += '- Rückgängig machen geht nicht.' + $nl + $nl
+    $t += 'Microsoft entfernt die Einträge nicht sofort, das dauert bis zu 30 Minuten. So lange stehen sie mit Stand "Wird gelöscht" in der Liste.'
+    return $t
+}
+# Ausgang eines DELETE, der mit Fehler endete: 404 = schon weg. Eindeutige Ablehnung (400, 401, 403, 409) = nicht geloescht.
+# Sonst (Zeitueberschreitung, Netz, 5xx, 429) einmal neu lesen: 404 = geloescht, sonst unklar.
+# Rueckgabe 'gone' | 'failed' | 'unclear'
+function Get-DeleteOutcome($Err, [string]$Uri, [string]$Token) {
+    $code = Get-ErrCode $Err
+    if ($code -eq 404) { return 'gone' }
+    if ($code -in 400, 401, 403, 409) { return 'failed' }
+    try { [void](Invoke-HuGraph 'GET' $Uri $Token) } catch { if ((Get-ErrCode $_) -eq 404) { return 'gone' } }
+    return 'unclear'
+}
+# Ein Geraet loeschen, genau nach dem Plan aus der Rueckfrage ($Plan von Get-IntunePlan).
+# Rueckgabe: Serial, Deleted (Autopilot-Eintrag geloescht), Level (OK/Hinweis/Fehler), Text, Detail, Intune, User
+function Invoke-ApDeleteOne($Row, [string]$Token, $Plan) {
+    $sn = [string]$Row.Seriennr; $id = [string]$Row.Id; $GB = $script:DelGB
+    $res = [pscustomobject]@{ Serial = $sn; Deleted = $false; Level = 'Fehler'; Text = ''; Detail = ''; Intune = ''; User = '' }
+    $fail = { param($lv, $txt, $det) $res.Level = $lv; $res.Text = $sn + ': ' + $txt; $res.Detail = [string]$det; return $res }
+    $changed = 'Eintrag hat sich geändert, übersprungen, nichts gelöscht. Bitte "Aktualisieren" und nochmal.'
+    if (-not $sn.Trim() -or -not $id -or -not $Plan) { return (& $fail 'Hinweis' 'Seriennummer, Kennung oder Plan fehlt, nichts gelöscht.' '') }
+    # 1. Autopilot-Eintrag neu lesen und Seriennummer vergleichen
+    $apUri = $GB + '/windowsAutopilotDeviceIdentities/' + $id
+    $ap = $null
+    try { $ap = Invoke-HuGraph 'GET' $apUri $Token }
+    catch { if ((Get-ErrCode $_) -eq 404) { return (& $fail 'Hinweis' 'Eintrag ist nicht mehr da (schon gelöscht?). Nichts gelöscht.' (Get-ErrText $_)) }; return (& $fail 'Fehler' 'Eintrag nicht lesbar, nichts gelöscht. Später nochmal versuchen.' (Get-ErrText $_)) }
+    if (-not $ap -or [string]$ap.serialNumber -cne $sn) { return (& $fail 'Hinweis' ('Eintrag hat sich geändert (Seriennummer jetzt "' + [string]$ap.serialNumber + '"). Übersprungen, nichts gelöscht. Bitte "Aktualisieren".') '') }
+    # 2. Intune-Eintrag: nur der aus der Rueckfrage. Frisch gelesene Verknuepfung muss zum Plan passen, sonst nichts loeschen.
+    $mid = [string]$ap.managedDeviceId
+    if ($mid -match '^0{8}-0{4}-0{4}-0{4}-0{12}$') { $mid = '' }
+    if ($Plan.Link -eq 'ms') { if ($mid -ne [string]$Plan.Id) { return (& $fail 'Hinweis' $changed ('Intune-Verknüpfung jetzt "' + $mid + '", angezeigt war "' + $Plan.Id + '"')) } }
+    elseif ($mid) { return (& $fail 'Hinweis' $changed ('Intune-Verknüpfung neu: "' + $mid + '"')) }
+    $res.Intune = $(switch ($Plan.Kind) { 'right' { 'bleibt (Recht fehlt)' } 'ambig' { 'bleibt (nicht eindeutig)' } default { 'kein Eintrag' } })
+    if ($Plan.Kind -eq 'delete') {
+        $mdUri = $GB + '/managedDevices/' + $Plan.Id
+        $md = $null; $gone = $false
+        try { $md = Invoke-HuGraph 'GET' ($mdUri + '?$select=id,serialNumber,deviceName') $Token }
+        catch { if ((Get-ErrCode $_) -eq 404) { $gone = $true } else { return (& $fail 'Fehler' 'Intune-Eintrag nicht lesbar. Nichts gelöscht, später nochmal versuchen.' (Get-ErrText $_)) } }
+        if ($gone) { $res.Intune = 'schon weg' }
+        else {
+            $msn = [string]$md.serialNumber
+            # Rueckfall ueber die Seriennummer: sie muss frisch gelesen vorhanden und gleich sein. Verknuepfung: leer ist erlaubt.
+            if ($Plan.Link -eq 'sn' -and (-not $msn -or $msn -cne $sn)) { return (& $fail 'Hinweis' ('Der Intune-Eintrag passt nicht mehr sicher zu dieser Seriennummer ("' + $msn + '"). Übersprungen, nichts gelöscht. Bitte "Aktualisieren" oder den Admin fragen.') '') }
+            if ($msn -and $msn -cne $sn) { return (& $fail 'Hinweis' ('Der verknüpfte Intune-Eintrag gehört zu einer anderen Seriennummer ("' + $msn + '"). Übersprungen, nichts gelöscht. Den Admin fragen.') '') }
+            try { [void](Invoke-HuGraph 'DELETE' $mdUri $Token); $res.Intune = 'gelöscht' }
+            catch {
+                $det = Get-ErrText $_
+                switch (Get-DeleteOutcome $_ $mdUri $Token) {
+                    'gone' { $res.Intune = 'gelöscht' }
+                    'unclear' { return (& $fail 'Fehler' 'Intune-Eintrag: Stand unklar (keine eindeutige Antwort von Microsoft). Der Autopilot-Eintrag bleibt unverändert. "Aktualisieren" und prüfen.' $det) }
+                    default { return (& $fail 'Fehler' 'Intune-Eintrag konnte nicht gelöscht werden. Der Autopilot-Eintrag bleibt deshalb unverändert (erst Intune, dann Autopilot). Später nochmal versuchen oder den Admin fragen.' $det) }
+                }
+            }
+        }
+    }
+    # 3. Benutzer-Zuweisung aufheben (sonst laesst sich der Eintrag oft nicht loeschen); ein Fehler bricht nicht ab
+    $res.User = 'keine'
+    if ([string]$ap.userPrincipalName) {
+        try { [void](Invoke-HuGraph 'POST' ($apUri + '/unassignUserFromDevice') $Token); $res.User = 'aufgehoben' }
+        catch { $res.User = 'nicht aufgehoben'; $res.Detail = 'Benutzer-Zuweisung: ' + (Get-ErrText $_) }
+    }
+    $iTxt = $(switch ($res.Intune) { 'gelöscht' { 'Intune-Eintrag gelöscht' } 'schon weg' { 'Intune-Eintrag war schon weg' } 'bleibt (Recht fehlt)' { 'Intune-Eintrag bleibt (Recht fehlt)' } 'bleibt (nicht eindeutig)' { 'Intune-Eintrag nicht eindeutig zuordenbar, bleibt stehen' } default { 'kein Intune-Eintrag' } })
+    $iDone = ($res.Intune -eq 'gelöscht')
+    # 4. Autopilot-Eintrag: direkt davor nochmal lesen und vergleichen, dann loeschen
+    $part = { param($why, $det, $lv = 'Fehler') if ($iDone) { return (& $fail $lv ('TEILWEISE: Intune-Eintrag gelöscht, Autopilot-Eintrag ' + $why) $det) }; return (& $fail $lv ('Autopilot-Eintrag ' + $why) $det) }
+    $ap2 = $null
+    try { $ap2 = Invoke-HuGraph 'GET' $apUri $Token }
+    catch { if ((Get-ErrCode $_) -eq 404) { $res.Level = 'OK'; $res.Deleted = $true; $res.Text = $sn + ': Autopilot-Eintrag ist schon weg (' + $iTxt + ').'; return $res }; return (& $part 'NICHT gelöscht: Eintrag nicht lesbar. Später nochmal "Autopilot-Eintrag löschen".' (Get-ErrText $_)) }
+    if ([string]$ap2.serialNumber -cne $sn) { return (& $part 'NICHT gelöscht: Der Eintrag hat sich geändert, übersprungen. Bitte "Aktualisieren".' '') }
+    try { [void](Invoke-HuGraph 'DELETE' $apUri $Token) }
+    catch {
+        $det = Get-ErrText $_
+        switch (Get-DeleteOutcome $_ $apUri $Token) {
+            'gone' { }
+            'unclear' { return (& $part 'Stand unklar (keine eindeutige Antwort von Microsoft). "Aktualisieren" und prüfen.' $det) }
+            default { return (& $part 'NICHT gelöscht. Später nochmal "Autopilot-Eintrag löschen", sonst den Admin fragen.' $det) }
+        }
+    }
+    $res.Deleted = $true
+    $more = ($iDone -and $Plan.More)
+    $res.Level = $(if ($res.Intune -like 'bleibt*' -or $res.User -eq 'nicht aufgehoben' -or $more) { 'Hinweis' } else { 'OK' })
+    $res.Text = $sn + ': Autopilot-Eintrag gelöscht (' + $iTxt + $(if ($res.User -eq 'aufgehoben') { ', Benutzer-Zuweisung aufgehoben' } elseif ($res.User -eq 'nicht aufgehoben') { ', Benutzer-Zuweisung NICHT aufgehoben' } else { '' }) + '). Microsoft entfernt ihn in bis zu 30 Minuten.' +
+        $(if ($res.Intune -like 'bleibt*') { ' Den Intune-Eintrag muss ein Admin im Intune-Portal prüfen und löschen.' } else { '' }) +
+        $(if ($more) { ' Es gibt weitere Intune-Einträge mit dieser Seriennummer, die bleiben stehen (Admin).' } else { '' })
+    return $res
+}
+# Zusammenfassung nach dem Loeschen (Meldung im Status-Fenster)
+function Get-DeleteSummary($Results) {
+    $Results = @($Results); $nl = "`r`n"
+    $ok = @($Results | Where-Object { $_.Deleted }).Count
+    $t = 'Gelöscht: ' + $ok + ' von ' + $Results.Count + '.' + $nl + $nl + ((@($Results | ForEach-Object { $_.Text })) -join $nl)
+    if ($ok) { $t += $nl + $nl + 'Microsoft entfernt die Einträge in bis zu 30 Minuten, bis dahin stehen sie mit Stand "Wird gelöscht" in der Liste. Soll ein Gerät wieder in Autopilot: danach mit dem Stick neu registrieren.' }
+    if ($ok -lt $Results.Count) { $t += $nl + $nl + 'Nicht alles hat geklappt, Einzelheiten im Protokoll des Hauptfensters.' }
+    return $t
+}
+# Doppelte Abfrage in einem Fenster: Seite 1 zeigt, was geloescht wird und was verloren geht (Weiter / Abbrechen),
+# Seite 2 verlangt die Seriennummer bzw. das Wort LÖSCHEN. Abbrechen ist Standard (Enter auf Seite 1, Esc immer).
+# Rueckgabe $true nur nach beiden Bestaetigungen.
+function Show-DeleteConfirm($Rows, [bool]$CanIntune, $Owner, $Plans = $null) {
+    [xml]$lx = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HUPilot - Autopilot-Eintrag löschen" Width="760" Height="580" WindowStartupLocation="CenterOwner" FontSize="13" ShowInTaskbar="False" ResizeMode="CanResizeWithGrip">
+  <DockPanel Margin="12">
+    <TextBlock x:Name="tHead" DockPanel.Dock="Top" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,8" Foreground="{DynamicResource HuErr}"/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+      <Button x:Name="bBack" Content="Zurück" Padding="10,4" Visibility="Collapsed" ToolTip="Zurück zur Übersicht, was gelöscht wird."/>
+      <Button x:Name="bNext" Content="Weiter ..." Padding="10,4" Margin="8,0,0,0" ToolTip="Weiter zur zweiten Bestätigung. Gelöscht wird noch nichts."/>
+      <Button x:Name="bDel" Content="Endgültig löschen" Padding="10,4" Margin="8,0,0,0" Visibility="Collapsed" IsEnabled="False" Foreground="{DynamicResource HuErr}" ToolTip="Löscht die Einträge in der Reihenfolge Intune, Benutzer-Zuweisung, Autopilot.&#x0a;Erst aktiv, wenn die Bestätigung genau stimmt."/>
+      <Button x:Name="bCancel" Content="Abbrechen" Padding="10,4" Margin="8,0,0,0" IsCancel="True" IsDefault="True" ToolTip="Nichts löschen und schließen (Esc)."/>
+    </StackPanel>
+    <StackPanel x:Name="spAsk" DockPanel.Dock="Bottom" Visibility="Collapsed" Margin="0,10,0,0">
+      <TextBlock x:Name="tAsk" TextWrapping="Wrap" Margin="0,0,0,6"/>
+      <TextBox x:Name="tType" FontFamily="Consolas" FontSize="14" Padding="4,3" AllowDrop="False" ToolTip="Bitte tippen, Einfügen ist hier gesperrt.&#x0a;Genau so eintippen wie angezeigt (Groß- und Kleinschreibung zählt)."/>
+    </StackPanel>
+    <TextBox x:Name="tPlan" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" ToolTip="Was gelöscht wird und was dabei verloren geht. Text lässt sich markieren und kopieren."/>
+  </DockPanel>
+</Window>
+'@
+    Add-HuTheme $lx
+    $lw = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $lx))
+    Register-HuWindow $lw
+    $lw.Owner = $(if ($Owner) { $Owner } else { $win }); if ($win.Icon) { $lw.Icon = $win.Icon }
+    Set-WinFit $lw
+    $c = @{}; foreach ($n in 'tHead', 'bBack', 'bNext', 'bDel', 'bCancel', 'spAsk', 'tAsk', 'tType', 'tPlan') { $c[$n] = $lw.FindName($n) }
+    $Rows = @($Rows)
+    $sns = [string[]]@($Rows | ForEach-Object { [string]$_.Seriennr })
+    $st = @{ Ok = $false }
+    $c.tHead.Text = $(if ($Rows.Count -eq 1) { 'Diesen Autopilot-Eintrag wirklich löschen? Bitte genau lesen.' } else { 'Diese ' + $Rows.Count + ' Autopilot-Einträge wirklich löschen? Bitte genau lesen.' })
+    $c.tPlan.Text = Get-DeletePlanText $Rows $CanIntune (Get-Date) $Plans
+    $c.tAsk.Text = Get-DeleteAskText $sns
+    # Zweite Abfrage wirklich tippen: Einfuegen (Strg+V, Umschalt+Einfg, Kontextmenue) und Ziehen sind gesperrt
+    [System.Windows.DataObject]::AddPastingHandler($c.tType, [System.Windows.DataObjectPastingEventHandler]{ param($s, $e) $e.CancelCommand() })
+    $c.tType.Add_PreviewDragOver({ param($s, $e) $e.Effects = [System.Windows.DragDropEffects]::None; $e.Handled = $true })
+    $c.tType.Add_PreviewDrop({ param($s, $e) $e.Handled = $true })
+    $c.tType.CommandBindings.Add((New-Object System.Windows.Input.CommandBinding([System.Windows.Input.ApplicationCommands]::Paste, { param($s, $e) $e.Handled = $true }, { param($s, $e) $e.CanExecute = $false; $e.Handled = $true }))) | Out-Null
+    $c.bNext.Add_Click({ $c.spAsk.Visibility = 'Visible'; $c.bDel.Visibility = 'Visible'; $c.bBack.Visibility = 'Visible'; $c.bNext.Visibility = 'Collapsed'; $c.bCancel.IsDefault = $false; $c.tType.Text = ''; [void]$c.tType.Focus() })
+    $c.bBack.Add_Click({ $c.spAsk.Visibility = 'Collapsed'; $c.bDel.Visibility = 'Collapsed'; $c.bBack.Visibility = 'Collapsed'; $c.bNext.Visibility = 'Visible'; $c.bCancel.IsDefault = $true; $c.tType.Text = ''; [void]$c.bCancel.Focus() })
+    $c.tType.Add_TextChanged({ $c.bDel.IsEnabled = (Test-DeleteConfirm $c.tType.Text $sns) })
+    $c.bDel.Add_Click({ if (Test-DeleteConfirm $c.tType.Text $sns) { $st.Ok = $true; $lw.Close() } })
+    $c.bCancel.Add_Click({ $lw.Close() })
+    $lw.Add_ContentRendered({ [void]$c.bCancel.Focus() })
+    [void]$lw.ShowDialog()
+    return [bool]$st.Ok
 }
 
 function Show-Status {
@@ -3208,13 +4281,17 @@ function Show-Status {
       <Button x:Name="kWait" Style="{StaticResource HuTile}" Tag="wait" ToolTip="Hochgeladen, Microsoft weist das Profil noch zu (meist 5 bis 15 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nWait" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wartet auf Profil"/></StackPanel></Button>
       <Button x:Name="kReady" Style="{StaticResource HuTile}" Tag="ready" ToolTip="Profil ist da, das Gerät hat sich aber noch nicht angemeldet. Klick filtert."><StackPanel><TextBlock x:Name="nReady" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Profil da, noch nicht angemeldet"/></StackPanel></Button>
       <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Problem"/></StackPanel></Button>
+      <Button x:Name="kHw" Style="{StaticResource HuTile}" Tag="hw" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung (z. B. Mainboardtausch), der gespeicherte Hash passt nicht mehr.&#x0a;Microsoft korrigiert das nicht von selbst: Eintrag mit &quot;Autopilot-Eintrag löschen ...&quot; entfernen, dann mit dem Stick neu registrieren. Klick filtert."><StackPanel><TextBlock x:Name="nHw" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Hardware geändert"/></StackPanel></Button>
+      <Button x:Name="kHwa" Style="{StaticResource HuTile}" Tag="hwa" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung, Microsoft versucht die Korrektur selbst. Abwarten.&#x0a;Bleibt es länger so: Eintrag mit &quot;Autopilot-Eintrag löschen ...&quot; entfernen und mit dem Stick neu registrieren. Klick filtert."><StackPanel><TextBlock x:Name="nHwa" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Hardware wird abgeglichen"/></StackPanel></Button>
+      <Button x:Name="kDup" Style="{StaticResource HuTile}" Tag="dup" Visibility="Collapsed" ToolTip="Mehrere Autopilot-Einträge mit derselben Seriennummer. &quot;Was tun&quot; sagt, welcher der ältere ist. Klick filtert."><StackPanel><TextBlock x:Name="nDup" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Doppelt"/></StackPanel></Button>
+      <Button x:Name="kDel" Style="{StaticResource HuTile}" Tag="del" Visibility="Collapsed" ToolTip="In diesem Fenster gelöscht, Microsoft hat den Eintrag noch nicht entfernt (bis zu 30 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nDel" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wird gelöscht"/></StackPanel></Button>
     </WrapPanel>
     <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
       <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,4"/>
       <ComboBox x:Name="cTag" Width="140" Margin="0,0,0,4" ToolTip="Nur Geräte mit diesem Group Tag"/>
       <CheckBox x:Name="cProto" Content="nur Geräte aus dem Stick-Protokoll" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
       <CheckBox x:Name="cToday" Content="heute" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die heute hochgeladen oder registriert wurden"/>
-      <CheckBox x:Name="cProblem" Content="nur Probleme" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte mit Stand &quot;Kein Profil für diesen Tag&quot; oder &quot;Fehler&quot;"/>
+      <CheckBox x:Name="cProblem" Content="nur Probleme" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte mit Stand &quot;Kein Profil für diesen Tag&quot;, &quot;Fehler&quot;, &quot;Hardware geändert&quot; oder &quot;Doppelt&quot;"/>
       <CheckBox x:Name="cZeit" Content="nur letzte" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Zeitfilter: nur Geräte, die im gewählten Zeitraum registriert bzw. importiert wurden"/>
       <ComboBox x:Name="cZeitSpan" Width="70" Margin="6,0,0,4" ToolTip="Zeitraum bis jetzt"/>
       <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte Registriert).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
@@ -3243,6 +4320,7 @@ function Show-Status {
         <Button x:Name="bDetail" Content="Details ..." Padding="10,4" ToolTip="Angaben zur markierten Zeile mit Verlauf aus dem Stick-Protokoll (auch Doppelklick auf die Zeile)"/>
         <Button x:Name="bTagSet" Content="Tag ändern ..." Padding="10,4" Margin="8,0,0,0" ToolTip="Den markierten Geräten einen anderen Group Tag geben (Standard- oder Auswahl-Tag aus den Einstellungen). Mit Rückfrage."/>
         <Button x:Name="bSync" Content="Autopilot-Sync anstoßen" Padding="10,4" Margin="8,0,0,0" ToolTip="Microsoft gleicht Autopilot neu ab (immer für den ganzen Tenant). Hilft, wenn ein Profil nicht kommt. Höchstens alle 10 Minuten."/>
+        <Button x:Name="bDelete" Content="Autopilot-Eintrag löschen ..." Padding="10,4" Margin="8,0,0,0" Foreground="{DynamicResource HuErr}" ToolTip="Löscht den Autopilot-Eintrag der markierten Geräte (höchstens 5), z. B. nach einem Mainboardtausch oder bei doppelten Einträgen.&#x0a;Reihenfolge wie von Microsoft verlangt: Intune-Eintrag, Benutzer-Zuweisung, Autopilot-Eintrag.&#x0a;Mit zwei Rückfragen. Den Intune-Eintrag löschen braucht das Recht DeviceManagementManagedDevices.ReadWrite.All."/>
         <TextBlock x:Name="tCount" VerticalAlignment="Center" Margin="14,0,0,0" FontWeight="SemiBold" ToolTip="Anzahl der angezeigten und markierten Geräte"/>
       </StackPanel>
     </DockPanel>
@@ -3256,8 +4334,8 @@ function Show-Status {
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
     Set-WinFit $sw
-    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
-    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; FitW = @{}; ManualCols = @{}; UserSized = $false; SizingByCode = $false; FromSearch = $false }
+    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','kHw','kDup','kDel','nHw','nDup','nDel','kHwa','nHwa','bDelete','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
+    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; FitW = @{}; ManualCols = @{}; UserSized = $false; SizingByCode = $false; FromSearch = $false; Del = @{}; Busy = $false }
     $script:SRows = @(); $script:StatusView = @()
     # Spalten fest (deutsche Ueberschriften), Breite nach Inhalt (Set-GridColumnsFit), Reihenfolge aus ui.json
     $standStyle = $null
@@ -3328,33 +4406,37 @@ function Show-Status {
     [void]$g.cZeitBasis.Items.Add('nach Autopilot-Import')
     $g.cZeitBasis.SelectedIndex = 0
     $g.cAuto.IsChecked = ([string](Get-UiSetting 'StatusAuto' $true) -ne 'False')
-    $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb }
+    $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb; hw = $g.kHw; hwa = $g.kHwa; dup = $g.kDup; del = $g.kDel }
     $refresh = {
         # Auswahl und Sortierung merken
-        $selSn = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Seriennr })
+        # Auswahl ueber die Kennung merken (nie ueber die Seriennummer: Zwillinge und leere Seriennummern)
+        $selId = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Id } | Where-Object { $_ })
         $sorts = @($g.dGrid.Items.SortDescriptions | ForEach-Object { $_ })
         $v = @($script:SRows)
         if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
         if ($g.cProto.IsChecked) { $v = @($v | Where-Object { $_.HUPilot }) }
-        if ($g.cToday.IsChecked) { $d0 = (Get-Date).Date; $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and (($t.Reg -and $t.Reg -ge $d0) -or ($t.Imp -and $t.Imp -ge $d0)) }) }
+        if ($g.cToday.IsChecked) { $d0 = (Get-Date).Date; $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Id]; $t -and (($t.Reg -and $t.Reg -ge $d0) -or ($t.Imp -and $t.Imp -ge $d0)) }) }
         if ($g.cProblem.IsChecked) { $v = @($v | Where-Object { $_.Klasse -eq 'err' }) }
         if ($g.cZeit.IsChecked) {
             $since = $(if ($g.cZeitSpan.SelectedIndex -eq 3) { (Get-Date).Date } else { (Get-Date).AddHours(-1 * $script:ZeitStd[[math]::Max(0, [math]::Min(2, $g.cZeitSpan.SelectedIndex))]) })
             $key = $(if ($g.cZeitBasis.SelectedIndex -eq 1) { 'Imp' } else { 'Reg' })
-            $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and $t[$key] -and $t[$key] -ge $since })
+            $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Id]; $t -and $t[$key] -and $t[$key] -ge $since })
         }
         if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
         # Kacheln zaehlen ueber die gefilterte Liste (ohne Kachel-Filter)
-        $cnt = @{ ok = 0; wait = 0; ready = 0; prob = 0 }
+        $cnt = @{ ok = 0; wait = 0; ready = 0; prob = 0; hw = 0; hwa = 0; dup = 0; del = 0 }
         foreach ($r in $v) { $k = $script:StandTile[[string]$r.Stand]; if ($k) { $cnt[$k]++ } }
         $g.nAll.Text = '' + $v.Count; $g.nOk.Text = '' + $cnt.ok; $g.nWait.Text = '' + $cnt.wait; $g.nReady.Text = '' + $cnt.ready; $g.nProb.Text = '' + $cnt.prob
+        $g.nHw.Text = '' + $cnt.hw; $g.nHwa.Text = '' + $cnt.hwa; $g.nDup.Text = '' + $cnt.dup; $g.nDel.Text = '' + $cnt.del
+        # seltene Staende: Kachel nur, wenn es solche Geraete gibt oder ihr Filter gerade aktiv ist
+        foreach ($k in 'hw', 'hwa', 'dup', 'del') { $tiles[$k].Visibility = $(if ($cnt[$k] -gt 0 -or $sst.Tile -eq $k) { 'Visible' } else { 'Collapsed' }) }
         if ($sst.Tile) { $tk = $sst.Tile; $v = @($v | Where-Object { $script:StandTile[[string]$_.Stand] -eq $tk }) }
         foreach ($k in @($tiles.Keys)) { if ($k -eq $sst.Tile -and $k) { $tiles[$k].SetResourceReference([System.Windows.Controls.Control]::BorderBrushProperty, 'HuAccent') } else { $tiles[$k].ClearValue([System.Windows.Controls.Control]::BorderBrushProperty) } }
         $script:StatusView = $v
         $g.dGrid.ItemsSource = $v
         # Sortierung und Auswahl wiederherstellen
         foreach ($sd in $sorts) { $g.dGrid.Items.SortDescriptions.Add($sd); foreach ($dc in $g.dGrid.Columns) { if ($dc.SortMemberPath -eq $sd.PropertyName) { $dc.SortDirection = $sd.Direction } } }
-        if ($selSn.Count) { foreach ($it in @($g.dGrid.Items)) { if ($selSn -contains [string]$it.Seriennr) { [void]$g.dGrid.SelectedItems.Add($it) } } }
+        if ($selId.Count) { foreach ($it in @($g.dGrid.Items)) { if ($it.Id -and $selId -contains [string]$it.Id) { [void]$g.dGrid.SelectedItems.Add($it) } } }
         $g.tCount.Text = ('' + $v.Count + ' angezeigt' + $(if ($g.dGrid.SelectedItems.Count) { ', ' + $g.dGrid.SelectedItems.Count + ' markiert' } else { '' }))
         # Spaltenbreiten nach der ANGEZEIGTEN Liste, bei jeder Aenderung (Filter, Suche, Kachel, Aktualisieren)
         try { & $fitCols } catch { }
@@ -3374,8 +4456,14 @@ function Show-Status {
         Set-Step 'Status' 'run'
         if ($Auto) { $script:QuietDedupe = $sst.Seen } else { $script:QuietDedupe = $null; $sst.Seen.Clear() }
         try {
-            $d = Get-StatusData -Progress { param($t) $g.tLoad.Text = $t; $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+            $d = Get-StatusData -Progress { param($t) $g.tLoad.Text = $t; $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) } -Pending $sst.Del
             if ($d) {
+                # von Microsoft entfernte Eintraege: aus der Liste "Wird gelöscht" nehmen und melden
+                foreach ($gid in @($d.Gone)) {
+                    $pi = $sst.Del[$gid]
+                    if ($pi) { Out-Log ($pi.Serial + ': Autopilot-Eintrag ist bei Microsoft entfernt. Das Gerät kann jetzt mit dem Stick neu registriert werden.') 'OK' }
+                    $sst.Del.Remove($gid)
+                }
                 $sst.Fails = 0
                 # Fehler und Hinweise duerfen nach einem erfolgreichen Durchgang wieder einmal erscheinen
                 foreach ($k in @($sst.Seen.Keys)) { if ($sst.Seen[$k] -in 'Fehler', 'Hinweis') { $sst.Seen.Remove($k) } }
@@ -3383,7 +4471,7 @@ function Show-Status {
                 $script:SRows = @($d.Rows); & $fillTags
                 if ($sst.First) { $g.cProto.IsChecked = ($d.Proto.Count -gt 0); $g.cProto.IsEnabled = ($d.Proto.Count -gt 0); $sst.First = $false }
                 $g.tStamp.Text = 'Stand: ' + (Get-Date -Format 'HH:mm')
-                $g.tLoad.Text = ''
+                $g.tLoad.Text = $(if ($d.IntunePartial) { 'Intune-Angaben unvollständig, Intune-Einträge werden nicht über die Seriennummer zugeordnet. "Aktualisieren" hilft.' } else { '' })
                 Set-Step 'Status' 'ok' ('' + @($d.Rows).Count + ' Geräte')
             } else {
                 $g.tLoad.Text = 'Nicht geladen, Details im Protokoll des Hauptfensters.'; Set-Step 'Status' 'err' 'nicht geladen'
@@ -3403,7 +4491,12 @@ function Show-Status {
     }
     # Breite je Spalte = breitester Text der angezeigten Zeilen plus Luft; von Hand gezogene Spalten bleiben bis zum Schliessen
     $fitCols = {
-        Set-GridColumnsFit $g.dGrid @($script:StatusView) @{ WasTun = 420 } @{ Stand = 16 } @('Stand') @($sst.ManualCols.Keys)
+        # kein Deckel fuer "Was tun": nur wenn alle Spalten zusammen breiter waeren als der Bildschirm, wird sie schmaler und bricht um.
+        # Platz = Arbeitsbereich minus Fensterrand, Luft und Bildlaufleiste (so rechnet auch $fitWin die Fensterbreite)
+        $wa = Get-WinWorkArea $sw
+        $chrome = $(if ($sw.ActualWidth -gt 0 -and $g.dGrid.ActualWidth -gt 0) { $sw.ActualWidth - $g.dGrid.ActualWidth } else { 40 })
+        $avail = [math]::Max(400, $wa.Width - $chrome - 20 - 16)
+        Set-GridColumnsFit $g.dGrid @($script:StatusView) @{} @{ Stand = 16 } @('Stand') @($sst.ManualCols.Keys) $avail @('WasTun')
         foreach ($dc in $g.dGrid.Columns) { $sst.FitW[[string]$dc.Binding.Path.Path] = $dc.Width.Value }
     }
     # Fensterbreite an die Spalten anpassen (breiter und schmaler), solange der Anwender das Fenster nicht selbst veraendert hat
@@ -3462,6 +4555,7 @@ function Show-Status {
         try { Set-UiSetting 'StatusCols' @($g.dGrid.Columns | ForEach-Object { [string]$_.Binding.Path.Path + '|' + $_.DisplayIndex }) } catch { }
     })
     $detail = {
+        if ($sst.Busy) { return }
         $it = $g.dGrid.SelectedItem; if (-not $it) { $g.tCount.Text = 'Bitte zuerst eine Zeile markieren.'; return }
         $sst.Dialog = $true
         try { Show-DeviceDetail $it $sw } catch { Out-Log ('Details zu ' + $it.Seriennr + ' nicht verfügbar.') 'Fehler' $_.Exception.Message } finally { $sst.Dialog = $false }
@@ -3487,7 +4581,8 @@ function Show-Status {
             $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
             $ok = 0
             foreach ($r in $sel) {
-                $id = $script:ApIds[[string]$r.Seriennr]
+                if ([string]$r.Stand -eq 'Wird gelöscht') { Out-Log ($r.Seriennr + ': wird gerade gelöscht, Tag nicht geändert.') 'Hinweis'; continue }
+                $id = $(if ($r.Id) { [string]$r.Id } else { $script:ApIds[[string]$r.Seriennr] })
                 if (-not $id) { Out-Log ($r.Seriennr + ': nicht in Autopilot gefunden, Tag nicht geändert.') 'Fehler'; continue }
                 try {
                     Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = [string]$pick.Tag } | ConvertTo-Json) -TimeoutSec 30 | Out-Null
@@ -3517,6 +4612,63 @@ function Show-Status {
                 else { Out-Log 'Autopilot-Sync konnte nicht angestoßen werden. Später nochmal versuchen.' 'Fehler' $_.Exception.Message; Show-Msg 'Autopilot-Sync konnte nicht angestoßen werden. Details im Protokoll des Hauptfensters.' 'HUPilot - Autopilot-Sync' 'Warning' $sw }
             }
         } finally { $sst.Dialog = $false }
+    })
+    # Autopilot-Eintrag loeschen: nur per Klick (nie aus Timer oder BeginInvoke), Busy-Sperre, automatisches Aktualisieren
+    # pausiert, Ergebnis je Geraet ins Protokoll und in die Protokolldatei. Geloeschte Zeilen: Stand "Wird gelöscht".
+    $sw.Add_Closing({ param($s, $e) if ($sst.Busy) { $e.Cancel = $true } })
+    $g.bDelete.Add_Click({
+        # alles im geschuetzten Bereich, auch Pruefen und Sperren; aufgeraeumt wird nur, was dieser Klick gesetzt hat ($mine)
+        $mine = $false; $btns = @(); $results = @()
+        try {
+            if ($sst.Busy) { return }
+            if ($sst.Loading) { Show-Msg 'Die Liste lädt noch, bitte kurz warten.' 'HUPilot - Autopilot-Eintrag löschen' 'Information' $sw; return }
+            # Rueckfrage, Abfrage und Ausfuehrung kommen aus genau dieser gepruefen Liste
+            $chk = Test-DeleteSelection @($g.dGrid.SelectedItems)
+            if (-not $chk.Ok) { Show-Msg $chk.Msg 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw; return }
+            $sel = @($chk.Rows)
+            $mine = $true; $sst.Busy = $true; $sst.Dialog = $true; $tm.Stop()
+            $btns = @($g.bDelete, $g.bTagSet, $g.bSync, $g.bReload, $g.bDetail, $g.bCsv, $g.bXlsx, $g.bPrint)
+            foreach ($b in $btns) { $b.IsEnabled = $false }
+            $tok = Get-ApiToken
+            if (-not $tok) { Show-Msg $script:TokenMsg 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw; return }
+            # Rechte aus dem Token. Nur eine lesbare, nicht leere Liste entscheidet; leer = unbekannt (Fehler beim Loeschen = Geraet uebersprungen)
+            $roles = @(Get-TokenRoles $tok)
+            if ($roles.Count -and $roles -notcontains 'DeviceManagementServiceConfig.ReadWrite.All') {
+                Out-Log 'Löschen geht nicht: der App fehlt das Recht DeviceManagementServiceConfig.ReadWrite.All. Es wurde nichts gelöscht.' 'Fehler'
+                Show-Msg 'Der App fehlt das Recht DeviceManagementServiceConfig.ReadWrite.All. Damit lässt sich kein Autopilot-Eintrag löschen. Es wurde nichts gelöscht, bitte den Admin fragen.' 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw
+                return
+            }
+            $canI = ($roles.Count -eq 0 -or $roles -contains 'DeviceManagementManagedDevices.ReadWrite.All')
+            # Intune-Plan je Zeile: dieselbe Funktion fuer Rueckfrage und Ausfuehrung, vor der Rueckfrage festgehalten
+            $plans = @($sel | ForEach-Object { Get-IntunePlan $_ $canI })
+            if (@($plans | Where-Object { $_.Kind -eq 'right' }).Count) { Out-Log 'Löschen: der App fehlt das Recht DeviceManagementManagedDevices.ReadWrite.All, Intune-Einträge bleiben stehen. Angeboten wird nur der Autopilot-Eintrag.' 'Hinweis' }
+            if (-not (Show-DeleteConfirm $sel $canI $sw $plans)) { Out-Log 'Autopilot-Eintrag löschen abgebrochen, nichts gelöscht.'; return }
+            Out-Log ('Autopilot-Eintrag löschen bestätigt für: ' + (@($sel | ForEach-Object { $_.Seriennr + ' (' + $_.Id + ')' }) -join ', '))
+            for ($i = 0; $i -lt $sel.Count; $i++) {
+                $r = $sel[$i]
+                $x = $null
+                try { $x = Invoke-ApDeleteOne $r $tok $plans[$i] }
+                catch { $x = [pscustomobject]@{ Serial = [string]$r.Seriennr; Deleted = $false; Level = 'Fehler'; Text = ([string]$r.Seriennr + ': unerwarteter Fehler, Stand unklar. "Aktualisieren" und prüfen.'); Detail = $_.Exception.Message } }
+                Out-Log $x.Text $x.Level $x.Detail
+                if ($x.Deleted) {
+                    $sst.Del[[string]$r.Id] = @{ Serial = [string]$r.Seriennr; Since = (Get-Date) }
+                    $r.Stand = 'Wird gelöscht'; $r.WasTun = Get-PendingTodo (Get-Date) (Get-Date); $r.Klasse = $script:StandClass['Wird gelöscht']
+                }
+                $results += $x
+                $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background)
+            }
+            $okN = @($results | Where-Object { $_.Deleted }).Count
+            Out-Log ('Autopilot-Eintrag löschen: ' + $okN + ' von ' + $results.Count + ' gelöscht') $(if ($okN -eq $results.Count) { 'OK' } else { 'Hinweis' })
+            Show-Msg (Get-DeleteSummary $results) 'HUPilot - Autopilot-Eintrag löschen' $(if ($okN -eq $results.Count) { 'Information' } else { 'Warning' }) $sw
+        } catch {
+            # nie ins globale trap: Fehlerzeile, bis dahin Erledigtes zeigen, aufraeumen (finally)
+            try { Out-Log 'Autopilot-Eintrag löschen unerwartet abgebrochen. "Aktualisieren" und den Stand prüfen.' 'Fehler' $_.Exception.Message } catch { }
+            try { Show-Msg ('Unerwartet abgebrochen.' + "`r`n`r`n" + $(if ($results.Count) { Get-DeleteSummary $results } else { 'Bis dahin wurde nichts gelöscht.' })) 'HUPilot - Autopilot-Eintrag löschen' 'Warning' $sw } catch { }
+        } finally {
+            foreach ($b in $btns) { try { $b.IsEnabled = $true } catch { } }
+            if ($mine) { $sst.Busy = $false; $sst.Dialog = $false; try { if ($g.cAuto.IsChecked -and -not $sst.Paused) { $tm.Start() } } catch { } }
+        }
+        try { & $refresh } catch { }
     })
     $exportRows = { @($g.dGrid.Items) }
     $fileBase = { 'HUPilot-Status_' + ((Get-Cfg).Tenant -replace '[^A-Za-z0-9-]', '') + '_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') }
@@ -3561,10 +4713,10 @@ function Show-Status {
             if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus dem Stick-Protokoll' }
             if ($g.cToday.IsChecked) { $flt += 'heute' }
             if ($g.cProblem.IsChecked) { $flt += 'nur Probleme' }
-            if ($sst.Tile) { $flt += ('Kachel ' + @{ ok = 'Fertig'; wait = 'Wartet auf Profil'; ready = 'Profil da'; prob = 'Problem' }[$sst.Tile]) }
+            if ($sst.Tile) { $flt += ('Kachel ' + @{ ok = 'Fertig'; wait = 'Wartet auf Profil'; ready = 'Profil da'; prob = 'Problem'; hw = 'Hardware geändert'; hwa = 'Hardware wird abgeglichen'; dup = 'Doppelt'; del = 'Wird gelöscht' }[$sst.Tile]) }
             if ($g.cZeit.IsChecked) { $flt += ('letzte ' + [string]$g.cZeitSpan.SelectedItem + ' ' + [string]$g.cZeitBasis.SelectedItem) }
             if ($g.tFind.Text) { $flt += ('Suche "' + $g.tFind.Text + '"') }
-            $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
+            $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + (@(foreach ($x in @(@($g.nHw, 'Hardware geändert'), @($g.nHwa, 'Hardware wird abgeglichen'), @($g.nDup, 'doppelt'), @($g.nDel, 'wird gelöscht'))) { if ($x[0].Text -ne '0') { ', ' + $x[0].Text + ' ' + $x[1] } }) -join '') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
             # tatsaechliche Seite (Papier, Ausrichtung, Rand) erst nach dem Dialog lesen und danach rechnen
             $pg = Get-PrintPage $pd
             $pr = New-StatusPrintDoc -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Title ('HUPilot - Status ' + (Get-Cfg).Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pg.W -PageH $pg.H -Margin $pg.Margin
@@ -3579,7 +4731,9 @@ function Show-Status {
 }
 
 # Autopilot- und Intune-Geraete laden. -Progress: Skriptblock mit einem Text (Fortschritt), haelt das Fenster zwischen den Seiten bedienbar
-function Get-StatusData([scriptblock]$Progress = $null) {
+# -Pending: in diesem Fenster geloeschte Eintraege (id -> @{ Serial; Since }), Stand "Wird gelöscht" bis Microsoft sie entfernt hat.
+#   Rueckgabe Gone: ids, die nicht mehr in Autopilot stehen (der Aufrufer nimmt sie aus Pending und meldet sie).
+function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $null) {
     $say = { param($t) if ($Progress) { & $Progress $t } }
     & $say 'Anmeldung bei Microsoft ...'
     $tok = Get-ApiTokenCached; if (-not $tok) { return $null }
@@ -3596,17 +4750,23 @@ function Get-StatusData([scriptblock]$Progress = $null) {
         }
     } catch { Out-Log 'Autopilot-Geräte nicht lesbar. 1. Verbindung testen.' 'Fehler' $_.Exception.Message; return $null }
     # Optional: Intune-Geraete (Primaerer Benutzer, Geraetename, letzter Sync) - braucht DeviceManagementManagedDevices.Read.All
-    $md = @{}
+    $md = @{}; $mdCnt = @{}; $mdPartial = $false; $mdFull = $false
     try {
         $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime,enrolledDateTime&`$top=999"
         $page = 0
         while ($uri) {
             $page++; & $say ('lade Intune-Geräte, Seite ' + $page + ' ...')
             $r = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri $uri -Headers $h -TimeoutSec 60
-            foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $md['SN:' + [string]$m.serialNumber] = $m } }
+            # je Seriennummer mitzaehlen: der Rueckfall ueber die Seriennummer gilt nur bei genau einem Intune-Geraet
+            foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $k = 'SN:' + [string]$m.serialNumber; $md[$k] = $m; $mdCnt[$k] = 1 + [int]$mdCnt[$k] } }
             $uri = $r.'@odata.nextLink'
         }
-    } catch { Out-Log 'Benutzer, Gerätename und letzter Sync nicht lesbar. Optional: der App die Berechtigung DeviceManagementManagedDevices.Read.All geben.' 'Hinweis' $_.Exception.Message }
+        $mdFull = $true   # alle Seiten gelesen: nur dann ist "nicht in der Liste" eine Aussage
+    } catch {
+        # abgebrochen, nachdem schon Seiten gelesen waren: Liste unvollstaendig, keine Zuordnung ueber die Seriennummer
+        if ($md.Count) { $mdPartial = $true; Out-Log 'Intune-Angaben unvollständig (Liste nicht ganz geladen). Intune-Einträge werden deshalb nicht über die Seriennummer zugeordnet. "Aktualisieren" hilft.' 'Hinweis' $_.Exception.Message }
+        else { Out-Log 'Benutzer, Gerätename und letzter Sync nicht lesbar. Optional: der App die Berechtigung DeviceManagementManagedDevices.Read.All geben.' 'Hinweis' $_.Exception.Message }
+    }
     & $say 'lese Stick-Protokoll ...'
     $proto = Read-Protokoll
     $mapE = @{ enrolled = 'registriert'; notContacted = 'noch nicht'; failed = 'Fehler'; pendingReset = 'Reset ausstehend'; blocked = 'blockiert'; unknown = 'unbekannt' }
@@ -3615,18 +4775,28 @@ function Get-StatusData([scriptblock]$Progress = $null) {
     # Zeiten fuer die Zeitfilter (nicht als Spalte): Reg = Intune-Registrierung, Imp = Autopilot-Import.
     # Graph liefert keine Importzeit: genommen wird die HUPilot-Zeit aus protokoll.csv, sonst die Profil-Zuweisung.
     $script:StatusTimes = @{}
+    # geloeschte Eintraege zaehlen beim Vergleich der Seriennummern nicht mehr mit
+    $pend = $(if ($Pending) { $Pending } else { @{} })
+    $dup = Get-DuplicateMarks @($all | Where-Object { -not $pend.ContainsKey([string]$_.id) })
+    $now = Get-Date
     $rows = foreach ($d in $all) {
         $ps = [string]$d.deploymentProfileAssignmentStatus
         $hasDate = $false; try { $hasDate = ([datetime]$d.deploymentProfileAssignedDateTime).Year -gt 2000 } catch { }
         $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($hasDate) { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
         $es = [string]$d.enrollmentState
-        $stand = Get-DeviceStand $ps $es $hasDate
+        $rem = [string]$d.remediationState
+        $id = [string]$d.id
+        $dm = $(if ($dup.ContainsKey($id)) { $dup[$id] } else { $null })
+        $stand = Get-DeviceStand $ps $es $hasDate $rem
+        $todo = Get-DeviceTodo $stand $ps $es $hasDate
+        if ($pend.ContainsKey($id)) { $stand = 'Wird gelöscht'; $todo = Get-PendingTodo ([datetime]$pend[$id].Since) $now }
+        elseif ($dm) { $stand = 'Doppelt'; $todo = Get-DuplicateTodo $dm.Count $dm.Rank }
         $lc = ''; $lcS = ''
         try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $lcS = $dt.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { }
         $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
-        $im = $null
-        if ($d.managedDeviceId -and $md.ContainsKey([string]$d.managedDeviceId)) { $im = $md[[string]$d.managedDeviceId] }
-        elseif ($md.ContainsKey('SN:' + [string]$d.serialNumber)) { $im = $md['SN:' + [string]$d.serialNumber] }
+        # Intune-Eintrag: Verknuepfung von Microsoft, sonst nur eindeutig ueber die Seriennummer (Resolve-IntuneLink)
+        $il = Resolve-IntuneLink ([string]$d.managedDeviceId) ([string]$d.serialNumber) $md $mdCnt ([bool]($dm)) $mdPartial
+        $im = $il.Im
         $sync = ''; $syncS = ''; $reg = ''; $regS = ''
         if ($im) { try { $sd = [datetime]$im.lastSyncDateTime; if ($sd.Year -gt 2000) { $sync = $sd.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $syncS = $sd.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { } }
         $tReg = $null; $tImp = $null
@@ -3634,10 +4804,11 @@ function Get-StatusData([scriptblock]$Progress = $null) {
         $pt = [datetime]::MinValue
         if ($pr -and [datetime]::TryParseExact([string]$pr.Zeit, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$pt)) { $tImp = $pt }
         if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
-        if ($d.serialNumber) { $script:StatusTimes[[string]$d.serialNumber] = @{ Reg = $tReg; Imp = $tImp } }
+        # je Kennung (bei doppelten Seriennummern hat jeder Eintrag seine eigenen Zeiten)
+        if ($id) { $script:StatusTimes[$id] = @{ Reg = $tReg; Imp = $tImp } }
         [pscustomobject]@{
             Stand          = $stand
-            WasTun         = (Get-DeviceTodo $stand $ps $es)
+            WasTun         = $todo
             Seriennr       = [string]$d.serialNumber
             Tag            = [string]$d.groupTag
             Name           = $(if ($im) { [string]$im.deviceName } else { [string]$d.displayName })
@@ -3654,12 +4825,26 @@ function Get-StatusData([scriptblock]$Progress = $null) {
             Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
             HUPilot        = $(if ($pr) { $(if ($pt -ne [datetime]::MinValue) { $pt.ToString('dd.MM.yyyy HH:mm') } else { [string]$pr.Zeit }) + ' ' + [string]$pr.Ergebnis } else { '' })
             Klasse         = $script:StandClass[$stand]
+            # nicht als Spalte: fuer Aktionen (Tag aendern, Loeschen) und das Details-Fenster
+            Id             = $id
+            IntuneId       = $il.Id
+            IntuneLink     = $il.Link
+            IntuneMissing  = ($il.Link -eq 'ms' -and -not $il.Im -and $mdFull)
+            IntuneAmbig    = $il.Ambig
+            IntuneSnCount  = $il.SnCount
+            EnrollState    = $es
+            Remediation    = $rem
+            DupCount       = $(if ($dm) { $dm.Count } else { 0 })
+            DupRank        = $(if ($dm) { $dm.Rank } else { '' })
+            DupSeen        = $(if ($dm -and $dm.Seen) { $dm.Seen.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } else { '' })
         }
     }
     # noch nicht registrierte Geraete (gerade in Arbeit) OBEN, danach die registrierten, neueste zuerst
     $rows = @(@($rows | Where-Object { -not $_.RegSort }) + @($rows | Where-Object { $_.RegSort } | Sort-Object RegSort -Descending))
+    $ids = @{}; foreach ($d in $all) { $ids[[string]$d.id] = $true }
+    $gone = @($pend.Keys | Where-Object { -not $ids.ContainsKey([string]$_) })
     Out-Log ('Status geladen: ' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus dem Stick-Protokoll') 'OK'
-    return @{ Rows = $rows; Proto = $proto }
+    return @{ Rows = $rows; Proto = $proto; Gone = $gone; IntunePartial = $mdPartial }
 }
 $ui.bStatus.Add_Click({
     try { Show-Status } catch { Out-Log 'Das Status-Fenster konnte nicht geöffnet werden.' 'Fehler' $_.Exception.Message; Set-Step 'Status' 'err' $_.Exception.Message }
@@ -3713,6 +4898,8 @@ $win.Add_ContentRendered({
     Show-SecretExpiry -Token $tok
     Set-Step 'Test' 'ok' 'Secret gültig (Start)'
 })
+# Beim Start: Berichte vom gewaehlten Stick und von der Quelle (Setup vom Stick) nachsenden, sobald das Fenster steht
+$win.Add_ContentRendered({ try { Invoke-OutboxSendAll } catch { } })
 
 # ---------- Gemeinsam: Autopilot-Liste, Tag-Regeln ----------
 function Get-ApAll($h) {
@@ -3851,6 +5038,24 @@ $ui.bTags.Add_Click({
 })
 
 # ---------- 7. Offline-Hashes importieren ----------
+# Importfehler 806 und 808 in Klartext mit dem naechsten Schritt (Texte abgestimmt mit go.ps1). Quelle: Microsoft Learn,
+# "Error 806 or 808 when you import Windows Autopilot device CSV files in Intune": 806 ZtdDeviceAlreadyAssigned
+# (schon im eigenen Tenant registriert), 808 ZtdDeviceAssignedToOtherTenant (anderer Tenant). Bei beiden kann laut
+# Microsoft auch ein alter Datensatz im eigenen Tenant oder in Intune die Ursache sein. Andere Codes: $null.
+function Get-ImportErrorText([string]$Code, [string]$Name) {
+    $Code = ([string]$Code).Trim(); $Name = ([string]$Name).Trim()
+    $roh = (@($Name, $Code) | Where-Object { $_ -and $_ -ne '0' }) -join ' '
+    if (-not $roh) { return $null }
+    if ($Code -eq '808' -or $Name -match 'AssignedToOtherTenant') {
+        return @{ Nr = '808'; Was = ('Das Gerät ist bei Microsoft noch einer anderen Organisation zugeordnet, zum Beispiel dem Vorbesitzer (Fehler ' + $roh + ').')
+            Tun = 'Zuerst unter "6. Status" nach einem alten Eintrag mit dieser Seriennummer suchen, ihn löschen und warten, bis er aus der Liste verschwunden ist (bis zu 30 Minuten). Gibt es keinen: Der Händler oder Vorbesitzer muss das Gerät freigeben, den Admin fragen.' }
+    }
+    if ($Code -eq '806' -or $Name -match 'AlreadyAssigned') {
+        return @{ Nr = '806'; Was = ('Das Gerät steht schon in Autopilot, unter einem alten Eintrag (Fehler ' + $roh + ').')
+            Tun = 'Unter "6. Status" den alten Eintrag mit "Autopilot-Eintrag löschen" entfernen, warten, bis der Eintrag aus der Liste verschwunden ist (bis zu 30 Minuten), dann nochmal importieren. Kein Eintrag zu finden: den Admin fragen.' }
+    }
+    return $null
+}
 function Read-HashCsv([string]$File) {
     $out = @()
     $lines = @(); try { $lines = @([System.IO.File]::ReadAllLines($File)) } catch { }
@@ -3897,11 +5102,13 @@ function Show-HashImport {
   <DockPanel Margin="10">
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Text="Offline gespeicherte Hashes (HUPilot\logs\hashes.csv aus Quelle und Ziel-Stick). Schon vorhandene Geräte bekommen nur den Tag. Erledigte Zeilen wandern nach hashes-erledigt.csv."/>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Ellipse x:Name="eHPulse" Width="10" Height="10" Fill="{DynamicResource HuOk}" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Der Import läuft, Microsoft braucht je Gerät meist 1 bis 5 Minuten."/>
+      <TextBlock x:Name="tHBusy" VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed" Text="Import läuft, bitte warten ..." ToolTip="Der Import läuft, Microsoft braucht je Gerät meist 1 bis 5 Minuten."/>
       <Button x:Name="bAdd" Content="CSV hinzufügen ..." Padding="10,4" ToolTip="Weitere hashes.csv-Dateien laden (z. B. von anderen Sticks)."/>
       <Button x:Name="bImp" Content="Importieren" FontWeight="SemiBold" Padding="10,4" Margin="8,0,0,0" ToolTip="Offene Zeilen nach Autopilot hochladen (dauert bis zu 15 Minuten). Schließen während des Imports bricht nach Rückfrage sauber ab."/>
       <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen. Während eines Imports: Abbrechen mit Rückfrage."/>
     </StackPanel>
-    <ListBox x:Name="tHLog" ToolTip="Protokoll des Imports: OK (grün), Hinweis (gelb), Fehler (rot). Technische Details per Doppelklick, steht auch in der Protokolldatei." DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" SelectionMode="Extended" ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontFamily="Consolas"/>
+    <ListBox x:Name="tHLog" ToolTip="Protokoll des Imports: OK (grün), Hinweis (gelb), Fehler (rot). Technische Details per Doppelklick oder Rechtsklick (Details kopieren), stehen auch in der Protokolldatei." DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" SelectionMode="Extended" ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontFamily="Consolas"/>
     <DataGrid x:Name="dGrid" ToolTip="Gefundene Hashes mit Stand des Imports." AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Seriennr" Binding="{Binding Seriennr}"/>
@@ -3920,7 +5127,7 @@ function Show-HashImport {
     $hw.Owner = $win
     if ($win.Icon) { $hw.Icon = $win.Icon }
     Set-WinFit $hw
-    $g = @{}; foreach ($n in 'bAdd','bImp','bClose','tHLog','dGrid') { $g[$n] = $hw.FindName($n) }
+    $g = @{}; foreach ($n in 'bAdd','bImp','bClose','tHLog','dGrid','eHPulse','tHBusy') { $g[$n] = $hw.FindName($n) }
     $script:HRows = @()
     $hlog = { param($m, $lv = '', $dt = '') Out-SubLog $g.tHLog $hw 'Hashes importieren' $m $lv $dt }
     $g.tHLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $g.tHLog); $e.Handled = $true } })
@@ -3996,7 +5203,11 @@ function Show-HashImport {
                     $st = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities/' + $r.ImpId) -Headers $h
                     $s2 = [string]$st.state.deviceImportStatus
                     if ($s2 -eq 'complete') { $r.Status = 'OK - importiert'; $r.Done = $true }
-                    elseif ($s2 -eq 'error') { $r.Status = 'Fehler: Import abgelehnt (' + [string]$st.state.deviceErrorName + ')'; $r.Detail = [string]$st.state.deviceErrorName + ' (' + [string]$st.state.deviceErrorCode + ')' }
+                    elseif ($s2 -eq 'error') {
+                        $ie = Get-ImportErrorText ([string]$st.state.deviceErrorCode) ([string]$st.state.deviceErrorName)
+                        $r.Status = $(if ($ie) { 'Fehler: ' + $ie.Was + ' ' + $ie.Tun } else { 'Fehler: Import abgelehnt (' + [string]$st.state.deviceErrorName + ')' })
+                        $r.Detail = [string]$st.state.deviceErrorName + ' (' + [string]$st.state.deviceErrorCode + ')'
+                    }
                     if ($s2 -in 'complete', 'error') {
                         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities/' + $r.ImpId) -Headers $h | Out-Null } catch { }
                         & $hrow $r
@@ -4034,10 +5245,13 @@ function Show-HashImport {
         $hst.Busy = $true; $hst.Abort = $false; $hst.CloseAfter = $false
         $g.bImp.IsEnabled = $false; $g.bAdd.IsEnabled = $false; $g.bClose.Content = 'Abbrechen'
         Set-Step 'Hash' 'run'
+        # gruener Pulspunkt, solange der Import laeuft (wie im Status-Fenster) - Fehler egal
+        try { $hp = New-Object System.Windows.Media.Animation.DoubleAnimation(1.0, 0.2, (New-Object System.Windows.Duration([TimeSpan]::FromMilliseconds(600)))); $hp.AutoReverse = $true; $hp.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever; $g.eHPulse.Visibility = 'Visible'; $g.tHBusy.Visibility = 'Visible'; $g.eHPulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $hp) } catch { }
         try { & $doImport }
         catch { & $hlog 'Import unerwartet abgebrochen.' 'Fehler' $_.Exception.Message; Set-Step 'Hash' 'err' $_.Exception.Message }
         finally {
             $hst.Busy = $false
+            try { $g.eHPulse.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null); $g.eHPulse.Visibility = 'Collapsed'; $g.tHBusy.Visibility = 'Collapsed' } catch { }
             $g.bImp.IsEnabled = $true; $g.bAdd.IsEnabled = $true; $g.bClose.Content = 'Schließen'
             if ($hst.CloseAfter) { $hwRef = $hw; [void]$hw.Dispatcher.BeginInvoke([action]({ try { if ($hwRef.IsVisible) { $hwRef.Close() } } catch { } }.GetNewClosure())) }
         }
@@ -4076,8 +5290,8 @@ function Invoke-StickReadyCore {
             $q = [System.Windows.MessageBox]::Show($win, ('Keine Verbindung zu Microsoft (Internet, Proxy?).' + $nl + 'Secret und Tags können deshalb nicht geprüft werden.' + $nl + $nl + 'Stick trotzdem fertig machen?'), 'HUPilot - keine Verbindung', 'YesNo', 'Warning')
             if ($q -ne 'Yes') { Stop-Ready '' 'keine Verbindung zu Microsoft' -Quiet; return }
             $warn += 'Secret und Tags nicht geprüft (keine Verbindung)'
-        } elseif ($script:TokenErr -eq 'expired') { Stop-Ready 'Test' ('Das Secret ist abgelaufen.' + $nl + $nl + 'In Entra bei der App-Registrierung ein neues Geheimnis anlegen, den WERT bei "Secret" eintragen und nochmal "Stick fertig machen" klicken.'); return }
-        elseif ($script:TokenErr -eq 'wrong') { Stop-Ready 'Test' ('Das Secret ist falsch.' + $nl + $nl + 'Häufiger Fehler: die Geheimnis-ID statt des WERTS kopiert. Den Wert bei "Secret" eintragen und nochmal versuchen.'); return }
+        } elseif ($script:TokenErr -eq 'expired') { Stop-Ready 'Test' ('Das Secret ist abgelaufen.' + $nl + $nl + 'Oben auf "Neues Secret anlegen" klicken, den neuen Wert bei "Secret (Wert)" einfügen und nochmal "Stick fertig machen" klicken.'); return }
+        elseif ($script:TokenErr -eq 'wrong') { Stop-Ready 'Test' ('Das Secret ist falsch.' + $nl + $nl + 'Häufiger Fehler: die "Geheimnis-ID" statt des Werts kopiert. Den Wert bei "Secret (Wert)" einfügen und nochmal versuchen.'); return }
         else { Stop-Ready 'Test' ('Anmeldung bei Microsoft fehlgeschlagen:' + $nl + $script:TokenMsg + $nl + $nl + 'Tenant-ID, App-ID und Secret prüfen.'); return }
     } else {
         $apErr = Test-ApAccess $tok
@@ -4117,7 +5331,8 @@ function Invoke-StickReadyCore {
     if (-not (Copy-ToStick $dr $pre.WithMak)) { Stop-Ready 'Copy' ('Kopieren auf ' + $dr + ' fehlgeschlagen:' + $nl + $script:CopyErr + $nl + $nl + 'Stick neu anstecken und nochmal versuchen. Hilft das nicht: anderen Stick nehmen oder "Sticks vorbereiten" (formatiert).'); return }
     Set-Step 'Copy' 'ok' ('Stick ' + $dr)
     Set-Step 'Ready' $(if ($warn.Count) { 'warn' } else { 'ok' }) $(if ($warn.Count) { $warn -join '; ' } else { 'Stick ' + $dr + ' fertig' })
-    Set-ReadyText ('Stick ' + $dr + ' ist fertig und kontrolliert (' + (Get-Date -Format 'HH:mm') + ')' + $(if ($warn.Count) { ', mit Hinweisen im Protokoll' } else { '' })) $(if ($warn.Count) { 'HuWarn' } else { 'HuText' }) $(if ($warn.Count) { 'Hinweise:' + "`n" + ($warn -join "`n") } else { '' })
+    # kurz, damit bei 890 px Text, Uhrzeit und Merker (z. B. MAK am Stick) nebeneinander Platz haben; ganzer Text im Tooltip
+    Set-ReadyText ('Stick ' + $dr + ' fertig und kontrolliert (' + (Get-Date -Format 'HH:mm') + ')' + $(if ($warn.Count) { ', Hinweise im Protokoll' } else { '' })) $(if ($warn.Count) { 'HuWarn' } else { 'HuText' }) $(if ($warn.Count) { 'Hinweise:' + "`n" + ($warn -join "`n") } else { '' })
     Out-Log ('Stick ' + $dr + ' ist fertig und kontrolliert' + $(if ($warn.Count) { ', mit Hinweisen' } else { '' })) $(if ($warn.Count) { 'Hinweis' } else { 'OK' })
     Show-Msg ('Stick ' + $dr + ' ist fertig und kontrolliert.' + $(if ($warn.Count) { $nl + $nl + 'Hinweise:' + $nl + (($warn | ForEach-Object { '- ' + $_ }) -join $nl) } else { '' }) + $nl + $nl + 'Der Stick kann jetzt abgezogen werden.') 'HUPilot - Stick fertig' $(if ($warn.Count) { 'Warning' } else { 'Information' })
     # waehrend der Meldung kann der Stick schon getauscht sein: sofort neu lesen, der Fertig-Text bleibt nur beim selben Stick
@@ -4128,7 +5343,9 @@ function Invoke-StickReady {
     Set-UiBusy $true
     try { Invoke-StickReadyCore }
     catch { Stop-Ready '' ('Unerwarteter Fehler: ' + $_.Exception.Message) }
-    finally { Set-UiBusy $false }
+    finally { Set-UiBusy $false; Update-StickFlags -Force }
+    # Berichte vom Stick und von der Quelle nachsenden (nach dem Durchgang, nie waehrenddessen, hoechstens 3 je Stick)
+    try { Invoke-OutboxSendAll -Retry } catch { }
 }
 $ui.bReady.Add_Click({ Invoke-StickReady })
 
