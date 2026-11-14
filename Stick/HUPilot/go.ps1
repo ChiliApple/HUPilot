@@ -20,7 +20,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.8.0'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.8.1'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -1741,7 +1741,7 @@ function Get-TagProfiles {
 }
 $tp = Get-TagProfiles $cfg.GroupTag
 if ($null -eq $tp) { Log 'Tag-Prüfung nicht möglich (optional: Group.Read.All für die App)'; Say 'Hinweis: Profil kann nicht geprüft werden (Recht Group.Read.All fehlt) - im Intune kontrollieren' 'Yellow' }
-elseif ($tp.Count) { Say ('Profil für Tag: ' + ($tp -join ', ')) 'Green' }
+elseif ($tp.Count) { Say ('Profil für Group Tag: ' + ($tp -join ', ')) 'Green' }
 else {
     Log ('Tag-Prüfung: KEIN Profil für ' + $cfg.GroupTag)
     Write-Host ''
@@ -1749,7 +1749,7 @@ else {
     Write-Host '  Das Gerät würde nach dem Upload vergeblich auf ein Profil warten.' -ForegroundColor Yellow
     Write-Host '  [A] Abbrechen   -   [Enter] trotzdem hochladen' -ForegroundColor Yellow
     $k = Read-KeyTimeout 20 'ohne Eingabe: trotzdem hochladen' -Valid 'A'
-    if ($k -eq 'A') { Log 'Abbruch: kein Profil für Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; Stop-ByUser ('Für den Tag ' + $cfg.GroupTag + ' gibt es kein Autopilot-Profil, mit A abgebrochen.') }
+    if ($k -eq 'A') { Log 'Abbruch: kein Profil für Group Tag'; Protokoll 'ABBRUCH: kein Profil für Group Tag'; Stop-ByUser ('Für den Group Tag ' + $cfg.GroupTag + ' gibt es kein Autopilot-Profil, mit A abgebrochen.') }
 }
 
 # ---------- Benutzer pruefen (optional User.Read.All) ----------
@@ -1875,14 +1875,14 @@ if ($ap) {
             # erwartetes Profil fuer den behaltenen Tag neu bestimmen (Tag-Pruefung lief mit dem gewaehlten Tag)
             $tp = Get-TagProfiles $cfg.GroupTag
             if ($null -eq $tp) { Log 'Tag-Prüfung nicht möglich (optional: Group.Read.All für die App)' }
-            elseif ($tp.Count) { Say ('Profil für Tag: ' + ($tp -join ', ')) 'Green' }
+            elseif ($tp.Count) { Say ('Profil für Group Tag: ' + ($tp -join ', ')) 'Green' }
             else {
                 Log ('Tag-Prüfung: KEIN Profil für behaltenen Tag ' + $cfg.GroupTag)
                 Write-Host ('  ACHTUNG: Für den vorhandenen Tag "' + $cfg.GroupTag + '" ist KEIN Autopilot-Profil zugewiesen.') -ForegroundColor Yellow
                 Write-Host '  Das Gerät würde vergeblich auf ein Profil warten (Tippfehler in der CSV?).' -ForegroundColor Yellow
                 Write-Host '  [A] Abbrechen   -   [Enter] trotzdem weiter' -ForegroundColor Yellow
                 $k2 = Read-KeyTimeout 20 'ohne Eingabe: trotzdem weiter' -Valid 'A'
-                if ($k2 -eq 'A') { Log 'Abbruch: kein Profil für behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil für Tag'; Stop-ByUser ('Für den vorhandenen Tag ' + $cfg.GroupTag + ' gibt es kein Autopilot-Profil, mit A abgebrochen.') }
+                if ($k2 -eq 'A') { Log 'Abbruch: kein Profil für behaltenen Tag'; Protokoll 'ABBRUCH: kein Profil für Group Tag'; Stop-ByUser ('Für den vorhandenen Tag ' + $cfg.GroupTag + ' gibt es kein Autopilot-Profil, mit A abgebrochen.') }
             }
         }
         Write-Host ''
@@ -2066,8 +2066,8 @@ function Wait-ApProfile {
         if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') {
             if (-not $pi) { $why = 'Profil nicht lesbar' }
             elseif ([string]$ap.deploymentProfileAssignmentDetailedStatus -notin '', 'none') { $why = ConvertTo-DetailText ([string]$ap.deploymentProfileAssignmentDetailedStatus) }
-            elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { $why = 'für den Tag ist kein Profil zugewiesen'; $wrong = $true }
-            elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { $why = 'anderes Profil als für den Tag erwartet'; $wrong = $true }
+            elseif ($null -ne $TagProfIds -and -not $TagProfIds.Count) { $why = 'für den Group Tag ist kein Profil zugewiesen'; $wrong = $true }
+            elseif ($null -ne $TagProfIds -and ($TagProfIds -notcontains $pi)) { $why = 'anderes Profil als für den Group Tag erwartet'; $wrong = $true }
             elseif ($TagChanged -and $null -eq $TagProfIds) { $why = 'Tag geändert, erwartetes Profil unbekannt' }
             elseif (-not $pd) {
                 $noDate = $true

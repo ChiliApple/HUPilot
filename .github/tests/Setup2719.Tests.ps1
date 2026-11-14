@@ -1052,7 +1052,7 @@ Describe 'v2.7.19 Korrekturrunde 2' {
         Get-DeviceStand 'assignedInSync' 'enrolled' $true 'automaticRemediationRequired' | Should -Be 'Fertig'
         Get-DeviceStand 'assignedInSync' 'notContacted' $true 'automaticRemediationRequired' | Should -Be 'Hardware wird abgeglichen'
         Get-DeviceStand 'assignedInSync' 'failed' $true 'automaticRemediationRequired' | Should -Be 'Fehler'
-        Get-DeviceStand 'notAssigned' 'notContacted' $false 'automaticRemediationRequired' | Should -Be 'Kein Profil für diesen Tag'
+        Get-DeviceStand 'notAssigned' 'notContacted' $false 'automaticRemediationRequired' | Should -Be 'Kein Profil für diesen Group Tag'
         $script:StandClass['Hardware geändert'] | Should -Be 'err'
         $script:StandClass['Hardware wird abgeglichen'] | Should -Be 'warn'
         $script:StandTile['Hardware wird abgeglichen'] | Should -Be 'hwa'
@@ -1243,7 +1243,7 @@ Describe 'v2.7.19 Korrekturrunde 4' {
             . ([scriptblock]::Create($fnText)); . ([scriptblock]::Create($colsSrc))
             $t0 = Get-Date '2026-11-14 10:00'
             $todos = @()
-            foreach ($s in 'Fertig', 'Wartet auf Profil', 'Profil da, Gerät noch nicht angemeldet', 'Kein Profil für diesen Tag', 'Fehler', 'Hardware geändert', 'Hardware wird abgeglichen') { $todos += [pscustomobject]@{ Stand = $s; WasTun = (Get-DeviceTodo $s '' '') } }
+            foreach ($s in 'Fertig', 'Wartet auf Profil', 'Profil da, Gerät noch nicht angemeldet', 'Kein Profil für diesen Group Tag', 'Fehler', 'Hardware geändert', 'Hardware wird abgeglichen') { $todos += [pscustomobject]@{ Stand = $s; WasTun = (Get-DeviceTodo $s '' '') } }
             $todos += [pscustomobject]@{ Stand = 'Wartet auf Profil'; WasTun = (Get-DeviceTodo 'Wartet auf Profil' 'assignedOutOfSync' '') }
             $todos += [pscustomobject]@{ Stand = 'Fehler'; WasTun = (Get-DeviceTodo 'Fehler' '' 'blocked') }
             foreach ($rk in 'älter', 'neuer', 'unklar') { $todos += [pscustomobject]@{ Stand = 'Doppelt'; WasTun = (Get-DuplicateTodo 2 $rk) } }
