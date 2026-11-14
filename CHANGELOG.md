@@ -13,7 +13,7 @@
 - **Stand "Hardware geändert":** Microsoft meldet einen Hardwaretausch, den es nicht selbst lösen kann. "Was tun": Eintrag löschen, dann mit dem Stick neu registrieren.
 - **Stand "Hardware wird abgeglichen":** Microsoft versucht die Korrektur selbst, abwarten. Ein fertiges Gerät bleibt "Fertig", der Hinweis steht in den Details.
 - **Stand "Doppelt":** mehrere Einträge mit derselben Seriennummer. "Was tun" sagt, welcher der ältere ist. Lässt sich das nicht sicher sagen, steht dort "Alter unklar".
-- **Neue Kacheln:** "Hardware geändert", "Doppelt" und "Wird gelöscht" erscheinen nur, wenn es solche Geräte gibt. Filter, Druck, Excel und Details kennen die neuen Stände.
+- **Neue Kacheln:** "Hardware geändert", "Hardware wird abgeglichen", "Doppelt" und "Wird gelöscht" erscheinen nur, wenn es solche Geräte gibt. Filter, Druck, Excel und Details kennen die neuen Stände.
 - **Behoben: Auswahl bei doppelten Seriennummern:** Nach dem Aktualisieren war auch der zweite Eintrag derselben Seriennummer markiert. "Tag ändern" hätte so beide geändert. Die Auswahl bleibt jetzt genau bei den angeklickten Zeilen.
 
 ### 🔐 Secret und MAK
@@ -48,7 +48,7 @@
 - **Adresse im Entra-Portal:** Microsoft kann sie ohne Ankündigung ändern. Dann die App-Registrierung von Hand öffnen.
 
 ### ✅ Qualität
-- 258 automatische Tests.
+- 264 automatische Tests.
 
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen
