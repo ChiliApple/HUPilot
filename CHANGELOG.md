@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 ## v2.7.19 - 2026-11-14
 ### 📊 Status
