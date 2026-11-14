@@ -225,7 +225,7 @@ Describe 'Setup: Anmeldung und Secret-Ablauf' {
         Get-TokenErrorKind 'Der Remotename konnte nicht aufgelöst werden: login.microsoftonline.com' $false | Should -Be 'net'
         Get-TokenErrorKind 'The operation has timed out.' $false | Should -Be 'net'
         Get-TokenErrorKind 'Der Vorgang hat das Zeitlimit überschritten' $true | Should -Be 'net'
-        Get-TokenErrorKind 'Bad Gateway' $true | Should -Be 'other'
+        Get-TokenErrorKind 'Bad Gateway' $true | Should -Be 'proxy'
     }
     It 'Startpruefung: kein Netz wird neutral gemeldet, nicht als ungueltiges Secret' {
         $script:SetupText | Should -Match "TokenErr -eq 'net'\) \{ Set-SubSecret 'Keine Verbindung - Secret nicht geprüft' \`$false"

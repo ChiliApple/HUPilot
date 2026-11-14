@@ -77,7 +77,7 @@ Describe 'v2.7.19 Paket 1: Tooltips lesbar' {
         $t | Should -Match '\*\*\*'
     }
     It 'Protokollzeilen nutzen die gegliederte Meldung fuer Tooltip und Doppelklick' {
-        $script:SetupText | Should -Match '\$fmt = Format-TechDetail \$Detail'
+        $script:SetupText | Should -Match '\$fmt = Hide-LogSecrets \(Format-TechDetail \$Detail\) \(Get-LogSecretValues\)'
         $script:SetupText | Should -Match '\$it\.ToolTip = \$fmt'
     }
     It 'Tooltip hat im Theme eine feste Hoechstbreite und bricht um, hell und dunkel lesbar' {
@@ -118,6 +118,13 @@ Describe 'v2.7.19 Punkt 8: Verweise in Tooltips zeigen auf vorhandene Stellen' {
         foreach ($m in [regex]::Matches($script:SetupText, "\.ToolTip = '((?:[^']|'')*)'")) { $script:Tips.Add([pscustomobject]@{ Where = 'Code'; Text = $m.Groups[1].Value.Replace("''", "'") }) }
         $icd = [regex]::Match($script:SetupText, '(?s)\$tip = (.*?)\r?\n\s*\$ui\.cIcdStick\.ToolTip = \$tip').Groups[1].Value
         $script:Tips.Add([pscustomobject]@{ Where = 'Haekchen Paketbau'; Text = ((@([regex]::Matches($icd, "'((?:[^']|'')*)'") | ForEach-Object { $_.Groups[1].Value })) -join ' ') })
+        # zusammengesetzte Tooltips: Merker am Stick (Get-StickFlags) und Abfragetexte der Tooltips im Code
+        foreach ($fn in 'Get-StickFlags') { $src = $script:FnByName[$fn]; foreach ($m in [regex]::Matches($src, "(?s)Tip = (\(.*?\)|'(?:[^']|'')*')")) { $script:Tips.Add([pscustomobject]@{ Where = $fn; Text = ((@([regex]::Matches($m.Groups[1].Value, "'((?:[^']|'')*)'") | ForEach-Object { $_.Groups[1].Value })) -join ' ') }) } }
+        # Knopfnamen (Knoepfe, Menues) ohne Nummer und ohne ' ...', mindestens zwei Woerter
+        $cores = New-Object System.Collections.Generic.HashSet[string]
+        foreach ($b in $script:XamlBlocks) { foreach ($m in [regex]::Matches($b.Xaml, '<Button [^>]*Content="([^"{]+)"')) { [void]$cores.Add((& $dec $m.Groups[1].Value)) }; foreach ($m in [regex]::Matches($b.Xaml, '(?s)<Button [^>]*>(?:(?!</Button>).)*?<TextBlock [^>]*?Text="([^"{]+)"')) { [void]$cores.Add((& $dec $m.Groups[1].Value)) } }
+        foreach ($m in [regex]::Matches($script:SetupText, "& \`$add[UI] '([^']+)'")) { [void]$cores.Add($m.Groups[1].Value) }
+        $script:Cores = @($cores | ForEach-Object { (($_ -replace '^[1-7]\. ', '') -replace '\s*\.\.\.$', '').Trim() } | Where-Object { @($_ -split ' ').Count -ge 2 } | Sort-Object -Unique)
         # Alle Beschriftungen: Knoepfe, Felder, Haekchen, Ueberschriften, Kacheln, Menues, Spalten, Staende
         $lab = New-Object System.Collections.Generic.HashSet[string]
         foreach ($b in $script:XamlBlocks) { foreach ($m in [regex]::Matches($b.Xaml, '(?:Content|Text|Header|Title)="([^"{]+)"')) { [void]$lab.Add((& $dec $m.Groups[1].Value).Trim()) } }
@@ -127,7 +134,7 @@ Describe 'v2.7.19 Punkt 8: Verweise in Tooltips zeigen auf vorhandene Stellen' {
         foreach ($m in [regex]::Matches([regex]::Match($script:SetupText, '(?m)^\$script:StandClass = (@\{.*\})\r?$').Groups[1].Value, "'([^']+)' = ")) { [void]$lab.Add($m.Groups[1].Value) }
         $script:Labels = $lab
         # Namen ausserhalb des Setups, die ein Tooltip in Anfuehrung nennen darf (Microsoft-Oberflaechen, Werkzeuge)
-        $script:External = @('Imaging and Configuration Designer', 'Zertifikate und Geheimnisse', 'Neuer geheimer Clientschlüssel', 'Hinzufügen')
+        $script:External = @('Imaging and Configuration Designer', 'Zertifikate & Geheimnisse', 'Neuer geheimer Clientschlüssel', 'Hinzufügen', 'Wert', 'Geheimnis-ID', 'Benutzerdefiniert')
     }
     It 'es werden Tooltips aus allen Fenstern und aus dem Code gefunden' {
         $script:Tips.Count | Should -BeGreaterThan 100
@@ -162,6 +169,25 @@ Describe 'v2.7.19 Punkt 8: Verweise in Tooltips zeigen auf vorhandene Stellen' {
             $t.Text | Should -Not -Match 'geprüft mit ICD \d' -Because $t.Where
         }
     }
+    It 'Knopfnamen ohne Anfuehrung: wo die ersten zwei Woerter eines Knopfs stehen, steht der Name vollstaendig' {
+        $script:Cores.Count | Should -BeGreaterThan 15
+        $script:Cores | Should -Contain 'Stick fertig machen'
+        $bad = @()
+        foreach ($tip in $script:Tips) {
+            foreach ($c in $script:Cores) {
+                $w = (($c -split ' ')[0..1]) -join ' '
+                $i = $tip.Text.IndexOf($w, [StringComparison]::Ordinal)
+                while ($i -ge 0) {
+                    if (-not $tip.Text.Substring($i).StartsWith($c, [StringComparison]::Ordinal)) { $bad += ($tip.Where + ': ' + $tip.Text.Substring($i, [math]::Min(40, $tip.Text.Length - $i)) + ' (Knopf: ' + $c + ')') }
+                    $i = $tip.Text.IndexOf($w, $i + 1, [StringComparison]::Ordinal)
+                }
+            }
+        }
+        $bad | Should -BeNullOrEmpty
+    }
+    It 'zusammengesetzte Tooltips der Merker sind mitgeprueft' {
+        @($script:Tips | Where-Object { $_.Where -eq 'Get-StickFlags' }).Count | Should -BeGreaterOrEqual 2
+    }
     It 'Knopf "4. WLAN-Paket bauen" nennt die benutzte ICD.exe selbst' {
         $script:SetupText | Should -Match "\`$ui\.bPkg\.ToolTip = \`$script:PkgTipBase \+ ""``n"" \+ 'Benutzt wird: ' \+ \(Get-IcdText \`$script:Icd\)"
         $script:SetupText | Should -Not -Match 'steht im Tooltip der Ampel'
@@ -192,8 +218,8 @@ Describe 'v2.7.19 Punkt 9: Merker MAK am Stick' {
         $f[0].Tip | Should -Match 'Nein wählen'
         ($f | ConvertTo-Json -Compress) | Should -Not -Match 'ABCDE|FGHIJ|PQRST'
     }
-    It 'MAK leer, Feld fehlt, Datei fehlt, Datei kaputt, kein Stick: kein Merker, kein Fehler' {
-        foreach ($c in @(@('leer', '{"EditionKey":""}'), @('blank', '{"EditionKey":"   "}'), @('ohne', '{"Tenant":"Test"}'), @('fehlt', $null), @('kaputt', '{ "EditionKey": "ABC'), @('liste', '[1,2]'))) {
+    It 'MAK leer, Feld fehlt, Datei fehlt, kein Stick: kein Merker, kein Fehler' {
+        foreach ($c in @(@('leer', '{"EditionKey":""}'), @('blank', '{"EditionKey":"   "}'), @('ohne', '{"Tenant":"Test"}'), @('fehlt', $null))) {
             $i = Get-StickMakInfo (New-Stick $c[0] $c[1])
             @(Get-StickFlags $i).Count | Should -Be 0 -Because $c[0]
         }
@@ -292,7 +318,7 @@ Describe 'v2.7.19 Zusatz: Importfehler 806 und 808 in Klartext' {
     It '806: alter Eintrag im eigenen Tenant, naechster Schritt im Status' {
         $e = Get-ImportErrorText '806' 'ZtdDeviceAlreadyAssigned'
         $e.Nr | Should -Be '806'
-        $e.Was | Should -Match 'schon in Autopilot, unter einem alten Eintrag \(Fehler 806 ZtdDeviceAlreadyAssigned\)'
+        $e.Was | Should -Match 'schon in Autopilot, unter einem alten Eintrag \(Fehler ZtdDeviceAlreadyAssigned 806\)'
         $e.Tun | Should -Match 'Autopilot-Eintrag löschen.*nochmal importieren'
         (Get-ImportErrorText '' 'ZtdDeviceAlreadyAssigned').Nr | Should -Be '806'
     }
@@ -383,7 +409,7 @@ Describe 'v2.7.19 Paket 2: Secret abgelaufen, gefuehrt erneuern' {
     It 'nach dem Einfuegen: gueltig bis ..., ohne Leserecht Ablauf unbekannt' {
         $script:Secret = 'Neu~0123456789abcdefghijklmnopqrstuv'
         function Get-ApiToken { $script:TokenErr = ''; return 'tok' }
-        function Show-SecretExpiry([string]$Token) { $script:SecretEnd = [datetime]::UtcNow.AddDays(14); $script:SecretEndFor = Get-StrHash $script:Secret }
+        function Show-SecretExpiry([string]$Token, [int]$TimeoutSec = 30) { $script:SecretEnd = [datetime]::UtcNow.AddDays(14); $script:SecretEndFor = Get-StrHash $script:Secret }
         Invoke-SecretAutoCheck
         $script:SecMode | Should -Be 'ok'
         $script:SecEndText | Should -Match '^\d\d\.\d\d\.\d{4} \d\d:\d\d$'
@@ -391,7 +417,7 @@ Describe 'v2.7.19 Paket 2: Secret abgelaufen, gefuehrt erneuern' {
         # gleicher Wert: keine zweite Pruefung
         $script:Logs.Clear(); Invoke-SecretAutoCheck; $script:Logs.Count | Should -Be 0
         $script:Secret = 'Neu2~0123456789abcdefghijklmnopqrstu'
-        function Show-SecretExpiry([string]$Token) { }
+        function Show-SecretExpiry([string]$Token, [int]$TimeoutSec = 30) { }
         Invoke-SecretAutoCheck
         $script:SecMode | Should -Be 'okNoEnd'
         $script:Sub | Should -Be 'Secret gültig, Ablauf unbekannt'
@@ -438,7 +464,7 @@ Describe 'v2.7.19 Paket 2: Secret abgelaufen, gefuehrt erneuern' {
     It 'Verdrahtung: abgelaufen beim Anmelden, gespeichert erinnert an die Sticks, Merker ungespeichert bleibt' {
         $script:SetupText | Should -Match "if \(\`$kind -eq 'expired'\) \{ Set-SecretMode 'expired' \}"
         $script:SetupText | Should -Match "if \(\`$script:SecMode -in 'ok', 'okNoEnd'\) \{ Set-SecretMode 'saved'"
-        $script:SetupText | Should -Match '\$ui\.pSecret\.Add_PasswordChanged\(\$reqSecCheck\)'
+        $script:SetupText | Should -Match '\[System\.Windows\.DataObject\]::AddPastingHandler\(\$sf, \[System\.Windows\.DataObjectPastingEventHandler\]\$reqSecCheck\)'
         $script:SetupText | Should -Match "foreach \(\`$n in 'pSecret','pEdKey','pKey','pAdmPw','pAdm2Pw'\) \{ \`$ui\[\`$n\]\.Add_PasswordChanged\(\{ Update-Dirty \}\) \}"
         $x = [xml]@($script:XamlBlocks | Where-Object { $_.Name -eq 'xaml' })[0].Xaml
         $ns = New-Object System.Xml.XmlNamespaceManager($x.NameTable); $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
@@ -456,7 +482,7 @@ Describe 'v2.7.19 Pakete 3 und 4: Hardware geaendert und doppelte Seriennummern'
         $script:StandTile = Invoke-Expression $til
     }
     It 'Hardware geaendert bei automatic- und manualRemediationRequired, vor Fertig' {
-        Get-DeviceStand 'assignedInSync' 'enrolled' $true 'automaticRemediationRequired' | Should -Be 'Hardware geändert'
+        Get-DeviceStand 'assignedInSync' 'enrolled' $true 'manualRemediationRequired' | Should -Be 'Hardware geändert'
         Get-DeviceStand 'assignedInSync' 'notContacted' $true 'manualRemediationRequired' | Should -Be 'Hardware geändert'
         Get-DeviceStand 'assignedInSync' 'enrolled' $true 'noRemediationRequired' | Should -Be 'Fertig'
         Get-DeviceStand 'assignedInSync' 'enrolled' $true 'unknown' | Should -Be 'Fertig'
@@ -464,8 +490,8 @@ Describe 'v2.7.19 Pakete 3 und 4: Hardware geaendert und doppelte Seriennummern'
     }
     It 'Was tun bei Hardware geaendert: ein Satz, bereinigen und neu registrieren' {
         $t = Get-DeviceTodo 'Hardware geändert' '' ''
-        $t | Should -Match 'bereinigen'
-        $t | Should -Match 'mit dem Stick neu registrieren\.$'
+        $t | Should -Match 'Autopilot-Eintrag löschen'
+        $t | Should -Match 'neu registrieren\.$'
         @([regex]::Matches($t, '\.(\s|$)')).Count | Should -Be 1
     }
     It 'neue Staende haben Farbe und Kachel, rot fuer Hardware und Doppelt (Filter nur Probleme)' {
@@ -925,5 +951,162 @@ Describe 'v2.7.19 Paket 5: Autopilot-Eintrag loeschen mit doppelter Abfrage (mit
         } @(@($script:XamlBlocks | Where-Object { $_.Name -eq 'xaml' })[0].Xaml, $script:ThemeXaml, $script:DarkXaml, $script:LightXaml, ((@('Add-HuTheme', 'Get-HuColorsXaml') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
         $res.Count | Should -Be 2
         foreach ($r in $res) { $v = @($r.Split('|') | ForEach-Object { [int]$_ }); $v[0] | Should -BeLessOrEqual $v[1] -Because ('Text ' + $v[0] + ' px, Platz ' + $v[1] + ' px') }
+    }
+}
+
+Describe 'v2.7.19 Korrekturrunde 2' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Get-DuplicateMarks', 'Get-DeviceStand', 'Get-DeviceTodo', 'Get-SecretBanner', 'Update-SecretBanner', 'Set-SecretMode', 'Set-SecretLoginOk', 'Get-SecretExpiresValue', 'Get-TokenErrorKind', 'Get-DetailCopyText', 'Format-TechDetail', 'Hide-LogSecrets', 'Get-StickMakInfo', 'Get-StickFlags', 'Get-ImportErrorText') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        $cls = [regex]::Match($script:SetupText, '(?m)^\$script:StandClass = (@\{.*\})\r?$').Groups[1].Value
+        $til = [regex]::Match($script:SetupText, '(?m)^\$script:StandTile = (@\{.*\})\r?$').Groups[1].Value
+        $script:StandClass = Invoke-Expression $cls; $script:StandTile = Invoke-Expression $til
+        $script:ui = @{}
+        function New-Stick([string]$Name, $Content) {
+            $d = Join-Path $TestDrive $Name
+            New-Item -ItemType Directory -Path (Join-Path $d 'HUPilot') -Force | Out-Null
+            if ($null -ne $Content) { [System.IO.File]::WriteAllText((Join-Path $d 'HUPilot\config.json'), $Content, (New-Object System.Text.UTF8Encoding($false))) }
+            return $d
+        }
+    }
+    It '1: doppelt, ein Eintrag ohne Spur (frisch hochgeladen): fuer alle Alter unklar, nie "aelter: loeschen"' {
+        $recs = @(
+            [pscustomobject]@{ id = 'alt'; serialNumber = 'SN700'; lastContactedDateTime = '2025-05-01T08:00:00Z' },
+            [pscustomobject]@{ id = 'neu'; serialNumber = 'SN700' }
+        )
+        $m = Get-DuplicateMarks $recs
+        $m['alt'].Rank | Should -Be 'unklar'
+        $m['neu'].Rank | Should -Be 'unklar'
+        # beide mit Spur, klar verschieden: weiter eindeutig
+        $recs[1] | Add-Member -NotePropertyName deploymentProfileAssignedDateTime -NotePropertyValue '2026-11-14T08:00:00Z'
+        $m2 = Get-DuplicateMarks $recs
+        $m2['neu'].Rank | Should -Be 'neuer'; $m2['alt'].Rank | Should -Be 'älter'
+    }
+    It '2: nach erfolgreicher Anmeldung wird ein Problem-Hinweis zu "gueltig", egal welcher Knopf' {
+        $script:Secret = 'Neu~0123456789abcdefghijklmnopqrstuv'
+        foreach ($mode in 'net', 'fail', 'expired', 'wrong', 'awaiting') {
+            $script:SecMode = $mode; $script:SecretEnd = $null; $script:SecretEndFor = ''; $script:SecretExpLoaded = ''; $script:SecretExpLoadedFor = ''
+            Set-SecretLoginOk $script:Secret
+            $script:SecMode | Should -Be 'okNoEnd' -Because $mode
+        }
+        # Ablauf bekannt: gueltig bis
+        $script:SecMode = 'net'; $script:SecretEnd = [datetime]::UtcNow.AddDays(10); $script:SecretEndFor = Get-StrHash $script:Secret
+        Set-SecretLoginOk $script:Secret
+        $script:SecMode | Should -Be 'ok'
+        $script:SecEndText | Should -Match '^\d\d\.\d\d\.\d{4} \d\d:\d\d$'
+        # kein Hinweis bleibt kein Hinweis, gespeichert bleibt gespeichert (Erinnerung an die Sticks)
+        foreach ($mode in '', 'saved', 'ok') { $script:SecMode = $mode; Set-SecretLoginOk $script:Secret; $script:SecMode | Should -Be $mode }
+        $script:SetupText | Should -Match '# zentral fuer alle Knoepfe: Anmeldung mit dem eingetragenen Secret klappt, Hinweis zum Secret richtigstellen\r?\n\s+Set-SecretLoginOk \(\[string\]\$c\.ClientSecret\)'
+        # danach Ablaufdatum aus der App: aus "gueltig, Ablauf unbekannt" wird "gueltig bis"
+        $script:SetupText | Should -Match "elseif \(\`$script:SecMode -in 'ok', 'okNoEnd'\) \{ Set-SecretMode 'ok' \`$minEnd\.ToString\('dd\.MM\.yyyy HH:mm'\) \}"
+        # Uebergang zu "gespeichert" kommt dann wie gehabt beim Speichern
+        $script:SetupText | Should -Match "if \(\`$script:SecMode -in 'ok', 'okNoEnd'\) \{ Set-SecretMode 'saved'"
+    }
+    It '3: Hardware: manuell rot vor Fertig, automatisch gelb hinter Fertig, Fehler und Kein Profil' {
+        Get-DeviceStand 'assignedInSync' 'enrolled' $true 'manualRemediationRequired' | Should -Be 'Hardware geändert'
+        Get-DeviceStand 'assignedInSync' 'enrolled' $true 'automaticRemediationRequired' | Should -Be 'Fertig'
+        Get-DeviceStand 'assignedInSync' 'notContacted' $true 'automaticRemediationRequired' | Should -Be 'Hardware wird abgeglichen'
+        Get-DeviceStand 'assignedInSync' 'failed' $true 'automaticRemediationRequired' | Should -Be 'Fehler'
+        Get-DeviceStand 'notAssigned' 'notContacted' $false 'automaticRemediationRequired' | Should -Be 'Kein Profil für diesen Tag'
+        $script:StandClass['Hardware geändert'] | Should -Be 'err'
+        $script:StandClass['Hardware wird abgeglichen'] | Should -Be 'warn'
+        $script:StandTile['Hardware wird abgeglichen'] | Should -Be 'hw'
+        Get-DeviceTodo 'Hardware geändert' '' '' | Should -Match '^Mit "Autopilot-Eintrag löschen" entfernen'
+        Get-DeviceTodo 'Hardware wird abgeglichen' '' '' | Should -Match '^Microsoft gleicht selbst ab, warten\. Bleibt es: löschen, neu registrieren\.$'
+        $script:SetupText | Should -Match "'automaticRemediationRequired' \{ 'geändert, Microsoft versucht die Korrektur selbst' \+ \`$\(if \(\[string\]\`$Row\.Stand -eq 'Fertig'\)"
+        $script:SetupText | Should -Match 'ANNAHME \(so nicht auf Learn\): automaticRemediationRequired = Fix pending'
+        $sx = @($script:XamlBlocks | Where-Object { $_.Name -eq 'sx' })[0].Xaml
+        $sx | Should -Match 'Hardware wird abgeglichen \(gelb\): Microsoft versucht die Korrektur selbst'
+    }
+    It '3: neue Was-tun-Texte passen in die Spalte (STA)' {
+        $res = Invoke-Sta {
+            param($fnText)
+            Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            . ([scriptblock]::Create($fnText))
+            $tf = New-Object System.Windows.Media.Typeface((New-Object System.Windows.Media.FontFamily('Segoe UI')), [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
+            foreach ($s in @((Get-DeviceTodo 'Hardware geändert' '' ''), (Get-DeviceTodo 'Hardware wird abgeglichen' '' ''))) {
+                $ft = New-Object System.Windows.Media.FormattedText($s, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $tf, 12.0, [System.Windows.Media.Brushes]::Black)
+                '' + [math]::Ceiling($ft.WidthIncludingTrailingWhitespace) + '|' + $s
+            }
+        } @($script:FnByName['Get-DeviceTodo'])
+        @($res).Count | Should -Be 2
+        foreach ($r in @($res)) { [int]($r.Split('|')[0]) | Should -BeLessThan 390 -Because $r }
+    }
+    It '4: Pruefung nach dem Einfuegen mit kurzen Zeitlimits, Zustand vorher gezeichnet' {
+        $script:SetupText | Should -Match '\$script:TokenTimeoutSec = 10\r?\n\s+try \{ \$tok = Get-ApiToken \} finally \{ \$script:TokenTimeoutSec = 0 \}'
+        $script:SetupText | Should -Match 'Show-SecretExpiry -Token \$tok -TimeoutSec 10'
+        $script:SetupText | Should -Match "Set-SecretMode 'checking'; Set-Step 'Test' 'run'; try \{ \`$win\.UpdateLayout\(\) \} catch \{ \}; Step-Ui"
+        $script:FnByName['Get-ApiToken'] | Should -Match '-TimeoutSec \$\(if \(\$script:TokenTimeoutSec -gt 0\) \{ \$script:TokenTimeoutSec \} else \{ 30 \}\)'
+        $script:FnByName['Show-SecretExpiry'] | Should -Match '-TimeoutSec \$TimeoutSec'
+    }
+    It '5: automatisch nur nach Einfuegen, Ziehen oder Fokusverlust, nie nach Tipp-Pausen' {
+        $script:SetupText | Should -Not -Match 'Add_PasswordChanged\(\$reqSecCheck\)'
+        $script:SetupText | Should -Not -Match 'Add_TextChanged\(\$reqSecCheck\)'
+        $script:SetupText | Should -Match '\$sf\.Add_PreviewDrop\(\$reqSecCheck\)'
+        $script:SetupText | Should -Match '\$sf\.Add_LostKeyboardFocus\(\$reqSecCheck\)'
+        # jede Anmeldung (auch fehlgeschlagen) gilt als Pruefung dieses Werts, kein zweiter Versuch beim Fokusverlust
+        $script:FnByName['Get-ApiToken'] | Should -Match 'SecCheckedFor = Get-StrHash \(\[string\]\$c\.ClientSecret\)'
+    }
+    It '6: Antwort ohne AADSTS-Code ist ein Netzfall, nie "Microsoft lehnt ab"' {
+        Get-TokenErrorKind '<html><body>Bitte im Gastnetz anmelden</body></html>' $true | Should -Be 'proxy'
+        Get-TokenErrorKind 'AADSTS90002: Tenant not found' $true | Should -Be 'config'
+        $script:FnByName['Get-ApiToken'] | Should -Match "\`$script:TokenErr = \`$\(if \(\`$kind -eq 'proxy'\) \{ 'net' \} else \{ \`$kind \}\)"
+        $script:FnByName['Get-ApiToken'] | Should -Match "'Die Antwort kam nicht von Microsoft \(Gastnetz oder Proxy\?\)\. Internet prüfen\. Das Secret wurde nicht geprüft\.'"
+    }
+    It '7: nach dem Gliedern nochmal ausgeblendet (Geheimnis erst nach dem Aufloesen der Escapes sichtbar)' {
+        $det = '{"error":"invalid_client","error_description":"AADSTS7000215: Invalid client secret provided: Geheim\u007e0123456789abc"}'
+        $t = Get-DetailCopyText 'Zeile' $det @('Geheim~0123456789abc')
+        $t | Should -Not -Match 'Geheim~'
+        $t | Should -Match 'provided: \*\*\*'
+        $script:SetupText | Should -Match '\$fmt = Hide-LogSecrets \(Format-TechDetail \$Detail\) \(Get-LogSecretValues\)'
+    }
+    It '8: Zeiten fuer die Filter je Kennung' {
+        $script:SetupText | Should -Match 'if \(\$id\) \{ \$script:StatusTimes\[\$id\] = @\{ Reg = \$tReg; Imp = \$tImp \} \}'
+        $script:SetupText | Should -Not -Match 'StatusTimes\[\[string\]\$_\.Seriennr\]'
+        @([regex]::Matches($script:SetupText, 'StatusTimes\[\[string\]\$_\.Id\]')).Count | Should -Be 2
+    }
+    It '9: config.json nicht lesbar: gelber Merker "Stick prüfen" statt keinem Merker' {
+        foreach ($c in @(@('kaputt2', '{ "EditionKey": "ABC'), @('liste2', '[1,2]'))) {
+            $i = Get-StickMakInfo (New-Stick $c[0] $c[1])
+            $i.Unreadable | Should -BeTrue -Because $c[0]
+            $f = @(Get-StickFlags $i)
+            $f.Count | Should -Be 1
+            $f[0].Text | Should -Be 'Stick prüfen'
+            $f[0].Color | Should -Be 'HuStandWarnBg'
+            $f[0].Tip | Should -Be 'Die Einstellungen am Stick sind nicht lesbar. Stick fertig machen wiederholen.'
+        }
+        $big = New-Stick 'gross' ''; [System.IO.File]::WriteAllBytes((Join-Path $big 'HUPilot\config.json'), (New-Object byte[] (1MB + 10)))
+        (Get-StickMakInfo $big).Unreadable | Should -BeTrue
+        # Datei fehlt (z. B. leerer Stick): kein Merker
+        @(Get-StickFlags (Get-StickMakInfo (New-Stick 'ohneDatei' $null))).Count | Should -Be 0
+        (Get-StickMakInfo (New-Stick 'ok2' '{"EditionKey":""}')).Unreadable | Should -BeFalse
+    }
+    It '10: "Details kopieren" heisst beim naechsten Oeffnen wieder so' {
+        $script:SetupText | Should -Match "\`$cm\.Add_Opened\(\{ foreach \(\`$x in @\(\`$this\.Items\)\) \{ try \{ \`$x\.Header = 'Details kopieren' \} catch \{ \} \} \}\)"
+    }
+    It '11: Hinweis nach dem Klick ohne feste Ablaufwerte, Portal-Begriffe in Anfuehrung' {
+        $b = (Get-SecretBanner 'awaiting').Text
+        $b | Should -Not -Match '14 Tage'
+        $b | Should -Match 'Ablauf wählen \(möglichst kurz, über "Benutzerdefiniert"\)'
+        $b | Should -Match '"Geheimnis-ID"'
+        (Get-SecretBanner 'wrong').Text | Should -Not -MatchExactly 'WERT'
+        $script:SetupText | Should -Not -Match 'neues Geheimnis anlegen'
+    }
+    It '12: Altbestand: "Secret (Wert)" und Verweis auf "Neues Secret anlegen"' {
+        $script:SetupText | Should -Match "'Besser: oben auf ""Neues Secret anlegen"" klicken, den neuen Wert bei ""Secret \(Wert\)"" einfügen und speichern\.'"
+        $script:FnByName['Get-ApiToken'] | Should -Match "'Das Secret ist abgelaufen\. Oben auf ""Neues Secret anlegen"" klicken und den neuen Wert bei ""Secret \(Wert\)"" einfügen\.'"
+        $script:FnByName['Confirm-CopyPrereqs'] | Should -Match "if \(\`$script:SecMode -ne 'expired'\) \{ Set-SecretMode 'expired'"
+        $script:SetupText | Should -Not -Match 'bei "Secret" eintragen'
+    }
+    It '13: 806/808 wie in go: Name vor Code, warten bis zu 30 Minuten' {
+        $e = Get-ImportErrorText '806' 'ZtdDeviceAlreadyAssigned'
+        $e.Was | Should -Match '\(Fehler ZtdDeviceAlreadyAssigned 806\)'
+        $e.Tun | Should -Match 'warten, bis der Eintrag aus der Liste verschwunden ist \(bis zu 30 Minuten\)'
+        $e.Tun | Should -Not -Match 'einige Minuten'
+        $e8 = Get-ImportErrorText '808' 'ZtdDeviceAssignedToOtherTenant'
+        $e8.Was | Should -Match '\(Fehler ZtdDeviceAssignedToOtherTenant 808\)'
+        $e8.Tun | Should -Match 'bis zu 30 Minuten'
+    }
+    It '15: Merker am Tooltip-Stil zu Objekten statt Text' {
+        $script:SetupText | Should -Match 'Merken: Ein Tooltip mit einem Objekt \(kein Text, kein Steuerelement\) zeigt hier nur dessen Typnamen'
     }
 }

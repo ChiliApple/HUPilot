@@ -269,7 +269,8 @@ $script:HuThemeXaml = @'
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
-  <!-- Tooltips: feste Hoechstbreite, Text bricht um (lange Meldungen von Microsoft liefen sonst ueber den ganzen Bildschirm) -->
+  <!-- Tooltips: feste Hoechstbreite, Text bricht um (lange Meldungen von Microsoft liefen sonst ueber den ganzen Bildschirm).
+       Merken: Ein Tooltip mit einem Objekt (kein Text, kein Steuerelement) zeigt hier nur dessen Typnamen. Heute gibt es keinen solchen. -->
   <Style TargetType="ToolTip"><Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
     <Setter Property="MaxWidth" Value="520"/>
     <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></Setter.Value></Setter>
@@ -514,7 +515,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
   <!-- Secret abgelaufen: deutlicher Hinweis mit Knopf zur richtigen Seite im Entra-Portal (nur sichtbar, wenn noetig) -->
   <Border x:Name="bdSecret" DockPanel.Dock="Top" Margin="0,0,0,10" Padding="10,6" CornerRadius="4" BorderThickness="2" BorderBrush="{DynamicResource HuErr}" Background="{DynamicResource HuPanel2}" Visibility="Collapsed">
     <DockPanel>
-      <Button x:Name="bSecNew" DockPanel.Dock="Right" Content="Neues Secret anlegen" Padding="10,4" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Öffnet im Browser die Seite &quot;Zertifikate und Geheimnisse&quot; der App-Registrierung (App-ID oben).&#x0a;Dort ein neues Geheimnis anlegen und den WERT kopieren, nicht die Geheimnis-ID.&#x0a;Danach steht der Cursor im Feld &quot;Secret (Wert)&quot;: einfügen, das Setup prüft von selbst." ToolTipService.ShowDuration="60000"/>
+      <Button x:Name="bSecNew" DockPanel.Dock="Right" Content="Neues Secret anlegen" Padding="10,4" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Öffnet im Browser die Seite &quot;Zertifikate &amp; Geheimnisse&quot; der App-Registrierung (App-ID oben).&#x0a;Dort ein neues Secret anlegen und den Wert kopieren (Spalte &quot;Wert&quot;, nicht die &quot;Geheimnis-ID&quot;).&#x0a;Danach steht der Cursor im Feld &quot;Secret (Wert)&quot;: einfügen, das Setup prüft von selbst." ToolTipService.ShowDuration="60000"/>
       <TextBlock x:Name="tSecBanner" TextWrapping="Wrap" VerticalAlignment="Center" FontWeight="SemiBold" ToolTip="Stand des Secrets (geheimer Clientschlüssel) und was jetzt zu tun ist." ToolTipService.ShowDuration="30000"/>
     </DockPanel>
   </Border>
@@ -543,7 +544,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Button x:Name="bReady" DockPanel.Dock="Left" Style="{StaticResource HuMain}" Padding="18,8" FontSize="15" FontWeight="Bold" ToolTip="Macht den gewählten Stick in einem Durchgang fertig:&#x0a;Felder prüfen, Verbindung und Secret prüfen, Tags prüfen (nur Warnung), speichern,&#x0a;WLAN-Paket bauen, wenn es fehlt oder veraltet ist, auf den Stick kopieren und die kopierten Dateien kontrollieren.&#x0a;Bricht beim ersten echten Fehler ab und sagt, was zu tun ist." ToolTipService.ShowDuration="60000">
         <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="13" Height="13" Margin="0,0,8,0" Stroke="White" StrokeThickness="1.5"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
       </Button>
-      <Button x:Name="bReadySec" DockPanel.Dock="Left" Content="Neues Secret anlegen" Padding="10,6" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" Foreground="{DynamicResource HuErr}" ToolTip="Das Secret ist abgelaufen oder falsch, damit lädt kein Stick Geräte hoch.&#x0a;Öffnet die Seite &quot;Zertifikate und Geheimnisse&quot; der App-Registrierung im Browser (wie der Knopf oben)." ToolTipService.ShowDuration="30000"/>
+      <Button x:Name="bReadySec" DockPanel.Dock="Left" Content="Neues Secret anlegen" Padding="10,6" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" Foreground="{DynamicResource HuErr}" ToolTip="Das Secret ist abgelaufen oder falsch, damit lädt kein Stick Geräte hoch.&#x0a;Öffnet die Seite &quot;Zertifikate &amp; Geheimnisse&quot; der App-Registrierung im Browser (wie der Knopf oben)." ToolTipService.ShowDuration="30000"/>
       <!-- Statustext und direkt dahinter die Merker zum gewaehlten Stick (z. B. MAK am Stick). Bei wenig Platz kuerzt der Text, nie ein Merker. -->
       <DockPanel x:Name="dpReady" Margin="12,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center">
         <StackPanel x:Name="spFlags" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"/>
@@ -863,7 +864,7 @@ function Format-TechDetail([string]$Text) {
 function Get-DetailCopyText([string]$Text, [string]$Detail, $Secrets = $null) {
     if ($null -eq $Secrets) { $Secrets = Get-LogSecretValues }
     $s = @($Secrets)
-    return ((Hide-LogSecrets $Text $s) + "`r`n`r`n" + (Format-TechDetail (Hide-LogSecrets $Detail $s)))
+    return ((Hide-LogSecrets $Text $s) + "`r`n`r`n" + (Hide-LogSecrets (Format-TechDetail (Hide-LogSecrets $Detail $s)) $s))
 }
 function Get-LogSecretValues {
     try { return @((Get-Secret), (Get-Masked 'Key'), (Get-Masked 'AdmPw'), (Get-Masked 'Adm2Pw'), (Get-EdKey)) } catch { return @() }
@@ -891,7 +892,8 @@ function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '',
     [void]$sp.Children.Add($tb)
     if ($Detail) {
         # gegliedert (Fehlercode, Beschreibung, Zeitpunkt, Kennungen je eine Zeile), Tooltip mit fester Hoechstbreite (Theme)
-        $fmt = Format-TechDetail $Detail
+        # nach dem Gliedern nochmal ausblenden: aufgeloeste JSON-Escapes koennten sonst ein vorher nicht erkanntes Geheimnis zeigen
+        $fmt = Hide-LogSecrets (Format-TechDetail $Detail) (Get-LogSecretValues)
         $dt = New-Object System.Windows.Controls.TextBlock
         $dt.Text = 'Details:' + "`r`n" + $fmt; $dt.TextWrapping = 'Wrap'; $dt.Visibility = 'Collapsed'; $dt.Margin = '70,0,0,2'
         $dt.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, 'HuMuted')
@@ -906,6 +908,8 @@ function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '',
         $mi.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail }
         $mi.Add_Click({ try { [System.Windows.Clipboard]::SetText((Get-DetailCopyText $this.Tag.Text $this.Tag.Detail)); $this.Header = 'Details kopiert' } catch { $this.Header = 'Kopieren fehlgeschlagen' } })
         [void]$cm.Items.Add($mi)
+        # beim naechsten Oeffnen wieder der urspruengliche Text
+        $cm.Add_Opened({ foreach ($x in @($this.Items)) { try { $x.Header = 'Details kopieren' } catch { } } })
         $it.ContextMenu = $cm
         $it.Add_MouseDoubleClick({ $d = $this.Content.Children[1]; $d.Visibility = $(if ([string]$d.Visibility -eq 'Visible') { 'Collapsed' } else { 'Visible' }) })
     }
@@ -1103,25 +1107,31 @@ function Get-ReadyHintKey([string]$Drive) {
 # ---------- Merker zum gewaehlten Stick (direkt hinter dem Statustext), z. B. "MAK am Stick" ----------
 #   Gelesen wird nur, ob EditionKey in HUPilot\config.json am Stick gefuellt ist, und die letzten 5 Zeichen. Der ganze
 #   Schluessel verlaesst Get-StickMakInfo nie (nicht in Oberflaeche, Protokoll oder Protokolldatei).
-#   Kein Stick, Stick nicht bereit, keine, zu grosse oder kaputte config.json: kein Merker, kein Fehler.
+#   Kein Stick, Stick nicht bereit, keine config.json: kein Merker, kein Fehler. Zu grosse oder kaputte config.json:
+#   Merker "Stick prüfen" (ein fehlender Merker darf nicht "kein MAK" heissen, wenn die Datei nicht lesbar war).
 #   Weitere Merker (z. B. Secret abgelaufen) kommen spaeter als weiterer Eintrag in Get-StickFlags dazu.
 function Get-StickMakInfo([string]$Drive) {
     if (-not $Drive) { return $null }
     try {
         $p = $Drive.TrimEnd('\') + '\HUPilot\config.json'
         if (-not [System.IO.File]::Exists($p)) { return $null }
-        if ((New-Object System.IO.FileInfo($p)).Length -gt 1MB) { return $null }
-        $o = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
-        if ($null -eq $o -or $o -isnot [System.Management.Automation.PSCustomObject]) { return $null }
+        $bad = [pscustomobject]@{ HasMak = $false; Tail = ''; Unreadable = $true }
+        if ((New-Object System.IO.FileInfo($p)).Length -gt 1MB) { return $bad }
+        $o = $null
+        try { $o = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8) | ConvertFrom-Json } catch { return $bad }
+        if ($null -eq $o -or $o -isnot [System.Management.Automation.PSCustomObject]) { return $bad }
         $k = ([string]$o.EditionKey).Trim()
         $tail = $(if ($k.Length -ge 5) { $k.Substring($k.Length - 5) } else { '' })
         $o = $null; $has = [bool]$k; $k = $null
-        return [pscustomobject]@{ HasMak = $has; Tail = $tail }
+        return [pscustomobject]@{ HasMak = $has; Tail = $tail; Unreadable = $false }
     } catch { return $null }
 }
 # Merker aus den gelesenen Angaben (ohne Oberflaeche, fuer Tests): Liste von @{ Key; Text; Color; Tip }
 function Get-StickFlags($MakInfo) {
     $f = @()
+    if ($MakInfo -and $MakInfo.Unreadable) {
+        $f += [pscustomobject]@{ Key = 'pruefen'; Text = 'Stick prüfen'; Color = 'HuStandWarnBg'; Tip = 'Die Einstellungen am Stick sind nicht lesbar. Stick fertig machen wiederholen.' }
+    }
     if ($MakInfo -and $MakInfo.HasMak) {
         $f += [pscustomobject]@{ Key = 'mak'; Text = 'MAK am Stick'; Color = 'HuStandErrBg'
             Tip = ('Auf diesem Stick liegt der MAK (Volumenlizenz-Schlüssel) im Klartext' + $(if ($MakInfo.Tail) { ', er endet auf ' + $MakInfo.Tail } else { '' }) + '. Gedacht nur für Geräte mit Windows Home.' + "`n" +
@@ -2376,10 +2386,10 @@ function Get-SecretBanner([string]$Mode, [string]$EndText = '') {
     $save = 'Jetzt speichern ("3. Speichern" oder "Stick fertig machen") und danach jeden Stick neu bespielen: Stick anstecken, "Stick fertig machen". Alte Sticks laden keine Geräte mehr hoch.'
     switch ($Mode) {
         'expired'  { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das Secret ist abgelaufen' + $(if ($EndText) { ' (seit ' + $EndText + ')' } else { '' }) + '. Damit lädt kein Stick Geräte hoch. Klick auf "Neues Secret anlegen" und den neuen Wert bei "Secret (Wert)" einfügen.' } }
-        'awaiting' { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Im Browser: "Neuer geheimer Clientschlüssel", Ablauf wählen (z. B. 14 Tage), "Hinzufügen". Dann den WERT kopieren (nicht die Geheimnis-ID) und hier bei "Secret (Wert)" einfügen. Das Setup prüft dann von selbst.' } }
+        'awaiting' { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Im Browser: "Neuer geheimer Clientschlüssel", Ablauf wählen (möglichst kurz, über "Benutzerdefiniert"), "Hinzufügen". Dann den Wert aus der Spalte "Wert" kopieren (nicht die "Geheimnis-ID") und hier bei "Secret (Wert)" einfügen. Das Setup prüft dann von selbst.' } }
         'checking' { return @{ Show = $true; Color = 'HuRun'; Button = $false; Text = 'Prüfe das neue Secret ...' } }
         'net'      { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Keine Verbindung zu Microsoft. Das neue Secret ist noch nicht geprüft, ungültig ist es deshalb nicht. Internet prüfen, dann "1. Verbindung testen".' } }
-        'wrong'    { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das eingefügte Secret ist falsch. Oft ist die Geheimnis-ID statt des Werts kopiert. In Entra den WERT kopieren und bei "Secret (Wert)" einfügen.' } }
+        'wrong'    { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das eingefügte Secret ist falsch. Oft ist die "Geheimnis-ID" statt des Werts kopiert. Im Portal den Wert aus der Spalte "Wert" kopieren und bei "Secret (Wert)" einfügen.' } }
         'fail'     { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Microsoft lehnt die Anmeldung ab. Tenant-ID und App-ID (Client) prüfen, Details im Protokoll.' } }
         'ok'       { return @{ Show = $true; Color = 'HuOk'; Button = $false; Text = 'Neues Secret gültig bis ' + $EndText + '. ' + $save } }
         'okNoEnd'  { return @{ Show = $true; Color = 'HuOk'; Button = $false; Text = 'Neues Secret gültig, Ablauf unbekannt. ' + $save } }
@@ -2403,6 +2413,15 @@ function Update-SecretBanner {
         $ui.bReadySec.Visibility = $(if ($b.Button) { 'Visible' } else { 'Collapsed' })
     } catch { }
 }
+# Nach JEDER erfolgreichen Anmeldung mit dem eingetragenen Secret (Get-ApiToken, egal welcher Knopf): steht ein Hinweis
+# auf ein Problem (abgelaufen, wartet, ohne Netz, falsch, abgelehnt, prueft), wird er zu "gültig" (mit Datum, wenn bekannt).
+# Ohne Hinweis bleibt es ohne Hinweis; "gültig" und "gespeichert" bleiben, damit die Erinnerung an die Sticks bleibt.
+function Set-SecretLoginOk([string]$Secret) {
+    try { $script:SecCheckedFor = Get-StrHash $Secret } catch { }
+    if ($script:SecMode -notin 'expired', 'awaiting', 'net', 'wrong', 'fail', 'checking') { return }
+    $end = $null; try { $end = ConvertTo-UtcDate (Get-SecretExpiresValue $Secret) } catch { }
+    if ($end -and $end -gt [datetime]::UtcNow) { Set-SecretMode 'ok' $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } else { Set-SecretMode 'okNoEnd' }
+}
 function Set-SecretMode([string]$Mode, [string]$EndText = '') {
     $script:SecMode = $Mode; $script:SecEndText = $EndText
     if ($Mode -in 'expired', 'awaiting', 'wrong', 'net', 'fail') { $script:SecAwait = $true }
@@ -2416,9 +2435,12 @@ function Get-TokenErrorKind([string]$Message, [bool]$HasResponse) {
     if ($Message -match 'AADSTS\d+') { return 'config' }
     if (-not $HasResponse) { return 'net' }
     if ($Message -match 'Remotename|remote name|No such host|nicht aufgel|timed out|Zeitüberschreitung|Zeitlimit|timeout|Unable to connect|Verbindung mit dem Remoteserver|actively refused') { return 'net' }
-    return 'other'
+    # Antwort ohne AADSTS-Code (Anmeldeseite eines Gastnetzes, Proxy, Stoerung): kam nicht vom Anmeldedienst, wie kein Netz
+    return 'proxy'
 }
 $script:TokenErr = ''; $script:TokenMsg = ''
+# Zeitlimit der Anmeldung: 30 s, waehrend der Pruefung nach dem Einfuegen $script:TokenTimeoutSec (kuerzer, sie laeuft ungefragt)
+$script:TokenTimeoutSec = 0
 function Get-ApiToken {
     if (-not (Test-Fields @('TenantId', 'ClientId', 'ClientSecret'))) { $script:TokenErr = 'fields'; $script:TokenMsg = $script:FieldErr; return $null }
     $c = Get-Cfg
@@ -2426,25 +2448,29 @@ function Get-ApiToken {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $body = @{ grant_type = 'client_credentials'; client_id = $c.ClientId; client_secret = $c.ClientSecret; scope = 'https://graph.microsoft.com/.default' }
-        $tr = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 30
+        $tr = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://login.microsoftonline.com/' + $c.TenantId + '/oauth2/v2.0/token') -Body $body -ContentType 'application/x-www-form-urlencoded' -TimeoutSec $(if ($script:TokenTimeoutSec -gt 0) { $script:TokenTimeoutSec } else { 30 })
         # fuer Get-ApiTokenCached merken (5 Minuten Reserve vor dem Ablauf)
         $sec = 3600; try { $sec = [int]$tr.expires_in } catch { }
         $script:TokCache = @{ Token = [string]$tr.access_token; Until = (Get-Date).AddSeconds([math]::Max(0, $sec - 300)); For = (Get-StrHash ($c.TenantId + '|' + $c.ClientId + '|' + $c.ClientSecret)) }
+        # zentral fuer alle Knoepfe: Anmeldung mit dem eingetragenen Secret klappt, Hinweis zum Secret richtigstellen
+        Set-SecretLoginOk ([string]$c.ClientSecret)
         return $tr.access_token
     } catch {
         $m = $_.Exception.Message; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }
         $hasResp = $false; try { $hasResp = ($null -ne $_.Exception.Response) } catch { }
         $kind = Get-TokenErrorKind $m $hasResp
-        $script:TokenErr = $kind
+        $script:TokenErr = $(if ($kind -eq 'proxy') { 'net' } else { $kind })
+        try { $script:SecCheckedFor = Get-StrHash ([string]$c.ClientSecret) } catch { }
         # abgelaufen: deutlicher Hinweis mit Knopf "Neues Secret anlegen" (ohne Netz nie, dann ist nichts geprueft)
         if ($kind -eq 'expired') { Set-SecretMode 'expired' }
         $txt = 'Anmeldung bei Microsoft fehlgeschlagen. Später nochmal versuchen, Details im Protokoll.'
-        if ($kind -eq 'expired') { $txt = 'Das Secret ist abgelaufen. In Entra bei der App-Registrierung ein neues Geheimnis anlegen und den Wert bei "Secret (Wert)" eintragen.' }
-        elseif ($kind -eq 'wrong') { $txt = 'Das Secret ist falsch, oft ist die Geheimnis-ID statt des Werts kopiert. Den Wert bei "Secret (Wert)" eintragen.' }
+        if ($kind -eq 'expired') { $txt = 'Das Secret ist abgelaufen. Oben auf "Neues Secret anlegen" klicken und den neuen Wert bei "Secret (Wert)" einfügen.' }
+        elseif ($kind -eq 'wrong') { $txt = 'Das Secret ist falsch, oft ist die "Geheimnis-ID" statt des Werts kopiert. Den Wert bei "Secret (Wert)" einfügen.' }
         elseif ($kind -eq 'config') { $txt = 'Microsoft lehnt die Anmeldung ab. Tenant-ID und App-ID (Client) prüfen.' }
         elseif ($kind -eq 'net') { $txt = 'Keine Verbindung zu Microsoft. Internet prüfen. Das Secret wurde nicht geprüft.' }
+        elseif ($kind -eq 'proxy') { $txt = 'Die Antwort kam nicht von Microsoft (Gastnetz oder Proxy?). Internet prüfen. Das Secret wurde nicht geprüft.' }
         $script:TokenMsg = $txt
-        Out-Log $txt $(if ($kind -eq 'net') { 'Hinweis' } else { 'Fehler' }) $m
+        Out-Log $txt $(if ($kind -in 'net', 'proxy') { 'Hinweis' } else { 'Fehler' }) $m
         return $null
     }
 }
@@ -2462,12 +2488,12 @@ function Format-Rest([TimeSpan]$Span) {
     $d = [int][Math]::Floor($Span.TotalDays)
     return ('noch ' + $(if ($d) { '' + $d + ' Tag' + $(if ($d -ne 1) { 'e' } else { '' }) + ' ' } else { '' }) + $Span.Hours + ' Std')
 }
-function Show-SecretExpiry([string]$Token) {
+function Show-SecretExpiry([string]$Token, [int]$TimeoutSec = 30) {
     # Secret-Ablauf (optional: braucht Application.Read.All fuer die App). Merkt das Ablaufdatum des verwendeten Secrets fuer SecretExpires.
     $h = @{ Authorization = 'Bearer ' + $Token }
     try {
         $c = Get-Cfg
-        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h -TimeoutSec 30
+        $app = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ("https://graph.microsoft.com/v1.0/applications(appId='" + $c.ClientId + "')?`$select=displayName,passwordCredentials") -Headers $h -TimeoutSec $TimeoutSec
         $hint = $c.ClientSecret.Substring(0, [Math]::Min(3, $c.ClientSecret.Length))
         $mine = @($app.passwordCredentials | Where-Object { $_.hint -ceq $hint })
         $list = $(if ($mine.Count) { $mine } else { @($app.passwordCredentials) })
@@ -2482,8 +2508,8 @@ function Show-SecretExpiry([string]$Token) {
             # Die ersten Zeichen des Secrets (hint) nur im Fenster, nicht in der Protokolldatei
             $txt = 'Secret "' + $pc.displayName + '" (' + $pc.hint + '...) gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + ', ' + (Format-Rest $span)
             $ftx = 'Secret "' + $pc.displayName + '" gültig bis ' + $end.ToString('dd.MM.yyyy HH:mm') + ', ' + (Format-Rest $span)
-            if ($days -lt 0) { $sfx = '. Abgelaufen: in Entra ein neues Geheimnis anlegen und eintragen.'; Out-Log ($txt + $sfx) 'Fehler' '' ($ftx + $sfx) }
-            elseif ($days -lt 3) { $sfx = '. Läuft bald ab: rechtzeitig ein neues Geheimnis anlegen.'; Out-Log ($txt + $sfx) 'Hinweis' '' ($ftx + $sfx) }
+            if ($days -lt 0) { $sfx = '. Abgelaufen: oben auf "Neues Secret anlegen" klicken.'; Out-Log ($txt + $sfx) 'Fehler' '' ($ftx + $sfx) }
+            elseif ($days -lt 3) { $sfx = '. Läuft bald ab: rechtzeitig ein neues Secret anlegen.'; Out-Log ($txt + $sfx) 'Hinweis' '' ($ftx + $sfx) }
             else { Out-Log $txt 'OK' '' $ftx }
         }
         if (-not $mine.Count) { Out-Log 'Das verwendete Secret ist nicht eindeutig erkannt, deshalb stehen alle Secrets der App oben.' }
@@ -2491,6 +2517,7 @@ function Show-SecretExpiry([string]$Token) {
             $script:SecretEnd = $minUtc; $script:SecretEndFor = Get-StrHash $c.ClientSecret
             Set-SubSecret ('Secret gültig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (' + (Format-Rest ($minEnd - (Get-Date))) + ')') ($minDays -lt 1)
             if ($minDays -lt 0) { Set-SecretMode 'expired' $minEnd.ToString('dd.MM.yyyy HH:mm') }
+            elseif ($script:SecMode -in 'ok', 'okNoEnd') { Set-SecretMode 'ok' $minEnd.ToString('dd.MM.yyyy HH:mm') }
         }
     } catch {
         Out-Log 'Ablaufdatum des Secrets nicht lesbar. Optional: der App die Berechtigung Application.Read.All geben.' 'Hinweis' $_.Exception.Message
@@ -2530,7 +2557,7 @@ function Open-SecretPortal {
         return
     }
     Open-InfoLink (Get-SecretPortalUrl $c.ClientId)
-    Out-Log 'Seite "Zertifikate und Geheimnisse" der App-Registrierung im Browser geöffnet. Neues Geheimnis anlegen, den WERT kopieren und bei "Secret (Wert)" einfügen.' 'Hinweis'
+    Out-Log 'Seite "Zertifikate & Geheimnisse" der App-Registrierung im Browser geöffnet. Dort ein neues Secret anlegen, den Wert kopieren und bei "Secret (Wert)" einfügen.' 'Hinweis'
     Set-SecretMode 'awaiting'
     # Cursor ins Feld, alter Wert markiert: Einfuegen ersetzt ihn
     try {
@@ -2555,9 +2582,11 @@ function Invoke-SecretAutoCheck {
     $script:SecChecking = $true
     Set-UiBusy $true
     try {
-        Set-SecretMode 'checking'; Set-Step 'Test' 'run'; Step-Ui
+        # Zustand sicher sichtbar, bevor die (kurze) Anmeldung das Fenster kurz festhaelt
+        Set-SecretMode 'checking'; Set-Step 'Test' 'run'; try { $win.UpdateLayout() } catch { }; Step-Ui
         Out-Log 'Prüfe das neue Secret ...'
-        $tok = Get-ApiToken
+        $script:TokenTimeoutSec = 10
+        try { $tok = Get-ApiToken } finally { $script:TokenTimeoutSec = 0 }
         if (-not $tok) {
             switch ($script:TokenErr) {
                 'net'     { Set-SecretMode 'net'; Set-Step 'Test' 'warn' 'keine Verbindung, Secret nicht geprüft' }
@@ -2568,7 +2597,7 @@ function Invoke-SecretAutoCheck {
             return
         }
         Out-Log 'Anmeldung mit dem neuen Secret OK' 'OK'
-        Show-SecretExpiry -Token $tok
+        Show-SecretExpiry -Token $tok -TimeoutSec 10
         if ($script:SecretEnd -and $script:SecretEndFor -eq $hh) {
             $endL = $script:SecretEnd.ToLocalTime()
             if ($script:SecretEnd -le [datetime]::UtcNow) { Set-SecretMode 'expired' $endL.ToString('dd.MM.yyyy HH:mm'); Set-Step 'Test' 'err' 'Secret abgelaufen'; return }
@@ -2583,11 +2612,16 @@ function Invoke-SecretAutoCheck {
     } finally { $script:SecChecking = $false; Set-UiBusy $false }
 }
 $script:SecTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:SecTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
+$script:SecTimer.Interval = [TimeSpan]::FromMilliseconds(400)
 $script:SecTimer.Add_Tick({ param($s, $e) try { $s.Stop(); Invoke-SecretAutoCheck } catch { try { $script:SecChecking = $false } catch { } } })
+# Automatisch geprueft wird nur nach dem Einfuegen (Zwischenablage, Ziehen) oder wenn das Feld den Fokus verliert,
+# nie nach einer Tipp-Pause (jede Pause waere sonst eine echte, meist fehlgeschlagene Anmeldung bei Microsoft).
 $reqSecCheck = { if ($script:Loading -or -not $script:SecAwait) { return }; $script:SecTimer.Stop(); $script:SecTimer.Start() }
-$ui.pSecret.Add_PasswordChanged($reqSecCheck)
-$ui.tSecret.Add_TextChanged($reqSecCheck)
+foreach ($sf in @($ui.pSecret, $ui.tSecret)) {
+    [System.Windows.DataObject]::AddPastingHandler($sf, [System.Windows.DataObjectPastingEventHandler]$reqSecCheck)
+    $sf.Add_PreviewDrop($reqSecCheck)
+    $sf.Add_LostKeyboardFocus($reqSecCheck)
+}
 # Abgelaufen laut gespeichertem Ablaufdatum (gilt nur fuer genau dieses Secret, kein Netz noetig)
 function Test-SecretDateExpired {
     $end = ConvertTo-UtcDate (Get-SecretExpiresValue (Get-Secret))
@@ -2766,7 +2800,9 @@ function Confirm-CopyPrereqs([string]$Target, $Owner) {
     $end = ConvertTo-UtcDate $endTxt
     $lvl = Get-SecretWarnLevel $end ([datetime]::UtcNow)
     if ($lvl -eq 'expired') {
-        $q = [System.Windows.MessageBox]::Show($Owner, ('Das Secret ist am ' + $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ' abgelaufen.' + "`r`n" + 'Mit diesem Stick kann go.ps1 keine Geräte hochladen.' + "`r`n`r`n" + 'Besser: in Entra ein neues Geheimnis anlegen, bei "Secret" eintragen, speichern.' + "`r`n`r`n" + 'Trotzdem kopieren?'), 'HUPilot - Secret abgelaufen', 'YesNo', 'Warning')
+        # Knopf "Neues Secret anlegen" sichtbar machen, auf den die Meldung verweist
+        if ($script:SecMode -ne 'expired') { Set-SecretMode 'expired' $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') }
+        $q = [System.Windows.MessageBox]::Show($Owner, ('Das Secret ist am ' + $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') + ' abgelaufen.' + "`r`n" + 'Mit diesem Stick kann go.ps1 keine Geräte hochladen.' + "`r`n`r`n" + 'Besser: oben auf "Neues Secret anlegen" klicken, den neuen Wert bei "Secret (Wert)" einfügen und speichern.' + "`r`n`r`n" + 'Trotzdem kopieren?'), 'HUPilot - Secret abgelaufen', 'YesNo', 'Warning')
         if ($q -ne 'Yes') { Out-Log 'Kopieren abgebrochen, das Secret ist abgelaufen.'; return $null }
         Out-Log 'Secret abgelaufen, trotzdem kopiert. Mit diesem Stick lädt go.ps1 keine Geräte hoch.' 'Hinweis'
     } elseif ($lvl -eq 'soon') {
@@ -3058,14 +3094,22 @@ function Read-Protokoll {
 #   Rangfolge der Staende (der erste passende gilt):
 #     1. Wird gelöscht (in diesem Fenster geloescht, Microsoft hat den Eintrag noch nicht entfernt)
 #     2. Doppelt (mehrere Autopilot-Eintraege mit derselben Seriennummer)
-#     3. Hardware geändert (remediationState automatic- oder manualRemediationRequired: Hash passt nicht mehr)
-#     4. Fertig, 5. Fehler, 6. Kein Profil für diesen Tag, 7. Profil da, Gerät noch nicht angemeldet, 8. Wartet auf Profil
-#   1 und 2 setzt Get-StatusData (brauchen alle Eintraege bzw. die Sitzung), 3 bis 8 diese Funktion.
+#     3. Hardware geändert (remediationState manualRemediationRequired: Hash passt nicht mehr, nicht von selbst loesbar)
+#     4. Fertig (auch mit automaticRemediationRequired: laufendes Geraet nie ohne Not loeschen, Zusatz in den Details)
+#     5. Fehler, 6. Kein Profil für diesen Tag
+#     7. Hardware wird abgeglichen (automaticRemediationRequired: Microsoft versucht die Korrektur selbst)
+#     8. Profil da, Gerät noch nicht angemeldet, 9. Wartet auf Profil
+#   1 und 2 setzt Get-StatusData (brauchen alle Eintraege bzw. die Sitzung), 3 bis 9 diese Funktion.
+#   Microsoft Learn (Windows Autopilot motherboard replacement, Fix pending and Attention required): bei "Fix pending"
+#   versucht Autopilot die Registrierung selbst, abmelden und neu registrieren erst, wenn es so bleibt oder auf
+#   "Attention required" wechselt. ANNAHME (so nicht auf Learn): automaticRemediationRequired = Fix pending,
+#   manualRemediationRequired = Attention required.
 function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate, [string]$Remediation = '') {
-    if ($Remediation -in 'automaticRemediationRequired', 'manualRemediationRequired') { return 'Hardware geändert' }
+    if ($Remediation -eq 'manualRemediationRequired') { return 'Hardware geändert' }
     if ($EnrollState -eq 'enrolled') { return 'Fertig' }
     if ($EnrollState -in 'failed', 'blocked' -or $ProfileStatus -eq 'failed') { return 'Fehler' }
     if ($ProfileStatus -eq 'notAssigned') { return 'Kein Profil für diesen Tag' }
+    if ($Remediation -eq 'automaticRemediationRequired') { return 'Hardware wird abgeglichen' }
     if ($ProfileStatus -in 'assignedInSync', 'assignedUnkownSyncState', 'assignedUnknownSyncState', 'assignedOutOfSync' -and $HasAssignedDate) { return 'Profil da, Gerät noch nicht angemeldet' }
     return 'Wartet auf Profil'
 }
@@ -3076,7 +3120,8 @@ function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollS
         'Profil da, Gerät noch nicht angemeldet' { return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
         'Kein Profil für diesen Tag' { return 'Tag prüfen: kein Profil zugewiesen ("2. Tags prüfen"), oder mit "Tag ändern" einen Tag mit Profil wählen.' }
         'Fehler' { if ($EnrollState -eq 'blocked') { return 'Gerät ist in Intune blockiert. Admin fragen.' } return 'Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen.' }
-        'Hardware geändert' { return 'Eintrag bereinigen (löschen), dann mit dem Stick neu registrieren.' }
+        'Hardware geändert' { return 'Mit "Autopilot-Eintrag löschen" entfernen, mit Stick neu registrieren.' }
+        'Hardware wird abgeglichen' { return 'Microsoft gleicht selbst ab, warten. Bleibt es: löschen, neu registrieren.' }
     }
     return ''
 }
@@ -3108,7 +3153,10 @@ function Get-DuplicateMarks($Records) {
         }
         $sorted = @($g | Sort-Object { $v = $seen[[string]$_.id]; if ($v) { $v.Ticks } else { 0 } } -Descending)
         $top = $seen[[string]$sorted[0].id]; $second = $seen[[string]$sorted[1].id]
-        $clear = ($top -and (-not $second -or $top -gt $second))
+        # eindeutig nur, wenn JEDER Eintrag eine Spur hat und die juengste klar vorn liegt. Ein frisch hochgeladener Eintrag
+        # hat einige Minuten weder Kontakt noch Profil-Datum: dann nie raten, sondern "Alter unklar" fuer alle.
+        $noTrace = @($g | Where-Object { -not $seen[[string]$_.id] }).Count
+        $clear = ($noTrace -eq 0 -and $top -and $second -and $top -gt $second)
         foreach ($d in $g) {
             $id = [string]$d.id
             $rank = $(if (-not $clear) { 'unklar' } elseif ($id -eq [string]$sorted[0].id) { 'neuer' } else { 'älter' })
@@ -3130,8 +3178,8 @@ function Get-PendingTodo([datetime]$Since, [datetime]$Now) {
     return 'Dauert über 30 Minuten. Später aktualisieren, sonst Admin fragen.'
 }
 # Farbe und Kachel je Stand: ok (gruen) / warn (gelb) / err (rot)
-$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err'; 'Hardware geändert' = 'err'; 'Doppelt' = 'err'; 'Wird gelöscht' = 'warn' }
-$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob'; 'Hardware geändert' = 'hw'; 'Doppelt' = 'dup'; 'Wird gelöscht' = 'del' }
+$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err'; 'Hardware geändert' = 'err'; 'Hardware wird abgeglichen' = 'warn'; 'Doppelt' = 'err'; 'Wird gelöscht' = 'warn' }
+$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob'; 'Hardware geändert' = 'hw'; 'Hardware wird abgeglichen' = 'hw'; 'Doppelt' = 'dup'; 'Wird gelöscht' = 'del' }
 
 # Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Fenster, CSV, Excel und Druck
 $script:StatusCols = @(
@@ -3464,7 +3512,7 @@ function Show-DeviceDetail($Row, $Owner) {
         ('Benutzer:          ' + $(if ($Row.Benutzer) { $Row.Benutzer } else { '-' })),
         ('Gerätename:        ' + $(if ($Row.Name) { $Row.Name } else { '-' })),
         ('Modell:            ' + $Row.Modell),
-        ('Hardware:          ' + $(switch ([string]$Row.Remediation) { 'automaticRemediationRequired' { 'geändert, Microsoft meldet: weitere Bereinigung nötig' } 'manualRemediationRequired' { 'geändert, Microsoft meldet: nicht von selbst lösbar' } 'noRemediationRequired' { 'keine Änderung erkannt' } default { '-' } })),
+        ('Hardware:          ' + $(switch ([string]$Row.Remediation) { 'automaticRemediationRequired' { 'geändert, Microsoft versucht die Korrektur selbst' + $(if ([string]$Row.Stand -eq 'Fertig') { ' (Gerät läuft, nicht ohne Not löschen; bleibt es länger so: Admin fragen)' } else { '' }) } 'manualRemediationRequired' { 'geändert, Microsoft meldet: nicht von selbst lösbar' } 'noRemediationRequired' { 'keine Änderung erkannt' } default { '-' } })),
         ('Doppelt:           ' + $(if ([int]$Row.DupCount -gt 1) { '' + $Row.DupCount + ' Einträge mit dieser Seriennummer, dieser ist ' + $(switch ([string]$Row.DupRank) { 'älter' { 'der ältere' } 'neuer' { 'der neueste' } default { 'nicht sicher einzuordnen' } }) + ' (jüngste Spur: ' + $(if ($Row.DupSeen) { $Row.DupSeen } else { 'keine' }) + ', aus letztem Kontakt und Profil-Zuweisung)' } else { 'nein' })),
         ('Autopilot-ID:      ' + $(if ($Row.Id) { $Row.Id } else { '-' })),
         '',
@@ -3806,7 +3854,7 @@ function Show-Status {
       <Button x:Name="kWait" Style="{StaticResource HuTile}" Tag="wait" ToolTip="Hochgeladen, Microsoft weist das Profil noch zu (meist 5 bis 15 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nWait" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wartet auf Profil"/></StackPanel></Button>
       <Button x:Name="kReady" Style="{StaticResource HuTile}" Tag="ready" ToolTip="Profil ist da, das Gerät hat sich aber noch nicht angemeldet. Klick filtert."><StackPanel><TextBlock x:Name="nReady" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Profil da, noch nicht angemeldet"/></StackPanel></Button>
       <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Problem"/></StackPanel></Button>
-      <Button x:Name="kHw" Style="{StaticResource HuTile}" Tag="hw" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung (z. B. Mainboardtausch), der gespeicherte Hash passt nicht mehr.&#x0a;Eintrag bereinigen, dann das Gerät mit dem Stick neu registrieren. Klick filtert."><StackPanel><TextBlock x:Name="nHw" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Hardware geändert"/></StackPanel></Button>
+      <Button x:Name="kHw" Style="{StaticResource HuTile}" Tag="hw" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung (z. B. Mainboardtausch), der gespeicherte Hash passt nicht mehr.&#x0a;Hardware geändert (rot): Eintrag mit &quot;Autopilot-Eintrag löschen ...&quot; entfernen, dann mit dem Stick neu registrieren.&#x0a;Hardware wird abgeglichen (gelb): Microsoft versucht die Korrektur selbst, abwarten. Klick filtert."><StackPanel><TextBlock x:Name="nHw" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Hardware geändert"/></StackPanel></Button>
       <Button x:Name="kDup" Style="{StaticResource HuTile}" Tag="dup" Visibility="Collapsed" ToolTip="Mehrere Autopilot-Einträge mit derselben Seriennummer. &quot;Was tun&quot; sagt, welcher der ältere ist. Klick filtert."><StackPanel><TextBlock x:Name="nDup" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Doppelt"/></StackPanel></Button>
       <Button x:Name="kDel" Style="{StaticResource HuTile}" Tag="del" Visibility="Collapsed" ToolTip="In diesem Fenster gelöscht, Microsoft hat den Eintrag noch nicht entfernt (bis zu 30 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nDel" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wird gelöscht"/></StackPanel></Button>
     </WrapPanel>
@@ -3939,12 +3987,12 @@ function Show-Status {
         $v = @($script:SRows)
         if ($g.cTag.SelectedItem -and [string]$g.cTag.SelectedItem -ne 'Alle') { $sel = [string]$g.cTag.SelectedItem; $v = @($v | Where-Object { $_.Tag -eq $sel }) }
         if ($g.cProto.IsChecked) { $v = @($v | Where-Object { $_.HUPilot }) }
-        if ($g.cToday.IsChecked) { $d0 = (Get-Date).Date; $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and (($t.Reg -and $t.Reg -ge $d0) -or ($t.Imp -and $t.Imp -ge $d0)) }) }
+        if ($g.cToday.IsChecked) { $d0 = (Get-Date).Date; $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Id]; $t -and (($t.Reg -and $t.Reg -ge $d0) -or ($t.Imp -and $t.Imp -ge $d0)) }) }
         if ($g.cProblem.IsChecked) { $v = @($v | Where-Object { $_.Klasse -eq 'err' }) }
         if ($g.cZeit.IsChecked) {
             $since = $(if ($g.cZeitSpan.SelectedIndex -eq 3) { (Get-Date).Date } else { (Get-Date).AddHours(-1 * $script:ZeitStd[[math]::Max(0, [math]::Min(2, $g.cZeitSpan.SelectedIndex))]) })
             $key = $(if ($g.cZeitBasis.SelectedIndex -eq 1) { 'Imp' } else { 'Reg' })
-            $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Seriennr]; $t -and $t[$key] -and $t[$key] -ge $since })
+            $v = @($v | Where-Object { $t = $script:StatusTimes[[string]$_.Id]; $t -and $t[$key] -and $t[$key] -ge $since })
         }
         if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
         # Kacheln zaehlen ueber die gefilterte Liste (ohne Kachel-Filter)
@@ -4318,7 +4366,8 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         $pt = [datetime]::MinValue
         if ($pr -and [datetime]::TryParseExact([string]$pr.Zeit, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$pt)) { $tImp = $pt }
         if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
-        if ($d.serialNumber) { $script:StatusTimes[[string]$d.serialNumber] = @{ Reg = $tReg; Imp = $tImp } }
+        # je Kennung (bei doppelten Seriennummern hat jeder Eintrag seine eigenen Zeiten)
+        if ($id) { $script:StatusTimes[$id] = @{ Reg = $tReg; Imp = $tImp } }
         [pscustomobject]@{
             Stand          = $stand
             WasTun         = $todo
@@ -4554,15 +4603,15 @@ $ui.bTags.Add_Click({
 # Microsoft auch ein alter Datensatz im eigenen Tenant oder in Intune die Ursache sein. Andere Codes: $null.
 function Get-ImportErrorText([string]$Code, [string]$Name) {
     $Code = ([string]$Code).Trim(); $Name = ([string]$Name).Trim()
-    $roh = (@($Code, $Name) | Where-Object { $_ -and $_ -ne '0' }) -join ' '
+    $roh = (@($Name, $Code) | Where-Object { $_ -and $_ -ne '0' }) -join ' '
     if (-not $roh) { return $null }
     if ($Code -eq '808' -or $Name -match 'AssignedToOtherTenant') {
         return @{ Nr = '808'; Was = ('Das Gerät ist bei Microsoft noch einer anderen Organisation zugeordnet, zum Beispiel dem Vorbesitzer (Fehler ' + $roh + ').')
-            Tun = 'Zuerst unter "6. Status" nach einem alten Eintrag mit dieser Seriennummer suchen und ihn löschen. Gibt es keinen: Der Händler oder Vorbesitzer muss das Gerät freigeben, den Admin fragen.' }
+            Tun = 'Zuerst unter "6. Status" nach einem alten Eintrag mit dieser Seriennummer suchen, ihn löschen und warten, bis er aus der Liste verschwunden ist (bis zu 30 Minuten). Gibt es keinen: Der Händler oder Vorbesitzer muss das Gerät freigeben, den Admin fragen.' }
     }
     if ($Code -eq '806' -or $Name -match 'AlreadyAssigned') {
         return @{ Nr = '806'; Was = ('Das Gerät steht schon in Autopilot, unter einem alten Eintrag (Fehler ' + $roh + ').')
-            Tun = 'Unter "6. Status" den alten Eintrag mit "Autopilot-Eintrag löschen" entfernen, einige Minuten warten, dann nochmal importieren. Kein Eintrag zu finden: den Admin fragen.' }
+            Tun = 'Unter "6. Status" den alten Eintrag mit "Autopilot-Eintrag löschen" entfernen, warten, bis der Eintrag aus der Liste verschwunden ist (bis zu 30 Minuten), dann nochmal importieren. Kein Eintrag zu finden: den Admin fragen.' }
     }
     return $null
 }
@@ -4795,8 +4844,8 @@ function Invoke-StickReadyCore {
             $q = [System.Windows.MessageBox]::Show($win, ('Keine Verbindung zu Microsoft (Internet, Proxy?).' + $nl + 'Secret und Tags können deshalb nicht geprüft werden.' + $nl + $nl + 'Stick trotzdem fertig machen?'), 'HUPilot - keine Verbindung', 'YesNo', 'Warning')
             if ($q -ne 'Yes') { Stop-Ready '' 'keine Verbindung zu Microsoft' -Quiet; return }
             $warn += 'Secret und Tags nicht geprüft (keine Verbindung)'
-        } elseif ($script:TokenErr -eq 'expired') { Stop-Ready 'Test' ('Das Secret ist abgelaufen.' + $nl + $nl + 'In Entra bei der App-Registrierung ein neues Geheimnis anlegen, den WERT bei "Secret" eintragen und nochmal "Stick fertig machen" klicken.'); return }
-        elseif ($script:TokenErr -eq 'wrong') { Stop-Ready 'Test' ('Das Secret ist falsch.' + $nl + $nl + 'Häufiger Fehler: die Geheimnis-ID statt des WERTS kopiert. Den Wert bei "Secret" eintragen und nochmal versuchen.'); return }
+        } elseif ($script:TokenErr -eq 'expired') { Stop-Ready 'Test' ('Das Secret ist abgelaufen.' + $nl + $nl + 'Oben auf "Neues Secret anlegen" klicken, den neuen Wert bei "Secret (Wert)" einfügen und nochmal "Stick fertig machen" klicken.'); return }
+        elseif ($script:TokenErr -eq 'wrong') { Stop-Ready 'Test' ('Das Secret ist falsch.' + $nl + $nl + 'Häufiger Fehler: die "Geheimnis-ID" statt des Werts kopiert. Den Wert bei "Secret (Wert)" einfügen und nochmal versuchen.'); return }
         else { Stop-Ready 'Test' ('Anmeldung bei Microsoft fehlgeschlagen:' + $nl + $script:TokenMsg + $nl + $nl + 'Tenant-ID, App-ID und Secret prüfen.'); return }
     } else {
         $apErr = Test-ApAccess $tok
