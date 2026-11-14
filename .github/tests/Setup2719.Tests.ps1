@@ -716,13 +716,13 @@ Describe 'v2.7.19 Paket 5: Autopilot-Eintrag loeschen mit doppelter Abfrage (mit
     It 'erste Rueckfrage: Autopilot-ID, letzter Kontakt, Rang bei Doppel, Intune-Plan, Warnungen' {
         $a = New-Row; $b = New-Row 'SN200' 'ap2' ''; $b.Stand = 'Fertig'; $b.EnrollState = 'enrolled'; $b.Benutzer = 'lehrer1@example.org'; $b.SyncSort = (Get-Date).AddDays(-2).ToString('yyyy-MM-dd HH:mm')
         $t = Get-DeletePlanText @($a, $b) $true (Get-Date)
-        $t | Should -Match 'Seriennummer: SN100'
-        $t | Should -Match 'Autopilot-ID: ap1'
-        $t | Should -Match 'Letzter Kontakt: 13\.11\.2026 09:10'
-        $t | Should -Match 'Gerätename:   PC-01'
-        $t | Should -Match 'Benutzer:     lehrer1@example\.org'
-        $t | Should -Match 'Intune:       Eintrag md1 wird gelöscht'
-        $t | Should -Match 'Intune:       kein Eintrag bekannt'
+        $t | Should -Match 'Seriennummer: +SN100'
+        $t | Should -Match 'Autopilot-ID: +ap1'
+        $t | Should -Match 'Letzter Kontakt: +13\.11\.2026 09:10'
+        $t | Should -Match 'Gerätename: +PC-01'
+        $t | Should -Match 'Benutzer: +lehrer1@example\.org'
+        $t | Should -Match 'Intune: +Eintrag md1 wird gelöscht'
+        $t | Should -Match 'Intune: +kein Eintrag bekannt'
         $t | Should -Match 'ACHTUNG: Das Gerät ist fertig eingerichtet'
         $t | Should -Match 'ACHTUNG: Das Gerät ist in Benutzung'
         $t | Should -Match 'Der Intune-Eintrag \(bei 1 Gerät\)'
@@ -739,15 +739,15 @@ Describe 'v2.7.19 Paket 5: Autopilot-Eintrag loeschen mit doppelter Abfrage (mit
         $x = New-Row 'SN300' 'apA' '' 2; $x.DupRank = 'älter'
         $y = New-Row 'SN300' 'apB' '' 2; $y.DupRank = 'neuer'
         $t = Get-DeletePlanText @($x, $y) $true (Get-Date)
-        $t | Should -Match 'Autopilot-ID: apA'
-        $t | Should -Match 'Autopilot-ID: apB'
-        $t | Should -Match 'Doppelt:      älterer von 2'
-        $t | Should -Match 'Doppelt:      neuerer von 2'
+        $t | Should -Match 'Autopilot-ID: +apA'
+        $t | Should -Match 'Autopilot-ID: +apB'
+        $t | Should -Match 'Doppelt: +älterer von 2'
+        $t | Should -Match 'Doppelt: +neuerer von 2'
         @([regex]::Matches($t, 'ACHTUNG: Beide Einträge dieser Seriennummer sind markiert\. Danach ist das Gerät nicht mehr in Autopilot\.')).Count | Should -Be 2
         $t1 = Get-DeletePlanText @($x) $true (Get-Date)
         $t1 | Should -Not -Match 'Beide Einträge'
         $z = New-Row 'SN300' 'apC' '' 2; $z.DupRank = 'unklar'
-        (Get-DeletePlanText @($z) $true (Get-Date)) | Should -Match 'Doppelt:      Alter unklar \(2 Einträge\)'
+        (Get-DeletePlanText @($z) $true (Get-Date)) | Should -Match 'Doppelt: +Alter unklar \(2 Einträge\)'
     }
     It 'Auswahl nach dem Auffrischen ueber die Kennung, nie ueber die Seriennummer' {
         $script:SetupText | Should -Match '\$selId = @\(\$g\.dGrid\.SelectedItems \| ForEach-Object \{ \[string\]\$_\.Id \} \| Where-Object \{ \$_ \}\)'
@@ -1150,7 +1150,7 @@ Describe 'v2.7.19 Korrekturrunde 3' {
         # uebergebener Plan wird benutzt, nicht neu berechnet
         $r = [pscustomobject]@{ Seriennr = 'SN100'; Id = 'ap1'; IntuneId = 'md1'; IntuneLink = 'ms'; IntuneAmbig = $false; IntuneSnCount = 1; DupCount = 0; Stand = 'Fertig'; Name = ''; Tag = ''; Benutzer = ''; EnrollState = ''; SyncSort = ''; LetzterKontakt = '' }
         $fake = [pscustomobject]@{ Kind = 'right'; Id = 'md1'; Link = 'ms'; More = $false; Text = 'Eintrag bleibt stehen (Recht fehlt)' }
-        (Get-DeletePlanText @($r) $true (Get-Date) @($fake)) | Should -Match 'Intune:       Eintrag bleibt stehen \(Recht fehlt\)'
+        (Get-DeletePlanText @($r) $true (Get-Date) @($fake)) | Should -Match 'Intune: +Eintrag bleibt stehen \(Recht fehlt\)'
     }
     It '4: verknuepfter Eintrag anders als der einzige Treffer ueber die Seriennummer: weitere Eintraege genannt' {
         $md = @{ 'SN:SN100' = [pscustomobject]@{ id = 'mAnders' } }; $cnt = @{ 'SN:SN100' = 1 }
@@ -1175,5 +1175,87 @@ Describe 'v2.7.19 Korrekturrunde 3' {
         $script:SetupText | Should -Match 'if \(\$mine\) \{ \$sst\.Busy = \$false; \$sst\.Dialog = \$false;'
         $script:SetupText | Should -Match "try \{ Out-Log 'Autopilot-Eintrag löschen unerwartet abgebrochen\."
         $script:SetupText | Should -Match '\$mine = \$true; \$sst\.Busy = \$true; \$sst\.Dialog = \$true; \$tm\.Stop\(\)'
+    }
+}
+
+Describe 'v2.7.19 Korrekturrunde 4' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Get-IntunePlan', 'Get-DeletePlanText', 'Get-DeleteWarnings') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        $script:FitFns = (@('Get-FitWidth', 'Measure-TextWidth', 'Measure-TextWidthRaw', 'Get-TrimStyle', 'Get-WrapStyle', 'Set-GridColumnsFit', 'Get-DeviceStand', 'Get-DeviceTodo', 'Get-DuplicateTodo', 'Get-PendingTodo') | ForEach-Object { $script:FnByName[$_] }) -join "`n"
+        $script:ColsSrc = [regex]::Match($script:SetupText, "(?s)\`$script:StatusCols = @\(.*?\r?\n\)").Value
+    }
+    It '1: kein fester Deckel mehr, "Was tun" bricht nur bei zu schmalem Bildschirm um' {
+        $script:SetupText | Should -Not -Match 'WasTun = 420'
+        $script:SetupText | Should -Match "Set-GridColumnsFit \`$g\.dGrid @\(\`$script:StatusView\) @\{\} @\{ Stand = 16 \} @\('Stand'\) @\(\`$sst\.ManualCols\.Keys\) \`$avail @\('WasTun'\)"
+        $script:FnByName['Set-GridColumnsFit'] | Should -Match '\[double\]::MaxValue'
+    }
+    It '1: jeder Stand passt mit seinem "Was tun" ganz in die Spalte (breiter Bildschirm, echte Schrift), schmal = Umbruch, nie abgeschnitten (STA)' {
+        $res = @(Invoke-Sta {
+            param($fnText, $colsSrc)
+            Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            $script:TrimStyles = @{}; $script:WrapStyles = @{}; $script:TextWidthCache = @{}
+            . ([scriptblock]::Create($fnText)); . ([scriptblock]::Create($colsSrc))
+            $t0 = Get-Date '2026-11-14 10:00'
+            $todos = @()
+            foreach ($s in 'Fertig', 'Wartet auf Profil', 'Profil da, Gerät noch nicht angemeldet', 'Kein Profil für diesen Tag', 'Fehler', 'Hardware geändert', 'Hardware wird abgeglichen') { $todos += [pscustomobject]@{ Stand = $s; WasTun = (Get-DeviceTodo $s '' '') } }
+            $todos += [pscustomobject]@{ Stand = 'Wartet auf Profil'; WasTun = (Get-DeviceTodo 'Wartet auf Profil' 'assignedOutOfSync' '') }
+            $todos += [pscustomobject]@{ Stand = 'Fehler'; WasTun = (Get-DeviceTodo 'Fehler' '' 'blocked') }
+            foreach ($rk in 'älter', 'neuer', 'unklar') { $todos += [pscustomobject]@{ Stand = 'Doppelt'; WasTun = (Get-DuplicateTodo 2 $rk) } }
+            $todos += [pscustomobject]@{ Stand = 'Wird gelöscht'; WasTun = (Get-PendingTodo $t0 $t0) }
+            $todos += [pscustomobject]@{ Stand = 'Wird gelöscht'; WasTun = (Get-PendingTodo $t0 $t0.AddHours(1)) }
+            $mk = { param($x) [pscustomobject]@{ Stand = $x.Stand; WasTun = $x.WasTun; Seriennr = 'SN26-PF07W4LQA-KUENSTLICH'; Tag = 'Klasse-2026-Lehrer'; Name = 'PC-KUENSTLICH-207'; Benutzer = 'nachname.vorname@example.org'; RegDatum = '13.11.2026 09:10'; LetzterKontakt = '13.11.2026 09:10'; LetzterSync = '13.11.2026 09:10'; Modell = 'HP ProBook 440 14 inch G10 Notebook PC'; Profil = 'zugewiesen'; Intune = 'registriert'; HUPilot = '13.11.2026 08:59 UPLOAD OK' } }
+            $rows = @($todos | ForEach-Object { & $mk $_ })
+            $grid = New-Object System.Windows.Controls.DataGrid
+            $grid.FontFamily = New-Object System.Windows.Media.FontFamily('Segoe UI'); $grid.FontSize = 12
+            foreach ($col in $script:StatusCols) { $dc = New-Object System.Windows.Controls.DataGridTextColumn; $dc.Header = $col.Header; $dc.Binding = New-Object System.Windows.Data.Binding($col.Key); $grid.Columns.Add($dc) }
+            $tf = New-Object System.Windows.Media.Typeface($grid.FontFamily, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
+            $out = @()
+            # breit (2560 px): kein Umbruch, jede Spalte so breit wie ihr breitester Text
+            Set-GridColumnsFit $grid $rows @{} @{ Stand = 16 } @('Stand') @() 2500 @('WasTun')
+            $wt = @($grid.Columns | Where-Object { $_.Binding.Path.Path -eq 'WasTun' })[0]
+            $need = ($rows | ForEach-Object { Measure-TextWidth $_.WasTun $tf 12 } | Measure-Object -Maximum).Maximum
+            $out += ('breit|' + [int]$wt.Width.Value + '|' + [int]$need + '|' + (@($script:LastGridFit.Wrapped) -join ',') + '|' + [string](@($wt.ElementStyle.Setters | Where-Object { [string]$_.Property -eq 'TextTrimming' })[0].Value))
+            foreach ($c in $grid.Columns) { $p = [string]$c.Binding.Path.Path; $n = ($rows | ForEach-Object { Measure-TextWidth ([string]$_.$p) $tf 12 } | Measure-Object -Maximum).Maximum; if ($c.Width.Value -lt $n) { $out += ('zuSchmal|' + $p) } }
+            # schmal (1366 px Arbeitsbereich minus Rand): "Was tun" bricht um, alle anderen bleiben ganz
+            Set-GridColumnsFit $grid $rows @{} @{ Stand = 16 } @('Stand') @() 1290 @('WasTun')
+            $minW = @($script:LastGridFit.Plan | Where-Object { $_.Path -eq 'WasTun' })[0].MinW
+            $out += ('schmal|' + [int]$wt.Width.Value + '|' + [int]$script:LastGridFit.Sum + '|' + [int]$minW + '|' + (@($script:LastGridFit.Wrapped) -join ',') + '|' + (@($wt.ElementStyle.Setters | Where-Object { [string]$_.Property -eq 'TextWrapping' } | ForEach-Object { 'TextWrapping=' + [string]$_.Value }) -join ''))
+            foreach ($c in $grid.Columns) { $p = [string]$c.Binding.Path.Path; if ($p -eq 'WasTun') { continue }; $n = ($rows | ForEach-Object { Measure-TextWidth ([string]$_.$p) $tf 12 } | Measure-Object -Maximum).Maximum; if ($c.Width.Value -lt $n) { $out += ('zuSchmal2|' + $p) } }
+            $out
+        } @($script:FitFns, $script:ColsSrc))
+        $b = @($res | Where-Object { $_ -like 'breit|*' })[0].Split('|')
+        [int]$b[1] | Should -BeGreaterOrEqual ([int]$b[2]) -Because 'breiter Bildschirm: Spalte mindestens so breit wie der laengste Text'
+        $b[3] | Should -Be ''
+        $b[4] | Should -Be 'CharacterEllipsis'
+        @($res | Where-Object { $_ -like 'zuSchmal*' }) | Should -BeNullOrEmpty
+        $s = @($res | Where-Object { $_ -like 'schmal|*' })[0].Split('|')
+        $s[4] | Should -Be 'WasTun'
+        $s[5] | Should -Be 'TextWrapping=Wrap'
+        [int]$s[1] | Should -BeGreaterOrEqual 200
+        # passt alles auf 1290 px, oder "Was tun" ist schon so schmal wie erlaubt (Rest: waagrechter Bildlauf, nichts abgeschnitten)
+        (([int]$s[2] -le 1290) -or ([int]$s[1] -eq [int]$s[3])) | Should -BeTrue
+    }
+    It '1: andere Tabellen ohne Deckel (vorher 320 px je Spalte, gekuerzt ohne Umbruch)' {
+        $script:FnByName['Set-GridColumnsFit'] | Should -Not -Match 'else \{ 320 \}'
+    }
+    It '2: kein doppelter Doppelpunkt nach dem Laufwerksbuchstaben' {
+        # Laufwerk $dr ist "D:" (mit Doppelpunkt); $Target ist "Stick D:". Open-InfoLink nutzt $Target fuer einen Link, das ist gemeint.
+        $script:SetupText | Should -Not -Match "\`$dr \+ ': '"
+        $script:SetupText | Should -Not -Match "Out-Log \(\`$Target \+ ': '"
+        $script:SetupText | Should -Match "'Am gewählten Stick ' \+ \`$dr \+ ' ' \+ \(Get-IcdStateText \`$dst\)"
+        $script:SetupText | Should -Match "Out-Log \('Stick ' \+ \`$dr \+ ' ohne MAK'\)"
+        # Laufwerk ist "D:", Ergebnis "Stick D: ohne MAK"
+        ('Stick ' + 'D:' + ' ohne MAK') | Should -Be 'Stick D: ohne MAK'
+    }
+    It '3: Rueckfrage: alle Werte beginnen in derselben Spalte' {
+        $r = [pscustomobject]@{ Seriennr = 'SN100'; Id = 'ap1'; IntuneId = 'md1'; IntuneLink = 'ms'; IntuneAmbig = $false; IntuneSnCount = 1; DupCount = 2; DupRank = 'älter'; Stand = 'Doppelt'; Name = 'PC-01'; Tag = 'SN-2026'; Benutzer = 'x@example.org'; EnrollState = ''; SyncSort = ''; LetzterKontakt = '13.11.2026 09:10' }
+        $t = Get-DeletePlanText @($r, $r) $true (Get-Date)
+        $cols = @()
+        foreach ($l in ($t -split "`r`n")) {
+            if ($l -match '^(\d\) |   )(Seriennummer|Autopilot-ID|Gerätename|Tag|Benutzer|Stand|Letzter Kontakt|Doppelt|Intune):( +)\S') { $cols += ($Matches[1].Length + $Matches[2].Length + 1 + $Matches[3].Length) }
+        }
+        $cols.Count | Should -Be 18
+        @($cols | Sort-Object -Unique).Count | Should -Be 1
+        $cols[0] | Should -Be 20
     }
 }

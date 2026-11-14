@@ -681,7 +681,7 @@ function Get-KeptLeft([double]$Left, [double]$Width, [double]$AreaLeft, [double]
 }
 # ---------- Spaltenbreite = breitester Inhalt (Kopf eingeschlossen) plus ein festes Stueck Luft, nie mehr ----------
 #   Gemessen wird der Text selbst ueber ALLE Zeilen (die Auto-Breite der Tabelle misst nur sichtbare Zeilen und wird nie kleiner).
-#   Keine Stern-Breite, keine gemerkten Breiten. Obergrenze je Spalte, darueber Auslassung mit Tooltip auf den vollen Text.
+#   Keine Stern-Breite, keine gemerkten Breiten. Kein fester Deckel (Regel: nie abgeschnitten), nur ausdruecklich je Spalte.
 # $Content/$Header: gemessene Breite in Pixeln. $Air: Zellabstand links und rechts plus Rahmen. Kopf mit Platz fuer den Sortierpfeil.
 function Get-FitWidth([double]$Content, [double]$Header, [double]$Air = 18, [double]$Max = 320) {
     $w = [math]::Max($Content, $Header + 12) + $Air
@@ -711,41 +711,80 @@ function Measure-TextWidthRaw([string]$Text, $Typeface, [double]$Size) {
 $script:TrimStyles = @{}
 function Get-TrimStyle([string]$Path) {
     if (-not $script:TrimStyles.ContainsKey($Path)) {
-        $script:TrimStyles[$Path] = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding Path=' + $Path + '}"/></Style>')
+        $script:TrimStyles[$Path] = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="Margin" Value="2,0,2,0"/><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding Path=' + $Path + '}"/></Style>')
     }
     return $script:TrimStyles[$Path]
 }
-# Alle Spalten einer Tabelle setzen. $Max: Obergrenze je Bindungspfad (Standard 320), $Extra: Zusatz je Pfad (z. B. Schild),
+# Umbrechende Zelle (nur fuer Spalten, die schmaler sein muessen als ihr Text): ganzer Text, Zeile wird hoeher
+$script:WrapStyles = @{}
+function Get-WrapStyle([string]$Path) {
+    if (-not $script:WrapStyles.ContainsKey($Path)) {
+        $script:WrapStyles[$Path] = [Windows.Markup.XamlReader]::Parse('<Style TargetType="TextBlock" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Setter Property="Margin" Value="2,0,2,0"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="TextTrimming" Value="None"/></Style>')
+    }
+    return $script:WrapStyles[$Path]
+}
+# Alle Spalten einer Tabelle setzen: jede so breit wie der breiteste angezeigte Text plus Luft, OHNE festen Deckel
+# (Regel: nie abgeschnitten). $Max: Obergrenze nur fuer ausdruecklich genannte Pfade, $Extra: Zusatz je Pfad (z. B. Schild),
 # $Bold: Pfade, deren Inhalt halbfett steht. $Skip: Pfade, die unveraendert bleiben (von Hand gezogen).
+# $Avail: Platz fuer alle Spalten zusammen (0 = unbegrenzt). Waere die Summe breiter, werden nur die Spalten aus $Wrap
+# schmaler (nie unter ihr laengstes Wort, mindestens 200 px) und brechen dann in der Zelle um. Reicht auch das nicht,
+# bleibt der waagrechte Bildlauf. Abgeschnittener Text ohne Umbruch kommt so nicht vor.
 # $rows: genau die ANGEZEIGTEN Zeilen (nach allen Filtern). Ist eine Spalte darin leer, ist sie so breit wie ihre Ueberschrift.
-function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Extra = @{}, [string[]]$Bold = @(), [string[]]$Skip = @()) {
+# Ergebnis fuer Tests und Fensterbreite in $script:LastGridFit (Wrapped, Sum, Natural).
+function Set-GridColumnsFit($grid, $rows, [hashtable]$Max = @{}, [hashtable]$Extra = @{}, [string[]]$Bold = @(), [string[]]$Skip = @(), [double]$Avail = 0, [string[]]$Wrap = @()) {
     try {
+        if ($null -eq $script:TrimStyles) { $script:TrimStyles = @{} }; if ($null -eq $script:WrapStyles) { $script:WrapStyles = @{} }
         $ff = $grid.FontFamily; $fs = $grid.FontSize
         $tfN = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
         $tfB = New-Object System.Windows.Media.Typeface($ff, [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::SemiBold, [System.Windows.FontStretches]::Normal)
         $rows = @($rows)
+        $plan = @(); $fixed = 0.0
         foreach ($c in @($grid.Columns)) {
             $path = ''; try { $path = [string]$c.Binding.Path.Path } catch { }
-            if (-not $path -or $Skip -contains $path) { continue }
+            if (-not $path -or $Skip -contains $path) { try { $fixed += [double]$c.Width.Value } catch { }; continue }
             $tf = $(if ($Bold -contains $path) { $tfB } else { $tfN })
-            $m = 0.0; $seen = @{}
+            $m = 0.0; $mw = 0.0; $seen = @{}
             foreach ($r in $rows) {
                 $v = [string]$r.$path
                 if (-not $v -or $seen.ContainsKey($v)) { continue }
                 $seen[$v] = $true
                 $x = Measure-TextWidth $v $tf $fs
                 if ($x -gt $m) { $m = $x }
+                if ($Wrap -contains $path) { foreach ($w in @($v -split '\s+')) { $y = Measure-TextWidth $w $tf $fs; if ($y -gt $mw) { $mw = $y } } }
             }
             $h = Measure-TextWidth ([string]$c.Header) $tfN $fs
-            $mx = $(if ($Max.ContainsKey($path)) { [double]$Max[$path] } else { 320 })
+            $mx = $(if ($Max.ContainsKey($path)) { [double]$Max[$path] } else { [double]::MaxValue })
             $ex = $(if ($Extra.ContainsKey($path)) { [double]$Extra[$path] } else { 0 })
             # Luft: Zellabstand 8 + 8, Rahmen 1 + 1 und der feste Textrand der Textspalte 2 + 2 (gilt auch mit eigenem Stil)
-            $c.Width = New-Object System.Windows.Controls.DataGridLength((Get-FitWidth ($m + $ex) $h 22 $mx))
-            if ($c -is [System.Windows.Controls.DataGridTextColumn] -and $null -eq $c.ElementStyle) { $c.ElementStyle = Get-TrimStyle $path }
+            $nat = Get-FitWidth ($m + $ex) $h 22 $mx
+            $minW = [math]::Min($nat, [math]::Max(200, [math]::Ceiling($mw + $ex + 22)))
+            $plan += [pscustomobject]@{ Col = $c; Path = $path; W = [double]$nat; Nat = [double]$nat; MinW = [double]$minW; Wrap = $false }
         }
+        $sum = $fixed + ($plan | Measure-Object -Property W -Sum).Sum
+        $natural = $sum
+        if ($Avail -gt 0 -and $sum -gt $Avail) {
+            $over = $sum - $Avail
+            foreach ($p in @($plan | Where-Object { $Wrap -contains $_.Path })) {
+                if ($over -le 0) { break }
+                $take = [math]::Min($over, $p.W - $p.MinW)
+                if ($take -gt 0) { $p.W -= $take; $over -= $take; $p.Wrap = $true }
+            }
+            $sum = $fixed + ($plan | Measure-Object -Property W -Sum).Sum
+        }
+        foreach ($p in $plan) {
+            $p.Col.Width = New-Object System.Windows.Controls.DataGridLength($p.W)
+            if ($p.Col -is [System.Windows.Controls.DataGridTextColumn]) {
+                # eigener Stil der Spalte (z. B. Schild "Stand") bleibt; sonst gekuerzt mit Tooltip oder umbrechend
+                $es = $p.Col.ElementStyle
+                # Achtung: ElementStyle ist nie leer, WPF setzt DefaultElementStyle. Der alte Vergleich mit $null griff deshalb nie,
+                # Zellen wurden ohne "..." und ohne Umbruch hart abgeschnitten (Befund aus dem echten Fenster, v2.7.19).
+                $mine = ($null -eq $es -or $es -eq [System.Windows.Controls.DataGridTextColumn]::DefaultElementStyle -or ($script:TrimStyles.ContainsKey($p.Path) -and $es -eq $script:TrimStyles[$p.Path]) -or ($script:WrapStyles.ContainsKey($p.Path) -and $es -eq $script:WrapStyles[$p.Path]))
+                if ($mine) { $p.Col.ElementStyle = $(if ($p.Wrap) { Get-WrapStyle $p.Path } else { Get-TrimStyle $p.Path }) }
+            }
+        }
+        $script:LastGridFit = [pscustomobject]@{ Wrapped = @($plan | Where-Object { $_.Wrap } | ForEach-Object { $_.Path }); Sum = $sum; Natural = $natural; Plan = $plan }
     } catch { }
-}
-# Fenster so breit wie die Spalten der Tabelle (Inhalt plus Luft aus dem Zellabstand), mindestens $Min, hoechstens der
+}# Fenster so breit wie die Spalten der Tabelle (Inhalt plus Luft aus dem Zellabstand), mindestens $Min, hoechstens der
 # Arbeitsbereich; danach wieder ganz in den Bildschirm. Nur wenn der Bildschirm zu schmal ist, bleibt der Querbalken.
 function Set-GridWindowWidth($w, $grid, [double]$Min = 0) {
     try {
@@ -2749,7 +2788,7 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         # auch nicht kurz und auch nicht, wenn das Kopieren danach abbricht (eine alte config.json wird sofort ersetzt)
         $cfgBytes = $(if ($WithMak) { [System.IO.File]::ReadAllBytes($srcCfg) } else { Get-CfgBytesNoMak $srcCfg })
         [System.IO.File]::WriteAllBytes((Join-Path $dst 'config.json'), $cfgBytes)
-        if (-not $WithMak) { Out-Log ('Stick ' + $dr + ': ohne MAK') }
+        if (-not $WithMak) { Out-Log ('Stick ' + $dr + ' ohne MAK') }
         foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { -not (Test-SkipForStick $_.Name) })) {
             Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force -ErrorAction Stop
         }
@@ -2757,8 +2796,8 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         foreach ($x in @(Get-ChildItem -Path $dst -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'GitHubToken_*.xml' -or $_.Name -eq 'pull-journal.json' -or $_.Name -match '\.(pullold|pulltmp)$' })) { Remove-Item -LiteralPath $x.FullName -Force -ErrorAction SilentlyContinue }
         # Altes WLAN-Paket, Katalog oder Pruefmerkmal, die nicht aus der Quelle stammen, entfernen (sonst nimmt go ein falsches Paket)
         foreach ($x in @(Get-StaleStickPkg $dr)) {
-            try { Remove-Item -LiteralPath (Join-Path $dst $x) -Force -ErrorAction Stop; Out-Log ('Stick ' + $dr + ': altes ' + $x + ' entfernt, es gehörte nicht zur Quelle') 'Hinweis' }
-            catch { Out-Log ('Stick ' + $dr + ': altes ' + $x + ' konnte nicht entfernt werden. Bitte von Hand löschen.') 'Fehler' $_.Exception.Message }
+            try { Remove-Item -LiteralPath (Join-Path $dst $x) -Force -ErrorAction Stop; Out-Log ('Stick ' + $dr + ' altes ' + $x + ' entfernt, es gehörte nicht zur Quelle') 'Hinweis' }
+            catch { Out-Log ('Stick ' + $dr + ' altes ' + $x + ' konnte nicht entfernt werden. Bitte von Hand löschen.') 'Fehler' $_.Exception.Message }
         }
         Out-Log ('Auf Stick ' + $dr + ' kopiert') '' ($srcStick + ' nach ' + $dr + '\, ohne logs, Ordner mit _ und ohne die Kopie des Paketbaus')
         # Kopie des Paketbaus nur mit Haekchen (Fehler dabei machen den Stick nicht unbrauchbar, sie stehen rot im Protokoll)
@@ -2768,7 +2807,7 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         # Schreibcache leeren, dann kontrollieren
         try { Write-VolumeCache -DriveLetter $dr.Substring(0, 1) -ErrorAction Stop } catch { }
         $bad = @(Test-StickCopy $dr $cfgBytes ([string](Get-Cfg).WlanPackage))
-        if ($bad.Count) { $script:CopyErr = 'Kontrolle nicht bestanden: ' + ($bad -join ', '); Out-Log ('Stick ' + $dr + ': ' + $script:CopyErr + '. Stick neu anstecken und nochmal kopieren.') 'Fehler'; return $false }
+        if ($bad.Count) { $script:CopyErr = 'Kontrolle nicht bestanden: ' + ($bad -join ', '); Out-Log ('Stick ' + $dr + ' ' + $script:CopyErr + '. Stick neu anstecken und nochmal kopieren.') 'Fehler'; return $false }
         Out-Log ('Stick ' + $dr + ' kontrolliert: alle Dateien stimmen mit der Quelle überein') 'OK' ('SHA256: go.cmd, go.ps1, config.json' + $(if ((Get-Cfg).WlanPackage -and (Test-Path $srcPkg)) { ', WLAN-Paket' } else { '' }))
         return $true
     } catch { $script:CopyErr = $_.Exception.Message; Out-Log ('Kopieren auf ' + $dr + ' fehlgeschlagen. Stick neu anstecken und nochmal versuchen.') 'Fehler' $_.Exception.Message; return $false }
@@ -2824,7 +2863,7 @@ function Confirm-CopyPrereqs([string]$Target, $Owner) {
         $q = [System.Windows.MessageBox]::Show($Owner, ('Im Feld "MAK (Pro)" steht ein Schlüssel (endet auf ' + $tail + ').' + "`r`n`r`n" + 'MAK mit auf ' + $Target + '?' + "`r`n`r`n" + 'Ja = mit MAK (nur für Geräte mit Windows Home nötig)' + "`r`n" + 'Nein = ohne MAK, die Quelle bleibt unverändert' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - MAK auf den Stick?', 'YesNoCancel', 'Question')
         if ($q -eq 'Cancel' -or $q -eq 'None') { Out-Log 'Kopieren abgebrochen'; return $null }
         $withMak = ($q -eq 'Yes')
-        Out-Log ($Target + ': ' + $(if ($withMak) { 'mit MAK' } else { 'ohne MAK' }))
+        Out-Log ($Target + ' ' + $(if ($withMak) { 'mit MAK' } else { 'ohne MAK' }))
     }
     return @{ WithMak = $withMak }
 }
@@ -3003,7 +3042,7 @@ function Update-IcdUi([switch]$Report) {
         $(if ($script:IcdSelf) { 'Das Setup läuft von diesem Stick: Häkchen setzen holt die Kopie auf diesen Stick, Häkchen entfernen fragt, ob sie gelöscht werden soll.' } else { 'Stick fertig machen, 5. Auf Stick kopieren und Sticks vorbereiten prüfen den Ziel-Stick und kopieren nur, was fehlt oder veraltet ist.' }) + $nl + $nl +
         'Am PC: ' + $(if ($pc) { 'Windows ADK, Version ' + $pc } elseif ($instRaw) { 'Windows ADK ' + $instRaw + ' (dem Setup nicht bekannt, wird nicht verwendet)' } else { 'kein Windows ADK' }) + $nl +
         $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) +
-        $(if ($dst) { $nl + 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText $dst) + ' (ungeprüft, geprüft wird beim Kopieren)' } else { '' }) + $nl + $nl +
+        $(if ($dst) { $nl + 'Am gewählten Stick ' + $dr + ' ' + (Get-IcdStateText $dst) + ' (ungeprüft, geprüft wird beim Kopieren)' } else { '' }) + $nl + $nl +
         $(if (-not $script:IcdCanUse) { 'Kein Windows ADK an diesem PC und keine Kopie vorhanden.' + $nl } else { '' }) +
         'Rechtsklick: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Diese Möglichkeit ist noch im Test.'
     $ui.cIcdStick.ToolTip = $tip
@@ -3053,7 +3092,7 @@ $addI = { param($h, $sb) $mi = New-Object System.Windows.Controls.MenuItem; $mi.
         $dr = Get-ReadyDrive
         $t = 'Am PC: ' + $(if ($instRaw) { 'Windows ADK, Version ' + $instRaw + $(if (-not (Get-IcdPcVersion)) { ' (dem Setup nicht bekannt)' } else { '' }) } else { 'kein Windows ADK' }) + $nl +
             $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) + $nl
-        if ($dr -and -not $script:IcdSelf) { $t += 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText (Get-IcdState (Join-Path ($dr + '\') 'HUPilot\ADK-ICD') -Full)) + $nl }
+        if ($dr -and -not $script:IcdSelf) { $t += 'Am gewählten Stick ' + $dr + ' ' + (Get-IcdStateText (Get-IcdState (Join-Path ($dr + '\') 'HUPilot\ADK-ICD') -Full)) + $nl }
         $t += $nl + 'Geprüft: Prüfsummen, fremde Dateien und Signaturen.'
         Show-Msg $t 'HUPilot - Paketbau'
     }
@@ -3654,17 +3693,19 @@ function Get-DeletePlanText($Rows, [bool]$CanIntune, [datetime]$Now, $Plans = $n
     $nAmbig = @($plans | Where-Object { $_.Kind -eq 'ambig' }).Count
     $geraet = { param($n) '' + $n + ' Gerät' + $(if ($n -ne 1) { 'en' } else { '' }) }
     $t = 'Autopilot-Eintrag löschen: ' + $Rows.Count + ' Gerät' + $(if ($Rows.Count -ne 1) { 'e' } else { '' }) + $nl + $nl
+    # Feldnamen auf gleiche Breite (Consolas): alle Werte beginnen in derselben Spalte
+    $fld = { param([string]$pre, [string]$n, $v) $pre.PadRight(3) + ($n + ':').PadRight(17) + [string]$v }
     for ($i = 0; $i -lt $Rows.Count; $i++) {
         $r = $Rows[$i]; $p = $plans[$i]
-        $t += ('' + ($i + 1) + ') Seriennummer: ' + $r.Seriennr) + $nl
-        $t += ('   Autopilot-ID: ' + $r.Id) + $nl
-        $t += ('   Gerätename:   ' + $(if ($r.Name) { $r.Name } else { '-' })) + $nl
-        $t += ('   Tag:          ' + $(if ($r.Tag) { $r.Tag } else { '-' })) + $nl
-        $t += ('   Benutzer:     ' + $(if ($r.Benutzer) { $r.Benutzer } else { '-' })) + $nl
-        $t += ('   Stand:        ' + $r.Stand) + $nl
-        $t += ('   Letzter Kontakt: ' + $(if ($r.LetzterKontakt) { $r.LetzterKontakt } else { '-' })) + $nl
-        if ([int]$r.DupCount -gt 1) { $t += ('   Doppelt:      ' + $(switch ([string]$r.DupRank) { 'älter' { 'älterer von ' + $r.DupCount } 'neuer' { 'neuerer von ' + $r.DupCount } default { 'Alter unklar (' + $r.DupCount + ' Einträge)' } })) + $nl }
-        $t += ('   Intune:       ' + $p.Text) + $nl
+        $t += (& $fld ('' + ($i + 1) + ')') 'Seriennummer' $r.Seriennr) + $nl
+        $t += (& $fld '' 'Autopilot-ID' $r.Id) + $nl
+        $t += (& $fld '' 'Gerätename' $(if ($r.Name) { $r.Name } else { '-' })) + $nl
+        $t += (& $fld '' 'Tag' $(if ($r.Tag) { $r.Tag } else { '-' })) + $nl
+        $t += (& $fld '' 'Benutzer' $(if ($r.Benutzer) { $r.Benutzer } else { '-' })) + $nl
+        $t += (& $fld '' 'Stand' $r.Stand) + $nl
+        $t += (& $fld '' 'Letzter Kontakt' $(if ($r.LetzterKontakt) { $r.LetzterKontakt } else { '-' })) + $nl
+        if ([int]$r.DupCount -gt 1) { $t += (& $fld '' 'Doppelt' $(switch ([string]$r.DupRank) { 'älter' { 'älterer von ' + $r.DupCount } 'neuer' { 'neuerer von ' + $r.DupCount } default { 'Alter unklar (' + $r.DupCount + ' Einträge)' } })) + $nl }
+        $t += (& $fld '' 'Intune' $p.Text) + $nl
         if ($p.More -and $p.Kind -eq 'delete') { $t += '   Es gibt weitere Intune-Einträge mit dieser Seriennummer, die bleiben stehen (Admin).' + $nl }
         foreach ($w in @(Get-DeleteWarnings $r $Now $Rows)) { $t += ('   ' + $w) + $nl }
         $t += $nl
@@ -4078,7 +4119,12 @@ function Show-Status {
     }
     # Breite je Spalte = breitester Text der angezeigten Zeilen plus Luft; von Hand gezogene Spalten bleiben bis zum Schliessen
     $fitCols = {
-        Set-GridColumnsFit $g.dGrid @($script:StatusView) @{ WasTun = 420 } @{ Stand = 16 } @('Stand') @($sst.ManualCols.Keys)
+        # kein Deckel fuer "Was tun": nur wenn alle Spalten zusammen breiter waeren als der Bildschirm, wird sie schmaler und bricht um.
+        # Platz = Arbeitsbereich minus Fensterrand, Luft und Bildlaufleiste (so rechnet auch $fitWin die Fensterbreite)
+        $wa = Get-WinWorkArea $sw
+        $chrome = $(if ($sw.ActualWidth -gt 0 -and $g.dGrid.ActualWidth -gt 0) { $sw.ActualWidth - $g.dGrid.ActualWidth } else { 40 })
+        $avail = [math]::Max(400, $wa.Width - $chrome - 20 - 16)
+        Set-GridColumnsFit $g.dGrid @($script:StatusView) @{} @{ Stand = 16 } @('Stand') @($sst.ManualCols.Keys) $avail @('WasTun')
         foreach ($dc in $g.dGrid.Columns) { $sst.FitW[[string]$dc.Binding.Path.Path] = $dc.Width.Value }
     }
     # Fensterbreite an die Spalten anpassen (breiter und schmaler), solange der Anwender das Fenster nicht selbst veraendert hat
