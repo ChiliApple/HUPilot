@@ -335,3 +335,189 @@ Describe 'v2.7.19 Pakete 3 und 4: Hardware geaendert und doppelte Seriennummern'
         $script:SetupText | Should -Match '\$id = \$\(if \(\$Row\.Id\) \{ \[string\]\$Row\.Id \} else \{ \$script:ApIds\[\[string\]\$Row\.Seriennr\] \}\)'
     }
 }
+
+Describe 'v2.7.19 Paket 5: Autopilot-Eintrag loeschen mit doppelter Abfrage' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Get-ErrCode', 'Get-ErrText', 'Get-TokenRoles', 'Test-DeleteSelection', 'Test-DeleteConfirm', 'Get-DeleteWarnings', 'Get-DeletePlanText', 'Invoke-ApDeleteOne', 'Get-DeleteSummary') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        $script:DelMax = 5
+        $script:DelGB = 'https://graph.microsoft.com/beta/deviceManagement'
+        # Graph ersetzt: jeder Aufruf wird mitgeschrieben, die Antwort kommt aus $script:Fake (nie ein echter Aufruf)
+        $script:Calls = New-Object System.Collections.Generic.List[string]
+        function Invoke-HuGraph([string]$Method, [string]$Uri, [string]$Token) {
+            $script:Calls.Add($Method + ' ' + $Uri.Replace($script:DelGB, ''))
+            return (& $script:Fake $Method $Uri.Replace($script:DelGB, ''))
+        }
+        function New-Row([string]$Sn = 'SN100', [string]$Id = 'ap1', [string]$IntuneId = 'md1', [int]$Dup = 0) {
+            [pscustomobject]@{ Seriennr = $Sn; Id = $Id; IntuneId = $IntuneId; DupCount = $Dup; Stand = 'Hardware geändert'; Name = 'PC-01'; Tag = 'SN-2026'; Benutzer = ''; EnrollState = 'notContacted'; SyncSort = '' }
+        }
+        # Standard: alles passt (Seriennummer SN100, verknuepfter Intune-Eintrag md1, Benutzer zugewiesen)
+        $script:FakeOk = {
+            param($m, $u)
+            if ($m -eq 'GET' -and $u -eq '/windowsAutopilotDeviceIdentities/ap1') { return [pscustomobject]@{ id = 'ap1'; serialNumber = 'SN100'; managedDeviceId = 'md1'; userPrincipalName = 'schueler1@example.org' } }
+            if ($m -eq 'GET' -and $u -like '/managedDevices/md1*') { return [pscustomobject]@{ id = 'md1'; serialNumber = 'SN100'; deviceName = 'PC-01' } }
+            return $null
+        }
+    }
+    BeforeEach { $script:Calls.Clear(); $script:Fake = $script:FakeOk }
+    It 'Auswahl: nichts markiert, mehr als 5, Zeile wird schon geloescht, ohne Kennung = nichts tun, mit Klartext' {
+        (Test-DeleteSelection @()).Ok | Should -BeFalse
+        (Test-DeleteSelection @()).Msg | Should -Match 'markieren'
+        $six = @(1..6 | ForEach-Object { New-Row ('SN' + $_) ('ap' + $_) })
+        $r6 = Test-DeleteSelection $six
+        $r6.Ok | Should -BeFalse
+        $r6.Msg | Should -Match 'Höchstens 5 Geräte auf einmal\. Markiert sind 6\..*nichts gelöscht'
+        (Test-DeleteSelection @($six[0..4])).Ok | Should -BeTrue
+        $p = New-Row; $p.Stand = 'Wird gelöscht'
+        (Test-DeleteSelection @($p)).Msg | Should -Match 'wird schon gelöscht'
+        (Test-DeleteSelection @((New-Row 'SN9' ''))).Msg | Should -Match 'Kennung fehlt'
+    }
+    It 'zweite Abfrage streng: ein Geraet Seriennummer genau, mehrere das Wort LÖSCHEN' {
+        Test-DeleteConfirm 'SN100' @('SN100') | Should -BeTrue
+        Test-DeleteConfirm 'sn100' @('SN100') | Should -BeFalse
+        Test-DeleteConfirm 'SN100 ' @('SN100') | Should -BeFalse
+        Test-DeleteConfirm 'LÖSCHEN' @('SN100') | Should -BeFalse
+        Test-DeleteConfirm '' @('SN100') | Should -BeFalse
+        Test-DeleteConfirm 'LÖSCHEN' @('SN1', 'SN2') | Should -BeTrue
+        Test-DeleteConfirm 'löschen' @('SN1', 'SN2') | Should -BeFalse
+        Test-DeleteConfirm 'LOESCHEN' @('SN1', 'SN2') | Should -BeFalse
+        Test-DeleteConfirm 'SN1' @('SN1', 'SN2') | Should -BeFalse
+    }
+    It 'Rechte aus dem Token, unlesbar = leer' {
+        $pl = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"roles":["DeviceManagementServiceConfig.ReadWrite.All","DeviceManagementManagedDevices.ReadWrite.All"]}')).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+        $r = Get-TokenRoles ('eyJ0eXAiOiJKV1QifQ.' + $pl + '.sig')
+        $r | Should -Contain 'DeviceManagementManagedDevices.ReadWrite.All'
+        @(Get-TokenRoles 'kaputt').Count | Should -Be 0
+        @(Get-TokenRoles '').Count | Should -Be 0
+    }
+    It 'erste Rueckfrage nennt je Geraet Seriennummer, Name, Tag, Benutzer und was verloren geht, warnt bei Fertig und in Benutzung' {
+        $a = New-Row; $b = New-Row 'SN200' 'ap2' ''; $b.Stand = 'Fertig'; $b.EnrollState = 'enrolled'; $b.Benutzer = 'lehrer1@example.org'; $b.SyncSort = (Get-Date).AddDays(-2).ToString('yyyy-MM-dd HH:mm')
+        $t = Get-DeletePlanText @($a, $b) $true (Get-Date)
+        $t | Should -Match 'Seriennummer: SN100'
+        $t | Should -Match 'Gerätename:   PC-01'
+        $t | Should -Match 'Tag:          SN-2026'
+        $t | Should -Match 'Benutzer:     lehrer1@example\.org'
+        $t | Should -Match 'Was verloren geht:'
+        $t | Should -Match 'Rückgängig machen geht nicht'
+        $t | Should -Match 'bis zu 30 Minuten'
+        $t | Should -Match 'ACHTUNG: Das Gerät ist fertig eingerichtet'
+        $t | Should -Match 'ACHTUNG: Das Gerät ist in Benutzung'
+        $t | Should -Match 'Der Intune-Eintrag \(bei 1 Gerät\)'
+        $t2 = Get-DeletePlanText @($a) $false (Get-Date)
+        $t2 | Should -Match 'Nicht gelöscht wird der Intune-Eintrag.*DeviceManagementManagedDevices\.ReadWrite\.All'
+        $t2 | Should -Match 'Eintrag bleibt stehen \(Recht fehlt\)'
+        $t2 | Should -Not -Match '[–—→„“…]'
+    }
+    It 'Reihenfolge wie in go.ps1: Intune, Benutzer-Zuweisung, Autopilot, vor jedem Loeschen neu gelesen' {
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        @($script:Calls) | Should -Be @(
+            'GET /windowsAutopilotDeviceIdentities/ap1',
+            'GET /managedDevices/md1?$select=id,serialNumber,deviceName',
+            'DELETE /managedDevices/md1',
+            'POST /windowsAutopilotDeviceIdentities/ap1/unassignUserFromDevice',
+            'GET /windowsAutopilotDeviceIdentities/ap1',
+            'DELETE /windowsAutopilotDeviceIdentities/ap1')
+        $x.Deleted | Should -BeTrue
+        $x.Level | Should -Be 'OK'
+        $x.Text | Should -Match '^SN100: Autopilot-Eintrag gelöscht \(Intune-Eintrag gelöscht, Benutzer-Zuweisung aufgehoben\)'
+    }
+    It 'Seriennummer passt beim Neulesen nicht: uebersprungen, nichts geloescht' {
+        $script:Fake = { param($m, $u) if ($m -eq 'GET' -and $u -like '/windowsAutopilotDeviceIdentities/*') { return [pscustomobject]@{ id = 'ap1'; serialNumber = 'ANDERE'; managedDeviceId = 'md1' } } }
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        @($script:Calls | Where-Object { $_ -like 'DELETE*' -or $_ -like 'POST*' }).Count | Should -Be 0
+        $x.Deleted | Should -BeFalse
+        $x.Text | Should -Match 'Übersprungen, nichts gelöscht'
+    }
+    It 'Eintrag schon weg (404) oder nicht lesbar: nichts geloescht' {
+        $script:Fake = { param($m, $u) throw 'Response status code does not indicate success: 404 (Not Found).' }
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        $x.Level | Should -Be 'Hinweis'; $x.Deleted | Should -BeFalse
+        $script:Fake = { param($m, $u) throw 'Zeitüberschreitung' }
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        $x.Level | Should -Be 'Fehler'; $x.Deleted | Should -BeFalse
+        @($script:Calls | Where-Object { $_ -like 'DELETE*' }).Count | Should -Be 0
+    }
+    It 'verknuepfter Intune-Eintrag gehoert zu anderer Seriennummer: uebersprungen, nichts geloescht' {
+        $script:Fake = { param($m, $u) if ($u -like '/managedDevices/*') { return [pscustomobject]@{ id = 'md1'; serialNumber = 'FREMD' } }; & $script:FakeOk $m $u }
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        @($script:Calls | Where-Object { $_ -like 'DELETE*' -or $_ -like 'POST*' }).Count | Should -Be 0
+        $x.Text | Should -Match 'anderen Seriennummer'
+    }
+    It 'Intune-Eintrag nicht loeschbar: Autopilot-Eintrag bleibt unveraendert' {
+        $script:Fake = { param($m, $u) if ($m -eq 'DELETE' -and $u -like '/managedDevices/*') { throw 'Response status code does not indicate success: 403 (Forbidden).' }; & $script:FakeOk $m $u }
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        @($script:Calls | Where-Object { $_ -like 'DELETE /windowsAutopilot*' }).Count | Should -Be 0
+        $x.Deleted | Should -BeFalse
+        $x.Text | Should -Match 'Autopilot-Eintrag bleibt deshalb unverändert'
+        $x.Detail | Should -Match '403'
+    }
+    It 'Teilerfolg wird ausdruecklich gemeldet: Intune weg, Autopilot nicht' {
+        $script:Fake = { param($m, $u) if ($m -eq 'DELETE' -and $u -like '/windowsAutopilot*') { throw 'Response status code does not indicate success: 500 (Internal Server Error).' }; & $script:FakeOk $m $u }
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        $x.Deleted | Should -BeFalse
+        $x.Level | Should -Be 'Fehler'
+        $x.Text | Should -Match 'TEILWEISE: Intune-Eintrag gelöscht, Autopilot-Eintrag NICHT gelöscht'
+    }
+    It 'Eintrag aendert sich zwischen den Schritten: Autopilot nicht geloescht, Teilerfolg gemeldet' {
+        $script:N = 0
+        $script:Fake = { param($m, $u) if ($m -eq 'GET' -and $u -eq '/windowsAutopilotDeviceIdentities/ap1') { $script:N++; if ($script:N -gt 1) { return [pscustomobject]@{ id = 'ap1'; serialNumber = 'NEU' } } }; & $script:FakeOk $m $u }
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        @($script:Calls | Where-Object { $_ -eq 'DELETE /windowsAutopilotDeviceIdentities/ap1' }).Count | Should -Be 0
+        $x.Text | Should -Match 'TEILWEISE.*geändert'
+    }
+    It 'ohne Schreibrecht fuer Intune: nur der Autopilot-Eintrag, Intune bleibt, Hinweis an den Admin' {
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $false
+        @($script:Calls | Where-Object { $_ -like '*managedDevices*' }).Count | Should -Be 0
+        $x.Deleted | Should -BeTrue
+        $x.Level | Should -Be 'Hinweis'
+        $x.Text | Should -Match 'Intune-Eintrag bleibt \(Recht fehlt\).*Admin im Intune-Portal'
+    }
+    It 'doppelte Seriennummer ohne Verknuepfung: der Intune-Eintrag des anderen Eintrags bleibt unberuehrt' {
+        $script:Fake = { param($m, $u) if ($m -eq 'GET' -and $u -like '/windowsAutopilot*') { return [pscustomobject]@{ id = 'ap1'; serialNumber = 'SN100'; managedDeviceId = '00000000-0000-0000-0000-000000000000' } } }
+        $x = Invoke-ApDeleteOne (New-Row 'SN100' 'ap1' 'mdAnders' 2) 'tok' $true
+        @($script:Calls | Where-Object { $_ -like '*managedDevices*' }).Count | Should -Be 0
+        $x.Deleted | Should -BeTrue
+        # ohne Doppel: Intune-Eintrag aus der Liste (gleiche Seriennummer) wird verwendet
+        $script:Calls.Clear()
+        $script:Fake = { param($m, $u) if ($m -eq 'GET' -and $u -like '/windowsAutopilot*') { return [pscustomobject]@{ id = 'ap1'; serialNumber = 'SN100'; managedDeviceId = '' } }; if ($u -like '/managedDevices/*') { return [pscustomobject]@{ id = 'mdListe'; serialNumber = 'SN100' } } }
+        $x = Invoke-ApDeleteOne (New-Row 'SN100' 'ap1' 'mdListe' 0) 'tok' $true
+        $script:Calls | Should -Contain 'DELETE /managedDevices/mdListe'
+    }
+    It 'Benutzer-Zuweisung scheitert: kein Abbruch, Hinweis im Ergebnis' {
+        $script:Fake = { param($m, $u) if ($m -eq 'POST') { throw 'Response status code does not indicate success: 400 (Bad Request).' }; & $script:FakeOk $m $u }
+        $x = Invoke-ApDeleteOne (New-Row) 'tok' $true
+        $x.Deleted | Should -BeTrue
+        $x.Level | Should -Be 'Hinweis'
+        $x.Text | Should -Match 'Benutzer-Zuweisung NICHT aufgehoben'
+    }
+    It 'Zusammenfassung: Zahl, je Geraet eine Zeile, 30 Minuten, Hinweis bei Fehlern' {
+        $r = @([pscustomobject]@{ Deleted = $true; Text = 'SN1: gelöscht' }, [pscustomobject]@{ Deleted = $false; Text = 'SN2: TEILWEISE' })
+        $t = Get-DeleteSummary $r
+        $t | Should -Match '^Gelöscht: 1 von 2\.'
+        $t | Should -Match 'SN2: TEILWEISE'
+        $t | Should -Match 'bis zu 30 Minuten'
+        $t | Should -Match 'Nicht alles hat geklappt'
+    }
+    It 'Verdrahtung: nur per Klick, Busy-Sperre, Timer pausiert, Fenster schliesst nicht waehrend des Loeschens' {
+        $script:SetupText | Should -Match '\$g\.bDelete\.Add_Click\(\{\s+if \(\$sst\.Busy -or \$sst\.Loading\) \{ return \}'
+        $script:SetupText | Should -Match '\$sst\.Busy = \$true; \$sst\.Dialog = \$true; \$tm\.Stop\(\)'
+        $script:SetupText | Should -Match '\$sw\.Add_Closing\(\{ param\(\$s, \$e\) if \(\$sst\.Busy\) \{ \$e\.Cancel = \$true \} \}\)'
+        $script:SetupText | Should -Match 'if \(-not \(Show-DeleteConfirm \$sel \$canI \$sw\)\)'
+        $script:SetupText | Should -Match 'Out-Log \$x\.Text \$x\.Level \$x\.Detail'
+        $script:SetupText | Should -Match '\$script:DelMax = 5'
+        # kein Loeschen aus Timer oder verzoegerter Aktion
+        foreach ($m in [regex]::Matches($script:SetupText, '(?s)Add_Tick\(\{.*?\}\)\r?\n')) { $m.Value | Should -Not -Match 'Invoke-ApDeleteOne|bDelete' }
+        foreach ($m in [regex]::Matches($script:SetupText, 'BeginInvoke\([^\r\n]*')) { $m.Value | Should -Not -Match 'Invoke-ApDeleteOne|DELETE' }
+        # nur hier wird geloescht (Graph DELETE auf Autopilot und Intune nur ueber Invoke-ApDeleteOne)
+        @([regex]::Matches($script:SetupText, "Invoke-HuGraph 'DELETE'")).Count | Should -Be 2
+    }
+    It 'Abfragefenster: Abbrechen ist Standard, Endgueltig loeschen erst nach richtiger Eingabe' {
+        $lx = [xml]@($script:XamlBlocks | Where-Object { $_.Name -eq 'lx' })[0].Xaml
+        $ns = New-Object System.Xml.XmlNamespaceManager($lx.NameTable); $ns.AddNamespace('w', 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'); $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
+        $c = $lx.SelectSingleNode("//w:Button[@x:Name='bCancel']", $ns)
+        $c.IsCancel | Should -Be 'True'; $c.IsDefault | Should -Be 'True'
+        $d = $lx.SelectSingleNode("//w:Button[@x:Name='bDel']", $ns)
+        $d.IsEnabled | Should -Be 'False'; $d.Visibility | Should -Be 'Collapsed'
+        $script:SetupText | Should -Match '\$c\.tType\.Add_TextChanged\(\{ \$c\.bDel\.IsEnabled = \(Test-DeleteConfirm \$c\.tType\.Text \$sns\) \}\)'
+        $script:SetupText | Should -Match '\$c\.bDel\.Add_Click\(\{ if \(Test-DeleteConfirm \$c\.tType\.Text \$sns\) \{ \$st\.Ok = \$true; \$lw\.Close\(\) \} \}\)'
+    }
+}

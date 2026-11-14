@@ -42,7 +42,7 @@ BeforeAll {
 
 Describe 'Setup: Fenster (XAML)' {
     It 'alle Fenster-Bloecke werden gefunden' {
-        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'ix', 'dx', 'sx', 'gx', 'hx')
+        @($script:XamlBlocks | ForEach-Object { $_.Name }) | Should -Be @('xaml', 'px', 'vx', 'ix', 'dx', 'lx', 'sx', 'gx', 'hx')
     }
     It 'jedes Fenster laedt mit XamlReader (STA), ohne Theme, dunkel und hell, und schaltet zur Laufzeit um' {
         $get = { param($n) [regex]::Match($script:SetupText, "(?s)\`$script:$n = @'\r?\n(.*?)\r?\n'@").Groups[1].Value }
