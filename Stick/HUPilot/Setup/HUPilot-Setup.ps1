@@ -269,7 +269,11 @@ $script:HuThemeXaml = @'
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
-  <Style TargetType="ToolTip"><Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/></Style>
+  <!-- Tooltips: feste Hoechstbreite, Text bricht um (lange Meldungen von Microsoft liefen sonst ueber den ganzen Bildschirm) -->
+  <Style TargetType="ToolTip"><Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
+    <Setter Property="MaxWidth" Value="520"/>
+    <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></Setter.Value></Setter>
+  </Style>
   <Style TargetType="ContextMenu">
     <Setter Property="Background" Value="{DynamicResource HuPanel2}"/><Setter Property="Foreground" Value="{DynamicResource HuText}"/><Setter Property="BorderBrush" Value="{DynamicResource HuBorder}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
@@ -799,6 +803,50 @@ function Hide-LogSecrets([string]$Text, [string[]]$Values) {
     foreach ($v in @($Values | Where-Object { $_ -and $_.Length -ge 4 } | Sort-Object Length -Descending)) { $Text = $Text.Replace($v, '***') }
     return [regex]::Replace($Text, '\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-([A-Za-z0-9]{5})\b', '*****-*****-*****-*****-$1')
 }
+# Technische Meldung lesbar machen (Tooltip, Doppelklick, Details kopieren): JSON-Fehler von Graph und vom Anmeldedienst
+# werden gegliedert, je Angabe eine Zeile (Fehlercode, Beschreibung, Zeitpunkt, Kennungen). Alles andere bleibt Klartext
+# und bricht im Tooltip um (Hoechstbreite im Theme). Den Text vorher mit Hide-LogSecrets bereinigen.
+function Format-TechDetail([string]$Text) {
+    if (-not $Text) { return '' }
+    $t = $Text.Trim()
+    $i = $t.IndexOf('{'); $j = $t.LastIndexOf('}')
+    if ($i -lt 0 -or $j -le $i) { return $t }
+    $o = $null
+    try { $o = $t.Substring($i, $j - $i + 1) | ConvertFrom-Json -ErrorAction Stop } catch { return $t }
+    if ($null -eq $o -or $o -isnot [System.Management.Automation.PSCustomObject]) { return $t }
+    $lines = New-Object System.Collections.Generic.List[string]
+    # PowerShell 7 macht aus Datumstexten ein DateTime: wieder als ISO-Text ausgeben
+    $add = { param($k, $v) if ($v -is [datetime]) { $v = $v.ToString('yyyy-MM-ddTHH:mm:ss') }; $v = ([string]$v).Trim(); if ($v) { $lines.Add($k + ': ' + $v) } }
+    $names = @($o.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($names -contains 'error' -and $o.error -is [System.Management.Automation.PSCustomObject]) {
+        # Graph: {"error":{"code","message","innerError":{"date","request-id","client-request-id"}}}
+        $e = $o.error
+        $msg = [string]$e.message
+        # Intune legt manchmal eine zweite Meldung als JSON in message (mit "Message")
+        if ($msg.TrimStart().StartsWith('{')) { try { $m2 = $msg | ConvertFrom-Json -ErrorAction Stop; if ($m2.Message) { $msg = [string]$m2.Message } } catch { } }
+        & $add 'Fehlercode' $e.code
+        & $add 'Beschreibung' $msg
+        $ie = $e.innerError
+        if ($ie) { & $add 'Zeitpunkt' $ie.date; & $add 'Request-ID' $ie.'request-id'; & $add 'Client-Request-ID' $ie.'client-request-id' }
+    } elseif ($names -contains 'error_description' -or ($names -contains 'error' -and $o.error -is [string])) {
+        # Anmeldedienst: {"error","error_description","error_codes","timestamp","trace_id","correlation_id"}
+        $desc = [string]$o.error_description
+        $aad = ''
+        if ($desc -match '^\s*(AADSTS\d+)\s*:\s*') { $aad = $Matches[1]; $desc = $desc.Substring($Matches[0].Length) }
+        # Kennungen und Zeit stehen am Ende der Beschreibung noch einmal: dort abschneiden, sie kommen in eigene Zeilen
+        $desc = [regex]::Replace($desc, '(?s)\s*Trace ID:.*$', '')
+        $code = [string]$o.error
+        & $add 'Fehlercode' $(if ($code -and $aad) { $code + ' (' + $aad + ')' } elseif ($aad) { $aad } else { $code })
+        & $add 'Beschreibung' $desc
+        & $add 'Zeitpunkt' $o.timestamp
+        & $add 'Trace-ID' $o.trace_id
+        & $add 'Correlation-ID' $o.correlation_id
+    } else { return $t }
+    if (-not $lines.Count) { return $t }
+    $pre = $t.Substring(0, $i).Trim()
+    if ($pre) { $lines.Insert(0, 'Meldung: ' + $pre.TrimEnd(':').Trim()) }
+    return ($lines -join "`r`n")
+}
 function Get-LogSecretValues {
     try { return @((Get-Secret), (Get-Masked 'Key'), (Get-Masked 'AdmPw'), (Get-Masked 'Adm2Pw'), (Get-EdKey)) } catch { return @() }
 }
@@ -824,11 +872,14 @@ function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '',
     if ($script:LogColor.ContainsKey($Level)) { try { $tb.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $script:LogColor[$Level]) } catch { } }
     [void]$sp.Children.Add($tb)
     if ($Detail) {
+        # gegliedert (Fehlercode, Beschreibung, Zeitpunkt, Kennungen je eine Zeile), Tooltip mit fester Hoechstbreite (Theme)
+        $fmt = Format-TechDetail $Detail
         $dt = New-Object System.Windows.Controls.TextBlock
-        $dt.Text = 'Details: ' + $Detail; $dt.TextWrapping = 'Wrap'; $dt.Visibility = 'Collapsed'; $dt.Margin = '70,0,0,2'
+        $dt.Text = 'Details:' + "`r`n" + $fmt; $dt.TextWrapping = 'Wrap'; $dt.Visibility = 'Collapsed'; $dt.Margin = '70,0,0,2'
         $dt.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, 'HuMuted')
         [void]$sp.Children.Add($dt)
-        $it.ToolTip = $Detail
+        $it.ToolTip = $fmt
+        [System.Windows.Controls.ToolTipService]::SetShowDuration($it, 60000)
         $it.Add_MouseDoubleClick({ $d = $this.Content.Children[1]; $d.Visibility = $(if ([string]$d.Visibility -eq 'Visible') { 'Collapsed' } else { 'Visible' }) })
     }
     $it.Content = $sp; $it.Padding = '4,1'
