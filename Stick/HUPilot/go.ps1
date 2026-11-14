@@ -234,6 +234,7 @@ function Show-Step {
     param([int]$N, [string]$Name)
     $script:LivePre = 'Schritt ' + $N + '/' + $StepTotal + ' ' + $Name + ' | '
     $script:LivePreShort = '' + $N + '/' + $StepTotal + ' | '
+    $script:StepNo = $N; $script:StepName = $Name   # fuer den Bericht an den Admin
     Write-Host ''
     Say ('Schritt ' + $N + ' von ' + $StepTotal + ': ' + $Name) 'Cyan'
 }
@@ -331,6 +332,235 @@ function Get-EndLines {
     param([string]$State, [string]$Was = '', [string]$Tun = '')
     return (Format-EndLines (Get-EndText $State $Was $Tun))
 }
+# ---------- Bericht an den Admin (Teams-Workflow-Webhook, config.json "TeamsWebhook") ----------
+# Bei einem roten Abschluss geht von selbst eine Adaptive Card an den Admin, ohne Internet landet sie als Datei in
+# HUPilot\logs\outbox am Stick (Setup oder ein spaeterer Lauf sendet sie nach). Vertrag mit dem Setup:
+#   Datei <yyyyMMdd-HHmmss>_<Seriennr>.json, UTF-8 ohne BOM, { v, created (UTC), source, level, title, lines[], log[] },
+#   Inhalt schon bereinigt; nach erfolgreichem Senden geloescht; aelter als 30 Tage und mehr als 50 Dateien werden verworfen.
+# Die Adresse ist ein Geheimnis (wer sie kennt, kann posten): nie ausgeben, nie ins Log. Jeder Fehler wird geschluckt.
+# Senden aendert nichts an Zuruecksetzen, Wartezeiten, Exitcode oder Reihenfolge.
+$script:ReportLevels = @('Error')   # Stufen, die einen Bericht ausloesen; spaeter erweiterbar (z. B. 'Warning' aus einem Feld in config.json)
+$script:ReportDone   = $false       # genau ein Bericht je Lauf
+$script:NetOk        = $false       # Internet in diesem Lauf bestaetigt (erst dann direkt senden)
+$script:StepNo       = 0
+$script:StepName     = ''
+$ReportTimeoutSec = 8
+$ReportMaxBytes   = 24000           # ganze Nachricht unter 24 KB (Microsoft nennt etwa 28 KB als Grenze)
+$ReportLogLines   = 50
+$ReportLogSep     = "`n`n"          # Zeilentrenner im Log-Block (Teams-Markdown: einfacher Zeilenumbruch wird teils verschluckt)
+$OutboxKeepDays   = 30
+$OutboxMaxFiles   = 50
+$OutboxSendMax    = 5
+function Test-WebhookUrl {
+    # '' = gueltig, sonst Grund (ohne die Adresse)
+    param([string]$Url)
+    $u = ([string]$Url).Trim()
+    if (-not $u) { return 'leer' }
+    $x = $null
+    if (-not [uri]::TryCreate($u, [UriKind]::Absolute, [ref]$x) -or $x.Scheme -ne 'https') { return 'keine https-Adresse' }
+    if ($x.Host -match '(?i)(^|\.)webhook\.office\.com$') { return 'alte Office-365-Connector-Adresse, die gibt es nicht mehr' }
+    return ''
+}
+function Get-ReportSecrets {
+    # Alles, was nie in Karte oder Datei darf (wortgleich ersetzt). MAK nicht hier: er wird auf die letzten 5 Zeichen gekuerzt.
+    param($Cfg, [string]$Token = '')
+    $s = New-Object System.Collections.Generic.List[string]
+    if ($Cfg) { foreach ($k in 'ClientSecret', 'WlanKey', 'AdminPassword', 'Admin2Password', 'TeamsWebhook', 'TenantId', 'ClientId') { $v = ([string]$Cfg.$k).Trim(); if ($v.Length -ge 3) { $s.Add($v) } } }
+    if (([string]$Token).Length -ge 3) { $s.Add([string]$Token) }
+    # laengste zuerst (ein Geheimnis kann Teil eines anderen sein); nicht -Unique mit -Property, das wirft gleich lange weg
+    return @($s | Select-Object -Unique | Sort-Object -Property Length -Descending)
+}
+function Protect-ReportText {
+    # Bereinigung vor Karte und Datei: Schluessel auf die letzten 5 Zeichen, Geheimnisse und signierte Adressen weg
+    param([string]$Text, [string[]]$Secrets = @())
+    $t = [string]$Text
+    if (-not $t) { return '' }
+    $t = [regex]::Replace($t, '[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}', { param($m) '*****-' + $m.Value.Substring($m.Value.Length - 5) })
+    foreach ($x in @($Secrets)) { if ([string]$x) { $t = [regex]::Replace($t, [regex]::Escape([string]$x), '***', 'IgnoreCase') } }
+    $t = [regex]::Replace($t, '(?i)https://\S*[?&]sig[=]\S*', '(Adresse entfernt)')
+    $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*', '***')
+    $t = [regex]::Replace($t, '(?i)(Bearer|client_secret[=:]|access_token["'':= ]+)\s*[^\s"''&]+', '$1 ***')
+    return $t
+}
+function Get-SafeFileName([string]$Text) {
+    $s = [regex]::Replace(([string]$Text).Trim(), '[^A-Za-z0-9._-]', '_')
+    if (-not $s) { $s = 'unbekannt' }
+    if ($s.Length -gt 40) { $s = $s.Substring(0, 40) }
+    return $s
+}
+function New-ReportCard {
+    # Adaptive Card 1.4: Titel farbig, Zeilen, Log als ein Textblock in Festbreite, Fusszeile. Unter $MaxBytes (UTF-8):
+    # das Log wird von vorne gekuerzt, die letzten Zeilen bleiben, mit "(gekürzt)".
+    param([string]$Title, [string[]]$Lines = @(), [string[]]$Log = @(), [string]$Level = 'Error', [string]$Footer = '', [int]$MaxBytes = 24000)
+    $color = switch ($Level) { 'Error' { 'Attention' } 'Warning' { 'Warning' } 'OK' { 'Good' } default { 'Accent' } }
+    $cut = { param([string]$s, [int]$n) if ($s.Length -gt $n) { $s.Substring(0, $n) + ' ...' } else { $s } }
+    $ls = @(@($Lines) | Where-Object { ([string]$_).Trim() } | ForEach-Object { & $cut ([string]$_) 600 })
+    $lg = @(@($Log) | Where-Object { ([string]$_).Trim() } | ForEach-Object { & $cut ([string]$_) 400 })
+    $short = $false
+    while ($true) {
+        $body = New-Object System.Collections.Generic.List[object]
+        $body.Add([ordered]@{ type = 'TextBlock'; text = [string]$Title; weight = 'Bolder'; size = 'Medium'; wrap = $true; color = $color })
+        foreach ($l in $ls) { $body.Add([ordered]@{ type = 'TextBlock'; text = [string]$l; wrap = $true; spacing = 'Small' }) }
+        if ($lg.Count) {
+            $txt = (@($(if ($short) { '(gekürzt)' })) + $lg | Where-Object { $_ }) -join $ReportLogSep
+            $body.Add([ordered]@{ type = 'TextBlock'; text = $txt; fontType = 'Monospace'; size = 'Small'; wrap = $true; spacing = 'Medium' })
+        }
+        if ($Footer) { $body.Add([ordered]@{ type = 'TextBlock'; text = [string]$Footer; isSubtle = $true; size = 'Small'; wrap = $true; spacing = 'Medium' }) }
+        $card = [ordered]@{ '$schema' = 'http://adaptivecards.io/schemas/adaptive-card.json'; type = 'AdaptiveCard'; version = '1.4'; body = $body.ToArray() }
+        $msg = [ordered]@{ type = 'message'; attachments = @([ordered]@{ contentType = 'application/vnd.microsoft.card.adaptive'; contentUrl = $null; content = $card }) }
+        $json = ConvertTo-Json -InputObject $msg -Depth 10 -Compress
+        if ([System.Text.Encoding]::UTF8.GetByteCount($json) -lt $MaxBytes -or -not $lg.Count) { return $json }
+        $short = $true
+        $drop = [math]::Max(1, [int][math]::Ceiling($lg.Count / 10))
+        $lg = @($lg | Select-Object -Skip $drop)
+    }
+}
+function Send-TeamsCard {
+    # '' = gesendet, sonst Grund ohne Adresse. Wirft nie.
+    param([string]$Url, [string]$Json, [int]$TimeoutSec = 8)
+    try {
+        $why = Test-WebhookUrl $Url
+        if ($why) { return ('Adresse ungültig: ' + $why) }
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$Json)
+        $null = Invoke-WebRequest -Uri $Url.Trim() -Method Post -Body $bytes -ContentType 'application/json; charset=utf-8' -UseBasicParsing -TimeoutSec $TimeoutSec -ErrorAction Stop
+        return ''
+    } catch {
+        $m = [string]$_.Exception.Message
+        if ($Url) { $m = $m.Replace($Url.Trim(), '(Webhook)') }
+        return ('Senden fehlgeschlagen: ' + ($m -replace 'https?://\S+', '(Webhook)'))
+    }
+}
+function Get-OutboxDir { return (Join-Path $CfgDir 'logs\outbox') }
+function Limit-Outbox {
+    # Verwerfen: aelter als $Days Tage, dann alles ueber $Max Dateien (aelteste zuerst). Wirft nie.
+    param([string]$Dir, [int]$Days = 30, [int]$Max = 50, [datetime]$Now = [datetime]::UtcNow)
+    $n = 0
+    try {
+        if (-not (Test-Path -LiteralPath $Dir)) { return 0 }
+        $all = @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction Stop | Sort-Object LastWriteTimeUtc, Name)
+        $keep = New-Object System.Collections.Generic.List[object]
+        foreach ($f in $all) {
+            if (($Now - $f.LastWriteTimeUtc).TotalDays -gt $Days) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $n++ } catch { } }
+            else { $keep.Add($f) }
+        }
+        $over = $keep.Count - $Max
+        for ($i = 0; $i -lt $over; $i++) { try { Remove-Item -LiteralPath $keep[$i].FullName -Force -ErrorAction Stop; $n++ } catch { } }
+    } catch { }
+    return $n
+}
+function Save-OutboxReport {
+    # Bericht als Datei am Stick ablegen. Rueckgabe: Pfad oder '' (Stick fehlt oder nicht beschreibbar). Wirft nie.
+    param([string]$Dir, [hashtable]$Report, [string]$SerialNo = '', [datetime]$Now = [datetime]::UtcNow)
+    try {
+        $root = Split-Path (Split-Path $Dir -Parent) -Parent
+        if (-not (Test-Path -LiteralPath (Join-Path $root 'config.json' -ErrorAction Stop))) { return '' }   # Stick abgezogen oder fremdes Laufwerk
+        New-Item -ItemType Directory -Path $Dir -Force -ErrorAction Stop | Out-Null
+        $o = [ordered]@{ v = 1; created = $Now.ToString('yyyy-MM-ddTHH:mm:ssZ'); source = 'go'; level = [string]$Report.Level; title = [string]$Report.Title; lines = @($Report.Lines | ForEach-Object { [string]$_ }); log = @($Report.Log | ForEach-Object { [string]$_ }) }
+        $p = Join-Path $Dir ($Now.ToLocalTime().ToString('yyyyMMdd-HHmmss') + '_' + (Get-SafeFileName $SerialNo) + '.json')
+        [System.IO.File]::WriteAllText($p, (ConvertTo-Json -InputObject $o -Depth 5), (New-Object System.Text.UTF8Encoding $false))
+        [void](Limit-Outbox $Dir $OutboxKeepDays $OutboxMaxFiles $Now)
+        if (-not (Test-Path -LiteralPath $p)) { return '' }
+        return $p
+    } catch { return '' }
+}
+function Get-ReportFooter {
+    param([string]$Name, [datetime]$When)
+    return ((@(([string]$Name).Trim(), $When.ToString('dd.MM.yyyy HH:mm'), ('HUPilot go ' + $Ver)) | Where-Object { $_ }) -join '  |  ')
+}
+function Send-Outbox {
+    # Liegengebliebene Berichte nachsenden: hoechstens $Max, aelteste zuerst, nach dem ersten Fehlschlag Schluss
+    # (haelt den Ablauf nie lange auf). Rueckgabe: Zahl gesendeter Berichte. Wirft nie.
+    param([string]$Dir, [string]$Url, [int]$Max = 5, [int]$TimeoutSec = 8, [string[]]$Secrets = @(), [string]$Name = '')
+    $sent = 0
+    try {
+        if (Test-WebhookUrl $Url) { return 0 }
+        if (-not (Test-Path -LiteralPath $Dir)) { return 0 }
+        [void](Limit-Outbox $Dir $OutboxKeepDays $OutboxMaxFiles)
+        foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction Stop | Sort-Object LastWriteTimeUtc, Name | Select-Object -First $Max)) {
+            $r = $null
+            try { $r = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8) | ConvertFrom-Json } catch { }
+            if (-not $r -or [int]$r.v -ne 1 -or -not [string]$r.title) { Log ('Bericht am Stick nicht lesbar, bleibt liegen: ' + $f.Name); continue }
+            $when = [datetime]::UtcNow
+            try { $when = [datetime]::ParseExact([string]$r.created, 'yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]'AdjustToUniversal,AssumeUniversal') } catch { }
+            $lines = @(@($r.lines) | ForEach-Object { Protect-ReportText ([string]$_) $Secrets })
+            $logl = @(@($r.log) | ForEach-Object { Protect-ReportText ([string]$_) $Secrets })
+            $json = New-ReportCard -Title (Protect-ReportText ([string]$r.title) $Secrets) -Lines $lines -Log $logl -Level ([string]$r.level) -Footer (Get-ReportFooter $Name $when.ToLocalTime()) -MaxBytes $ReportMaxBytes
+            $why = Send-TeamsCard $Url $json $TimeoutSec
+            if ($why) { Log ('Bericht nachsenden: ' + $why + ' - bleibt am Stick'); break }
+            try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { Log ('Bericht gesendet, Datei nicht gelöscht: ' + $f.Name) }
+            $sent++
+        }
+    } catch { Log ('Bericht nachsenden: ' + (Protect-ReportText ([string]$_.Exception.Message) $Secrets)) }
+    return $sent
+}
+function Get-DeviceReportLines {
+    # Hersteller/Modell und Windows-Edition/Build fuer den Bericht; Fehler egal
+    $hw = ''; $win = ''
+    try { $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop; $hw = (([string]$cs.Manufacturer).Trim() + ' ' + ([string]$cs.Model).Trim()).Trim() } catch { }
+    try {
+        $cv = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop
+        $win = ([string]$cv.EditionID + ' Build ' + [string]$cv.CurrentBuild + $(if ([string]$cv.UBR) { '.' + [string]$cv.UBR } else { '' })).Trim()
+    } catch { }
+    return @{ Hw = $hw; Win = $win }
+}
+function New-GoReport {
+    # Titel, Klartextzeilen und letzte Logzeilen eines Endzustands, alles bereinigt
+    param([hashtable]$End, [string]$Level = 'Error', [string]$SerialNo = '', $Cfg = $null, [string[]]$LogTail = @(), [hashtable]$Dev = @{}, [int]$Step = 0, [string]$StepText = '', [string[]]$Secrets = @())
+    $sn = $(if (([string]$SerialNo).Trim()) { ([string]$SerialNo).Trim() } else { '(Seriennummer unbekannt)' })
+    $title = $(switch ($Level) { 'Warning' { 'HUPilot: Hinweis am Gerät ' } 'OK' { 'HUPilot: Gerät fertig ' } default { 'HUPilot: Fehler am Gerät ' } }) + $sn
+    $l = New-Object System.Collections.Generic.List[string]
+    if ($Cfg -and ([string]$Cfg.Tenant).Trim()) { $l.Add('Anzeigename: ' + ([string]$Cfg.Tenant).Trim()) }
+    if ($Dev.Hw) { $l.Add('Gerät: ' + $Dev.Hw) }
+    if ($Dev.Win) { $l.Add('Windows: ' + $Dev.Win) }
+    $l.Add('HUPilot go: ' + $Ver)
+    if ($Step -gt 0) { $l.Add('Schritt ' + $Step + ' von ' + $StepTotal + $(if ($StepText) { ': ' + $StepText } else { '' })) }
+    if ($End) {
+        if ([string]$End.Was) { $l.Add('Was ist passiert: ' + $End.Was) }
+        if ([string]$End.Jetzt) { $l.Add('Was passiert jetzt: ' + $End.Jetzt) }
+        if ([string]$End.Tun) { $l.Add('Was musst du tun: ' + $End.Tun) }
+    }
+    if ($Cfg -and ([string]$Cfg.GroupTag).Trim()) { $l.Add('Tag: ' + ([string]$Cfg.GroupTag).Trim()) }
+    return @{
+        Level = $Level
+        Title = (Protect-ReportText $title $Secrets)
+        Lines = @($l | ForEach-Object { Protect-ReportText $_ $Secrets })
+        Log   = @(@($LogTail) | ForEach-Object { Protect-ReportText ([string]$_) $Secrets })
+    }
+}
+function Send-GoReport {
+    # Bericht zu einem Endzustand: einmal je Lauf, nur fuer Stufen in $ReportLevels und mit gueltiger Adresse.
+    # Rueckgabe: @{ Text; Color } fuer die Zeile unter dem Abschlussbild, $null = keine Zeile. Wirft nie.
+    param([hashtable]$End, [string]$Level = 'Error')
+    try {
+        if ($script:ReportDone) { return $null }
+        if (@($script:ReportLevels) -notcontains $Level) { return $null }
+        if (-not $cfg) { return $null }
+        $url = ([string]$cfg.TeamsWebhook).Trim()
+        if (-not $url) { return $null }
+        $script:ReportDone = $true
+        $why = Test-WebhookUrl $url
+        if ($why) { Log ('Bericht an den Admin: Teams-Adresse in config.json ungültig (' + $why + ') - kein Bericht'); return @{ Text = 'Hinweis: Die Teams-Adresse am Stick ist ungültig, es geht kein Bericht an den Admin.'; Color = 'Gray' } }
+        $sec = Get-ReportSecrets $cfg ([string]$script:tok)
+        $tail = @(); try { $tail = @(Get-Content -LiteralPath $LocalLog -Tail $ReportLogLines -Encoding UTF8 -ErrorAction Stop) } catch { }
+        $rep = New-GoReport -End $End -Level $Level -SerialNo $Serial -Cfg $cfg -LogTail $tail -Dev (Get-DeviceReportLines) -Step $script:StepNo -StepText $script:StepName -Secrets $sec
+        if ($script:NetOk) {
+            Write-Host '  Sende Bericht an den Admin ...' -ForegroundColor (Get-ReadableColor 'Gray')
+            $json = New-ReportCard -Title $rep.Title -Lines $rep.Lines -Log $rep.Log -Level $Level -Footer (Get-ReportFooter ([string]$cfg.Tenant) (Get-Date)) -MaxBytes $ReportMaxBytes
+            $r = Send-TeamsCard $url $json $ReportTimeoutSec
+            if (-not $r) { Log 'Bericht an den Admin gesendet'; return @{ Text = 'Bericht an den Admin gesendet.'; Color = 'Green' } }
+            Log ('Bericht an den Admin: ' + (Protect-ReportText $r $sec))
+        } else { Log 'Bericht an den Admin: in diesem Lauf kein Internet - wird am Stick gespeichert' }
+        $p = Save-OutboxReport (Get-OutboxDir) $rep $Serial
+        if ($p) { Log ('Bericht am Stick gespeichert: logs\outbox\' + (Split-Path $p -Leaf)); return @{ Text = 'Bericht am Stick gespeichert, wird beim nächsten Mal mit Internet gesendet.'; Color = 'Yellow' } }
+        Log 'Bericht an den Admin: nicht gesendet und am Stick nicht speicherbar (Stick fehlt oder schreibgeschützt) - verworfen'
+        return $null
+    } catch { try { Log ('Bericht an den Admin: ' + (($_.Exception.Message) -replace 'https?://\S+', '(Webhook)')) } catch { }; return $null }
+}
+function Write-ReportLine {
+    param($R)
+    if ($R -and $R.Text) { Write-Host ('  ' + $R.Text) -ForegroundColor (Get-ReadableColor $R.Color) }
+}
 function Fail {
     # Rot: nichts wurde zurueckgesetzt. "Ursache. Naechster Schritt." wird auf "Was ist passiert" und "Was musst du tun" verteilt.
     param([string]$Msg, [string]$Tun = '')
@@ -339,6 +569,7 @@ function Fail {
     $sp = Split-NextStep $Msg
     if (-not $Tun) { $Tun = $sp[1] }
     Banner 'FEHLER  -  NICHT ZURÜCKGESETZT' 'DarkRed' (@('') + (Get-EndLines 'Fehler' $sp[0] $Tun) + @('', ('Log: ' + $LocalLog)))
+    Write-ReportLine (Send-GoReport (Get-EndText 'Fehler' $sp[0] $Tun) 'Error')
     Wait-Close
     exit 1
 }
@@ -958,7 +1189,17 @@ if (-not $netOk) {
     }
 }
 Say 'Internet OK' 'Green'
+$script:NetOk = $true
 Sync-Clock
+# Liegengebliebene Berichte an den Admin nachsenden (hoechstens 5, je 8 s, haelt den Ablauf nicht auf)
+if (([string]$cfg.TeamsWebhook).Trim()) {
+    $twWhy = Test-WebhookUrl ([string]$cfg.TeamsWebhook)
+    if ($twWhy) { Log ('Teams-Adresse in config.json ungültig (' + $twWhy + ') - Berichte an den Admin sind aus') }
+    else {
+        $nOut = Send-Outbox (Get-OutboxDir) ([string]$cfg.TeamsWebhook) $OutboxSendMax $ReportTimeoutSec (Get-ReportSecrets $cfg) ([string]$cfg.Tenant)
+        if ($nOut) { Log ('Liegengebliebene Berichte an den Admin gesendet: ' + $nOut) }
+    }
+}
 
 # ---------- Edition: nach Umstellung auf Pro den MAK installieren und aktivieren ----------
 # Fehler hier sind nur Warnungen: Autopilot braucht keine Aktivierung. Kein zweiter Versuch, wenn schon aktiviert.
@@ -1641,6 +1882,7 @@ function Fail-Reset {
     param([string]$Msg)
     Log ('FEHLER Zurücksetzen: ' + $Msg)
     Banner 'FEHLER beim Zurücksetzen' 'DarkRed' (@('') + (Get-EndLines 'FehlerReset' ('Der Upload ist fertig, aber das Zurücksetzen ist nicht gestartet (' + $Msg.TrimEnd('.') + ').')) + @('', ('Log: ' + $LocalLog + ' und ' + $WipeLog)))
+    Write-ReportLine (Send-GoReport (Get-EndText 'FehlerReset' ('Der Upload ist fertig, aber das Zurücksetzen ist nicht gestartet (' + $Msg.TrimEnd('.') + ').')) 'Error')
     Wait-Close
     exit 1
 }
