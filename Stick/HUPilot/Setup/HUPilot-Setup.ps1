@@ -3016,7 +3016,7 @@ function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollS
         'Profil da, Gerät noch nicht angemeldet' { return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
         'Kein Profil für diesen Tag' { return 'Tag prüfen: kein Profil zugewiesen ("2. Tags prüfen"), oder mit "Tag ändern" einen Tag mit Profil wählen.' }
         'Fehler' { if ($EnrollState -eq 'blocked') { return 'Gerät ist in Intune blockiert. Admin fragen.' } return 'Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen.' }
-        'Hardware geändert' { return 'Eintrag bereinigen ("Autopilot-Eintrag löschen"), dann das Gerät mit dem Stick neu registrieren.' }
+        'Hardware geändert' { return 'Eintrag bereinigen (löschen), dann mit dem Stick neu registrieren.' }
     }
     return ''
 }
@@ -3059,15 +3059,15 @@ function Get-DuplicateMarks($Records) {
 }
 function Get-DuplicateTodo([int]$Count, [string]$Rank) {
     switch ($Rank) {
-        'älter' { return ('Älterer von ' + $Count + ' Einträgen mit dieser Seriennummer: diesen löschen ("Autopilot-Eintrag löschen"), der neuere bleibt.') }
-        'neuer' { return ('Neuester von ' + $Count + ' Einträgen mit dieser Seriennummer: diesen behalten, den älteren löschen.') }
+        'älter' { return ('Älterer von ' + $Count + ' Einträgen: diesen löschen, der neuere bleibt.') }
+        'neuer' { return ('Neuester von ' + $Count + ' Einträgen: behalten, den älteren löschen.') }
     }
-    return ('' + $Count + ' Einträge mit dieser Seriennummer, welcher älter ist, ist nicht sicher: in den Details vergleichen, den falschen löschen.')
+    return ('' + $Count + ' Einträge, Alter unklar: in den Details vergleichen.')
 }
 # Geloeschte Eintraege (laufende Sitzung des Status-Fensters): Microsoft entfernt sie nach einiger Zeit, bis zu 30 Minuten
 function Get-PendingTodo([datetime]$Since, [datetime]$Now) {
-    if (($Now - $Since).TotalMinutes -le 30) { return 'Nichts tun. Microsoft entfernt den Eintrag, das dauert bis zu 30 Minuten.' }
-    return 'Löschen dauert schon über 30 Minuten. Später "Aktualisieren", bleibt der Eintrag stehen, den Admin fragen.'
+    if (($Now - $Since).TotalMinutes -le 30) { return 'Nichts tun. Microsoft entfernt ihn in bis zu 30 Minuten.' }
+    return 'Dauert über 30 Minuten. Später aktualisieren, sonst Admin fragen.'
 }
 # Farbe und Kachel je Stand: ok (gruen) / warn (gelb) / err (rot)
 $script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err'; 'Hardware geändert' = 'err'; 'Doppelt' = 'err'; 'Wird gelöscht' = 'warn' }

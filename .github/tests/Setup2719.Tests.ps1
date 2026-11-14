@@ -375,9 +375,24 @@ Describe 'v2.7.19 Pakete 3 und 4: Hardware geaendert und doppelte Seriennummern'
         $m['f1'].Rank | Should -Be 'älter'
     }
     It 'Was tun bei doppelt: aelterer loeschen, neuester behalten, unklar vergleichen' {
-        Get-DuplicateTodo 2 'älter' | Should -Match '^Älterer von 2 Einträgen .*diesen löschen'
-        Get-DuplicateTodo 2 'neuer' | Should -Match 'diesen behalten, den älteren löschen'
-        Get-DuplicateTodo 3 'unklar' | Should -Match '^3 Einträge .*nicht sicher.*Details vergleichen'
+        Get-DuplicateTodo 2 'älter' | Should -Match '^Älterer von 2 Einträgen: diesen löschen'
+        Get-DuplicateTodo 2 'neuer' | Should -Match 'behalten, den älteren löschen'
+        Get-DuplicateTodo 3 'unklar' | Should -Match '^3 Einträge, Alter unklar: in den Details vergleichen'
+    }
+    It 'Was tun der neuen Staende passt in die Spalte (hoechstens 420 px, Segoe UI 12)' {
+        $res = Invoke-Sta {
+            param($fnText)
+            Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            . ([scriptblock]::Create($fnText))
+            $tf = New-Object System.Windows.Media.Typeface((New-Object System.Windows.Media.FontFamily('Segoe UI')), [System.Windows.FontStyles]::Normal, [System.Windows.FontWeights]::Normal, [System.Windows.FontStretches]::Normal)
+            $t0 = Get-Date '2026-11-14 10:00'
+            foreach ($s in @((Get-DeviceTodo 'Hardware geändert' '' ''), (Get-DuplicateTodo 2 'älter'), (Get-DuplicateTodo 2 'neuer'), (Get-DuplicateTodo 3 'unklar'), (Get-PendingTodo $t0 $t0), (Get-PendingTodo $t0 $t0.AddHours(1)))) {
+                $ft = New-Object System.Windows.Media.FormattedText($s, [Globalization.CultureInfo]::CurrentCulture, [System.Windows.FlowDirection]::LeftToRight, $tf, 12.0, [System.Windows.Media.Brushes]::Black)
+                '' + [math]::Ceiling($ft.WidthIncludingTrailingWhitespace) + '|' + $s
+            }
+        } @((@('Get-DeviceTodo', 'Get-DuplicateTodo', 'Get-PendingTodo') | ForEach-Object { $script:FnByName[$_] }) -join "`n")
+        $res.Count | Should -Be 6
+        foreach ($r in $res) { [int]($r.Split('|')[0]) | Should -BeLessThan 390 -Because $r }
     }
     It 'Wird geloescht: bis 30 Minuten nichts tun, danach Hinweis' {
         $t0 = Get-Date '2026-11-14 10:00'
