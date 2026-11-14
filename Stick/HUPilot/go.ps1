@@ -379,7 +379,7 @@ function Get-ImportErrorText {
         return @{
             Nr  = '806'
             Was = ('Das Gerät steht schon in Autopilot, unter einem alten Eintrag (Fehler ' + $roh + ').')
-            Tun = 'Am PC im Setup unter "Status" den alten Eintrag mit "Autopilot-Eintrag löschen" entfernen, einige Minuten warten, dann Stick rein, Shift+F10, D:\go. Kein Eintrag zu finden: Foto an den Admin.'
+            Tun = 'Am PC im Setup unter "6. Status" den alten Eintrag mit "Autopilot-Eintrag löschen ..." entfernen und warten, bis er aus der Liste verschwunden ist (bis zu 30 Minuten). Dann Stick rein, Shift+F10, D:\go. Kein Eintrag zu finden: Foto an den Admin.'
             Log = ('Import-Fehler 806 (schon im eigenen Tenant): Code ' + $Code + ', Name ' + $Name + '. Eintrag unter dieser Seriennummer nicht gefunden: alter Eintrag mit anderer Seriennummer, Löschung läuft noch oder Rest-Datensatz in Intune.')
         }
     }

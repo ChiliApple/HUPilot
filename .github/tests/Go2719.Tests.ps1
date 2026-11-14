@@ -25,8 +25,11 @@ Describe 'go 2.7.19: Importfehler 806 und 808 in Klartext' {
         $r = Get-ImportErrorText '806' 'ZtdDeviceAlreadyAssigned'
         $r.Nr | Should -Be '806'
         $r.Was | Should -Match 'schon in Autopilot'
-        $r.Tun | Should -Match 'Status'
-        $r.Tun | Should -Match 'Autopilot-Eintrag löschen'
+        $r.Tun | Should -Match '"6\. Status"'
+        $r.Tun | Should -Match 'Autopilot-Eintrag löschen \.\.\.'
+        $r.Tun | Should -Match 'aus der Liste verschwunden'
+        $r.Tun | Should -Match 'bis zu 30 Minuten'
+        $r.Tun | Should -Not -Match 'einige Minuten'
         $r.Tun | Should -Match 'D:\\go'
         $r.Tun | Should -Match 'Admin'
     }
@@ -77,6 +80,11 @@ Describe 'go 2.7.19: Importfehler 806 und 808 in Klartext' {
             $l | Should -Contain 'Was ist passiert:'
             $l | Should -Contain 'Was musst du tun:'
             foreach ($x in $l) { $x.Length | Should -BeLessOrEqual 40 }
+            # nichts geht beim Umbruch verloren (auch bei 30 Zeichen Breite)
+            $w = @(Format-EndLines $e 30)
+            foreach ($x in $w) { $x.Length | Should -BeLessOrEqual 30 }
+            $i = [array]::IndexOf($w, 'Was musst du tun:')
+            ((@($w[($i + 1)..($w.Count - 1)]) | ForEach-Object { $_.Trim() }) -join ' ') | Should -Be $r.Tun
         }
     }
     It 'Texte ohne Pfeile, Gedankenstriche und typografische Anfuehrungszeichen' {
