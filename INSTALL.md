@@ -2,9 +2,9 @@
 
 ## 1. App-Registrierung (je Tenant)
 Entra > App-Registrierungen > **Neue Registrierung** > Name `HUPilot-Upload`, nur dieses Verzeichnis, keine Umleitungs-URI
-- API-Berechtigungen > Microsoft Graph > **Anwendung** > `DeviceManagementServiceConfig.ReadWrite.All` > **Administratorzustimmung**. Reicht auch für *Tag ändern* und *Autopilot-Sync anstoßen* im Status-Fenster.
+- API-Berechtigungen > Microsoft Graph > **Anwendung** > `DeviceManagementServiceConfig.ReadWrite.All` > **Administratorzustimmung**. Reicht auch für *Tag ändern*, *Autopilot-Sync anstoßen* und *Autopilot-Eintrag löschen* im Status-Fenster.
 - optional (nur Lesen): `Application.Read.All` für den Ablauf des Secrets (Setup und Hinweis am Gerät); `DeviceManagementManagedDevices.Read.All` für primären Benutzer, Gerätename, letzten Sync bei *Status*; `Group.Read.All` für die Tag-Prüfung (Gerät und *Tags prüfen*); `User.Read.All` für die Prüfung des Benutzers bei Vorab-Zuweisung
-- optional (Schreiben): `DeviceManagementManagedDevices.ReadWrite.All`: go kann Geräte nach einem **Mainboardtausch** neu registrieren (löscht den alten Intune-Eintrag, ersetzt `DeviceManagementManagedDevices.Read.All`)
+- optional (Schreiben): `DeviceManagementManagedDevices.ReadWrite.All`: go kann Geräte nach einem **Mainboardtausch** neu registrieren (löscht den alten Intune-Eintrag, ersetzt `DeviceManagementManagedDevices.Read.All`), und *Autopilot-Eintrag löschen* im Status-Fenster löscht auch den Intune-Eintrag. Ohne dieses Recht löscht das Setup nur den Autopilot-Eintrag und sagt das vorher
 - Zertifikate & Geheimnisse > neues Secret, kurz gültig > den **Wert** kopieren
 
 ## 2. Stick / Quelle

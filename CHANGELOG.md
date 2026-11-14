@@ -1,5 +1,55 @@
 ﻿# Changelog
 
+## v2.7.19 - 2026-11-14
+### 📊 Status
+- **Autopilot-Eintrag löschen:** neuer Knopf im Status-Fenster, zum Beispiel für ein Gerät, das mit neuem Mainboard vom Support zurückkommt.
+  - Nur für markierte Geräte, höchstens 5 auf einmal.
+  - Zwei Abfragen: Die erste nennt je Gerät Seriennummer, Autopilot-ID, Gerätename, Tag, Benutzer, Stand, letzten Kontakt und was verloren geht. Die zweite verlangt die Seriennummer, bei mehreren Geräten das Wort LÖSCHEN. Getippt, Einfügen ist gesperrt.
+  - Zusätzliche Warnung bei fertig eingerichteten Geräten und bei Geräten in Benutzung.
+  - Reihenfolge wie von Microsoft verlangt: Intune-Eintrag, Benutzer-Zuweisung, Autopilot-Eintrag. Direkt vor dem Löschen liest das Setup jeden Eintrag neu. Hat sich etwas geändert, wird das Gerät übersprungen.
+  - Gelöscht wird nur, was in der Abfrage stand. Lässt sich ein Intune-Eintrag nicht eindeutig zuordnen, bleibt er stehen und das Setup sagt es.
+  - Das Ergebnis je Gerät steht im Protokoll und in der Protokolldatei, ein Teilerfolg wird ausdrücklich genannt.
+- **Stand "Wird gelöscht":** Gelöschte Einträge bleiben in der Liste, bis Microsoft sie entfernt hat. Das dauert bis zu 30 Minuten. Auf diesen Zeilen sind keine Aktionen möglich.
+- **Stand "Hardware geändert":** Microsoft meldet einen Hardwaretausch, den es nicht selbst lösen kann. "Was tun": Eintrag löschen, dann mit dem Stick neu registrieren.
+- **Stand "Hardware wird abgeglichen":** Microsoft versucht die Korrektur selbst, abwarten. Ein fertiges Gerät bleibt "Fertig", der Hinweis steht in den Details.
+- **Stand "Doppelt":** mehrere Einträge mit derselben Seriennummer. "Was tun" sagt, welcher der ältere ist. Lässt sich das nicht sicher sagen, steht dort "Alter unklar".
+- **Neue Kacheln:** "Hardware geändert", "Doppelt" und "Wird gelöscht" erscheinen nur, wenn es solche Geräte gibt. Filter, Druck, Excel und Details kennen die neuen Stände.
+- **Behoben: Auswahl bei doppelten Seriennummern:** Nach dem Aktualisieren war auch der zweite Eintrag derselben Seriennummer markiert. "Tag ändern" hätte so beide geändert. Die Auswahl bleibt jetzt genau bei den angeklickten Zeilen.
+
+### 🔐 Secret und MAK
+- **Abgelaufenes Secret geführt erneuern:** deutlicher Hinweis oben im Fenster und der Knopf "Neues Secret anlegen", auch neben "Stick fertig machen".
+  - Der Knopf öffnet die Seite der App-Registrierung im Entra-Portal und setzt den Cursor in das Feld "Secret (Wert)".
+  - Nach dem Einfügen prüft das Setup von selbst und meldet "Neues Secret gültig bis ...".
+  - Danach erinnert es daran, zu speichern und jeden Stick neu zu bespielen.
+  - Wurde die ID statt des Werts eingefügt, sagt das Setup genau das. Ohne Internet heißt es "noch nicht geprüft", nie "ungültig".
+- **Merker "MAK am Stick":** Liegt auf dem gewählten Stick ein MAK, steht das rot neben dem Hauptknopf. Der Tooltip nennt die letzten 5 Zeichen und wie der Stick ohne MAK bespielt wird.
+  - Sind die Einstellungen am Stick nicht lesbar, steht dort gelb "Stick prüfen".
+
+### 🎨 Oberfläche
+- **Tooltips lesbar:** Alle Tooltips haben eine feste Höchstbreite und brechen um, nichts läuft mehr aus dem Bild.
+  - Antworten von Microsoft stehen gegliedert da: Fehlercode, Beschreibung, Zeitpunkt und Kennungen je in einer Zeile.
+- **Behoben: falsche Verweise in Tooltips:** Der Tooltip von "4. WLAN-Paket bauen" verwies auf die falsche Stelle. Er nennt jetzt selbst, welche ICD.exe benutzt wird. Alle Verweise in Tooltips wurden geprüft.
+
+### 📝 Protokoll
+- **Details kopieren:** Rechtsklick auf eine Protokollzeile legt die gegliederte Meldung in die Zwischenablage, ohne Secret, Kennwörter und Schlüssel. Praktisch für Rückfragen beim Admin.
+
+### 📥 Import
+- **Fehler 806 und 808 in Klartext:** im Setup bei "7. Hashes importieren" und am Gerät, je mit dem nächsten Schritt.
+  - 806: Das Gerät steht schon unter einem alten Eintrag in Autopilot. Den Eintrag im Status löschen, warten, nochmal importieren.
+  - 808: Das Gerät ist noch einer anderen Organisation zugeordnet. Händler oder Vorbesitzer müssen es freigeben.
+
+### ⚠️ Nach dem Update
+- **Kein neues Pflichtrecht.** Das Löschen des Autopilot-Eintrags läuft über das vorhandene `DeviceManagementServiceConfig.ReadWrite.All`.
+- **Optional:** Mit `DeviceManagementManagedDevices.ReadWrite.All` löscht das Setup auch den Intune-Eintrag. Ohne dieses Recht löscht es nur den Autopilot-Eintrag und sagt das vorher. Den Intune-Eintrag entfernt dann ein Admin im Intune-Portal.
+
+### 🚧 Grenzen
+- **Älter oder neuer bei doppelten Einträgen:** Microsoft liefert kein Anlagedatum. Das Setup leitet es aus dem letzten Kontakt und der Profil-Zuweisung ab.
+- **Dauer des Löschens:** Microsoft nennt keine Obergrenze, es kann länger als 30 Minuten dauern.
+- **Adresse im Entra-Portal:** Microsoft kann sie ohne Ankündigung ändern. Dann die App-Registrierung von Hand öffnen.
+
+### ✅ Qualität
+- 258 automatische Tests.
+
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen
 - **Neuer Hauptknopf "Stick fertig machen":** erledigt alles in einem Durchgang und sagt bei einem Fehler in Klartext, was zu tun ist.
