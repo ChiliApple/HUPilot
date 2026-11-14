@@ -543,23 +543,27 @@ Describe 'go 2.7.19: Einbau des Berichts' {
     }
     It 'Bewusstes Nein des Benutzers: kein Bericht (alle vier Stellen mit -NoReport)' {
         $l = @($script:GoText -split "`r?`n")
-        foreach ($p in "if (`$k -ne 'W') { Fail ('Umstellung auf Pro hat nicht geklappt", "if (`$k -ne 'J' -and `$k -ne 'Y') { Fail (", "if (`$k -ne 'N') { Fail 'Autopilot meldet eine Hardware-Änderung", "if (`$a -notmatch '^[jJyY]') { Fail-Reset 'WLAN-Paket von Intune gesperrt") {
+        # 2.8.0: die Hardware-Aenderung steht jetzt in einem Block (eigene Zeile, ohne Klammer am Ende)
+        foreach ($p in "if (`$k -ne 'W') { Fail ('Umstellung auf Pro hat nicht geklappt", "if (`$k -ne 'J' -and `$k -ne 'Y') { Fail (", "        Fail 'Autopilot meldet eine Hardware-Änderung", "if (`$a -notmatch '^[jJyY]') { Fail-Reset 'WLAN-Paket von Intune gesperrt") {
             $hit = @($l | Where-Object { $_.Contains($p) })
             $hit.Count | Should -Be 1 -Because $p
-            $hit[0].TrimEnd() | Should -Match ' -NoReport \}$' -Because $p
+            $hit[0].TrimEnd() | Should -Match ' -NoReport( \})?$' -Because $p
         }
-        @([regex]::Matches($script:GoText, ' -NoReport \}')).Count | Should -Be 4
+        @([regex]::Matches($script:GoText, ' -NoReport( \}|\r?\n)')).Count | Should -Be 4
     }
     It 'Bericht genau an den vereinbarten Stellen, mit dem passenden Anlass' {
         @([regex]::Matches($script:GoText, 'Send-GoReport \(')).Count | Should -Be 5
-        $script:GoText | Should -Match ([regex]::Escape("Write-ReportLine (Send-GoReport (Get-EndText 'ResetNichtGestartet') 'ResetNichtGestartet')"))
+        $script:GoText | Should -Match ([regex]::Escape("Write-ReportLine (Send-GoReport (Get-EndText 'ResetNichtGestartet' `$wasN '' `$jetztN) 'ResetNichtGestartet')"))
         $script:GoText | Should -Match ([regex]::Escape("Write-ReportLine (Send-GoReport (Get-EndText 'KeinProfilEnde' `$kpWas `$kpTun) 'KeinProfilEnde')"))
         # Ende nach 15 Minuten: Bericht zwischen rotem Bild und Wait-Close
-        $i = $script:GoText.IndexOf("Banner 'ZURÜCKSETZEN NICHT GESTARTET'")
+        $i = $script:GoText.IndexOf("Banner 'ZURÜCKSETZEN NOCH NICHT BEGONNEN'")
+        $i | Should -BeGreaterThan 0
         $script:GoText.IndexOf("'ResetNichtGestartet')", $i) | Should -BeLessThan $script:GoText.IndexOf('Wait-Close', $i + 60)
         (Get-GoFunctionAst 'Stop-ByUser').Extent.Text | Should -Not -Match 'Send-GoReport'
         $so = (Get-GoFunctionAst 'Save-Offline').Extent.Text
-        $so | Should -Match ([regex]::Escape("if (`$Anlass) { Write-ReportLine (Send-GoReport (Get-EndText 'Offline' `$was `$tun) `$Anlass) }"))
+        # 2.8.0: Bericht vor dem Bild (U2), die Zeile darunter bleibt
+        $so | Should -Match ([regex]::Escape("if (`$Anlass) { `$rr = Send-GoReport (Get-EndText 'Offline' `$was `$tun) `$Anlass;"))
+        $so | Should -Match ([regex]::Escape('Write-ReportLine $rr'))
         $so.IndexOf('Send-GoReport') | Should -BeLessThan $so.IndexOf('exit 2')
     }
     It 'Gelb mit Bericht nur bei Secret abgelaufen oder falsch, nicht bei kein Internet oder anderer Anmeldung' {
@@ -602,7 +606,9 @@ Describe 'go 2.7.19: Einbau des Berichts' {
         @($er).Count | Should -Be 0
         $t = Get-Content -LiteralPath $dp -Raw -Encoding UTF8
         $t | Should -Match 'TeamsWebhook'
-        $t | Should -Match ([regex]::Escape("Bericht an den Admin ' + `$x.Host"))
+        # 2.8.0 (B11): kein Host mehr, nur eingetragen und erreichbar
+        $t | Should -Match ([regex]::Escape('Bericht an den Admin: eingetragen, erreichbar'))
+        $t | Should -Not -Match 'Write-Host[^\r\n]*\$x\.Host'
         $t | Should -Match ([regex]::Escape('Feld Teams-Webhook ungültig. Im Setup das Feld Teams-Webhook prüfen und den Stick neu bespielen.'))
         $t | Should -Not -Match 'Write-Host[^\r\n]*\$tw\b'
         $t | Should -Not -Match 'Teams-Bericht|Teams-Adresse'

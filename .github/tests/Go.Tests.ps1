@@ -273,9 +273,12 @@ Describe 'go: einheitliches Abschlussbild (drei Saetze)' {
         foreach ($u in ($used | Sort-Object -Unique)) { $script:States | Should -Contain $u }
     }
     It 'Rot heisst nicht zurueckgesetzt' {
-        foreach ($s in 'Fehler', 'FehlerReset', 'ResetNichtGestartet') { (Get-EndText $s).Jetzt | Should -Match 'nicht zurückgesetzt' }
+        foreach ($s in 'Fehler', 'FehlerReset') { (Get-EndText $s).Jetzt | Should -Match 'nicht zurückgesetzt' }
+        # 2.8.0: nach dem Start des Zuruecksetzens kann es noch starten, dort nie "nicht zurueckgesetzt"
+        (Get-EndText 'ResetNichtGestartet').Jetzt | Should -Match 'kann noch von selbst starten'
+        (Get-EndText 'ResetNichtGestartet').Jetzt | Should -Not -Match 'nicht zurückgesetzt'
         foreach ($b in @($script:GoAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Banner' -and $n.Extent.Text -match "'DarkRed'" }, $true))) {
-            $b.Extent.Text | Should -Match 'NICHT ZURÜCKGESETZT|FEHLER|NICHT GESTARTET|SCHON EINGERICHTET'
+            $b.Extent.Text | Should -Match 'NICHT ZURÜCKGESETZT|FEHLER|NICHT GESTARTET|NOCH NICHT BEGONNEN|SCHON EINGERICHTET'
         }
     }
     It 'eigener Text ersetzt Was und Tun, Jetzt bleibt' {

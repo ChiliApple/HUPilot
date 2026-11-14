@@ -27,6 +27,43 @@ if (-not $isAdmin) {
 }
 try { $Host.UI.RawUI.BackgroundColor = 'Black'; $Host.UI.RawUI.ForegroundColor = 'Gray'; $Host.UI.RawUI.WindowTitle = 'HUPilot Diagnose' } catch { }
 
+# Bereinigung fuer Anzeige und Datei am Stick (gleiche Regeln wie der Bericht an den Admin in go.ps1, hier eigenstaendig,
+# weil diag go.ps1 nicht laedt): Geheimnisse aus config.json samt URL- und JSON-Varianten, Host des Webhooks,
+# Tenant-ID ohne Bindestriche, Schluessel auf die letzten 5 Zeichen, signierte Adressen, Tokens, E-Mail-Adressen (UPN).
+function Get-DiagSecrets {
+    param($Cfg)
+    $s = New-Object System.Collections.Generic.List[string]
+    if ($Cfg) {
+        foreach ($k in 'ClientSecret', 'WlanKey', 'AdminPassword', 'Admin2Password', 'TeamsWebhook', 'TenantId', 'ClientId') { $v = ([string]$Cfg.$k).Trim(); if ($v.Length -ge 3) { $s.Add($v) } }
+        $x = $null
+        if ([uri]::TryCreate(([string]$Cfg.TeamsWebhook).Trim(), [UriKind]::Absolute, [ref]$x) -and $x.Host.Length -ge 3) { $s.Add($x.Host) }
+        $tid = (([string]$Cfg.TenantId).Trim()) -replace '-', ''
+        if ($tid.Length -ge 3) { $s.Add($tid) }
+    }
+    foreach ($v in @($s.ToArray())) {
+        try { $e = [uri]::EscapeDataString($v); if ($e -cne $v) { $s.Add($e) } } catch { }
+        try { $j = (ConvertTo-Json -InputObject $v -Compress); $j = $j.Substring(1, $j.Length - 2); if ($j -cne $v) { $s.Add($j) } } catch { }
+        $j2 = $v.Replace('\', '\\').Replace('"', '\"').Replace('/', '\/'); if ($j2 -cne $v) { $s.Add($j2) }
+    }
+    return @($s | Select-Object -Unique | Sort-Object -Property Length -Descending)
+}
+function Protect-DiagText {
+    param([string]$Text, [string[]]$Secrets = @())
+    $t = [string]$Text
+    if (-not $t) { return '' }
+    $t = [regex]::Replace($t, '[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}', { param($m) '*****-' + $m.Value.Substring($m.Value.Length - 5) })
+    foreach ($x in @($Secrets)) { if ([string]$x) { $t = [regex]::Replace($t, [regex]::Escape([string]$x), '***', 'IgnoreCase') } }
+    $t = [regex]::Replace($t, '(?i)https://\S*[?&]sig[=]\S*', '(Adresse entfernt)')
+    $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*', '***')
+    $t = [regex]::Replace($t, '(?i)((?<!\\)"(?:client_secret|clientsecret|access_token|refresh_token|password|adminpassword|admin2password|wlankey|teamswebhook)"\s*:\s*")((?:[^"\\]|\\.)*)', '$1***')
+    $t = [regex]::Replace($t, '(?i)(\\"(?:client_secret|clientsecret|access_token|refresh_token|password|adminpassword|admin2password|wlankey|teamswebhook)\\"\s*:\s*\\")((?:(?!\\").)*)', '$1***')
+    $t = [regex]::Replace($t, '(?i)(Bearer|client_secret[=:]|access_token["'':= ]+)\s*[^\s"''&]+', '$1 ***')
+    $t = [regex]::Replace($t, '[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}', { param($m) '***@' + $m.Value.Split('@')[1] })
+    return $t
+}
+$script:DiagSecrets = @()
+try { $script:DiagSecrets = @(Get-DiagSecrets (Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json)) } catch { }
+
 function Get-Serial { try { return ([string](Get-CimInstance Win32_BIOS).SerialNumber).Trim() } catch { return '?' } }
 function Head([string]$t) {
     Clear-Host
@@ -41,7 +78,7 @@ function Tail([string]$File, [int]$N, [string]$Pattern) {
     foreach ($x in @($l | Select-Object -Last $N)) {
         $c = 'Gray'
         if ($x -match 'FEHLER|ERR |Fehler') { $c = 'Red' } elseif ($x -match 'ACHTUNG|OFFLINE|Hinweis|nicht m(ö|oe)glich') { $c = 'Yellow' } elseif ($x -match ' OK|erfolgreich|gespeichert|zugewiesen') { $c = 'Green' }
-        $t = $x; if ($t.Length -gt 150) { $t = $t.Substring(0, 150) }
+        $t = Protect-DiagText $x $script:DiagSecrets; if ($t.Length -gt 150) { $t = $t.Substring(0, 150) }
         Write-Host ('  ' + $t) -ForegroundColor $c
     }
 }
@@ -67,8 +104,8 @@ function Show-Device {
         Write-Host ('  Hash         : ' + $(if ($dd.DeviceHardwareData) { 'lesbar (' + ([string]$dd.DeviceHardwareData).Length + ' Zeichen)' } else { 'NICHT lesbar' }))
     } catch { Write-Host '  Hash         : NICHT lesbar' -ForegroundColor Red }
     try { $c = Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json; Write-Host ('  Stick-Config : ' + $c.Tenant + ' | Tag ' + $c.GroupTag + ' | WLAN ' + $c.WlanSsid) } catch { Write-Host '  Stick-Config : nicht lesbar' -ForegroundColor Red }
-    try { $v = Get-Content -LiteralPath (Join-Path $CfgDir 'Config\version.json') -Raw | ConvertFrom-Json; Write-Host ('  HUPilot      : v' + $v.version + ' (' + $v.buildDate + ')') } catch { Write-Host '  HUPilot      : Version nicht lesbar' }
-    try { $i = Get-Content -LiteralPath (Join-Path $CfgDir 'Config\installed.json') -Raw | ConvertFrom-Json; Write-Host ('  Update       : ' + $i.Date + ', ' + $i.Check) } catch { }
+    try { $v = Get-Content -LiteralPath (Join-Path $CfgDir 'Config\version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; Write-Host ('  HUPilot      : v' + $v.version + ' (' + $v.buildDate + ')') } catch { Write-Host '  HUPilot      : Version nicht lesbar' }
+    try { $i = Get-Content -LiteralPath (Join-Path $CfgDir 'Config\installed.json') -Raw -Encoding UTF8 | ConvertFrom-Json; Write-Host ('  Update       : ' + $i.Date + ', ' + $i.Check) } catch { }
 }
 function Show-Net {
     Head 'Netzwerk / WLAN'
@@ -91,20 +128,20 @@ function Show-Net {
             else { Write-Host ('  FEHLT ' + $u + '  ' + $m) -ForegroundColor Red }
         }
     }
-    # Bericht an den Admin (config.json "TeamsWebhook"): nur den Host pruefen und anzeigen, nie die Adresse (Geheimnis)
+    # Bericht an den Admin (config.json "TeamsWebhook"): nur "eingetragen" und ob der Dienst erreichbar ist, nie Adresse oder Host (Geheimnis)
     $tw = ''; try { $tw = ([string](Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json).TeamsWebhook).Trim() } catch { }
     if ($tw) {
         $x = $null
         if (-not [uri]::TryCreate($tw, [UriKind]::Absolute, [ref]$x) -or $x.Scheme -ne 'https' -or $x.Host -match '(?i)(^|\.)webhook\.office\.com$') { Write-Host '  FEHLT Bericht an den Admin: Feld Teams-Webhook ungültig. Im Setup das Feld Teams-Webhook prüfen und den Stick neu bespielen.' -ForegroundColor Yellow }
         else {
             $th = 'https://' + $x.Host
-            try { $null = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $th -UseBasicParsing -TimeoutSec 8 -Method Head; Write-Host ('  OK    Bericht an den Admin ' + $x.Host) -ForegroundColor Green }
+            try { $null = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $th -UseBasicParsing -TimeoutSec 8 -Method Head; Write-Host '  OK    Bericht an den Admin: eingetragen, erreichbar' -ForegroundColor Green }
             catch {
-                if ($_.Exception.Response) { Write-Host ('  OK    Bericht an den Admin ' + $x.Host + '  (erreichbar, HTTP ' + [int]$_.Exception.Response.StatusCode + ')') -ForegroundColor Green }
-                else { Write-Host ('  FEHLT Bericht an den Admin ' + $x.Host + '  ' + ($_.Exception.Message -replace 'https?://\S+', '(Adresse)')) -ForegroundColor Red }
+                if ($_.Exception.Response) { Write-Host ('  OK    Bericht an den Admin: eingetragen, erreichbar (HTTP ' + [int]$_.Exception.Response.StatusCode + ')') -ForegroundColor Green }
+                else { Write-Host ('  FEHLT Bericht an den Admin: eingetragen, nicht erreichbar (' + (Protect-DiagText ($_.Exception.Message -replace 'https?://\S+', '(Adresse)') $script:DiagSecrets) + ')') -ForegroundColor Red }
             }
         }
-    }
+    } else { Write-Host '  Bericht an den Admin: nicht eingetragen' }
     try { $ob = @(Get-ChildItem -LiteralPath (Join-Path $CfgDir 'logs\outbox') -Filter '*.json' -File -ErrorAction Stop).Count; if ($ob) { Write-Host ('  Berichte an den Admin am Stick, noch nicht gesendet: ' + $ob) -ForegroundColor Yellow } } catch { }
     try {
         $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri 'http://www.msftconnecttest.com/connecttest.txt' -UseBasicParsing -TimeoutSec 5
@@ -160,10 +197,12 @@ function Save-All {
     Head 'Alles in Datei am Stick speichern ...'
     $out = @()
     $out += (& { Show-Device; Show-Net; Show-Prov } *>&1 | Out-String)
-    $out += "`r`n===== HUPilot.log =====`r`n"; if (Test-Path $LocalLog) { $out += (Get-Content $LocalLog -Tail 300 | Out-String) }
-    $out += "`r`n===== HUPilot-Wipe.log =====`r`n"; if (Test-Path $WipeLog) { $out += (Get-Content $WipeLog | Out-String) }
+    $out += "`r`n===== HUPilot.log =====`r`n"; if (Test-Path $LocalLog) { $out += (Get-Content $LocalLog -Tail 300 -Encoding UTF8 | Out-String) }
+    $out += "`r`n===== HUPilot-Wipe.log =====`r`n"; if (Test-Path $WipeLog) { $out += (Get-Content $WipeLog -Encoding UTF8 | Out-String) }
     $out += "`r`n===== netsh wlan show interfaces =====`r`n" + (netsh wlan show interfaces 2>&1 | Out-String)
     $out += "`r`n===== ipconfig /all =====`r`n" + (ipconfig /all 2>&1 | Out-String)
+    # Vor dem Ablegen am Stick bereinigen (Tenant-ID, App-ID, Secrets, UPN aus Fehlermeldungen)
+    $out = @($out | ForEach-Object { Protect-DiagText ([string]$_) $script:DiagSecrets })
     try { Set-Content -Path $f -Value $out -Encoding UTF8; Head 'Gespeichert'; Write-Host ('  ' + $f) -ForegroundColor Green; Write-Host '  Stick am PC anstecken und die Datei schicken.' }
     catch { Write-Host ('  FEHLER: ' + $_.Exception.Message) -ForegroundColor Red }
 }
@@ -180,6 +219,7 @@ while ($true) {
     Write-Host '   [0]  Ende'
     Write-Host ''
     $k = Read-Host '  Auswahl'
+    $back = $true
     switch ($k) {
         '1' { Head 'HUPilot.log - letzte 30 Zeilen'; Tail $LocalLog 30 '' }
         '2' { Head 'HUPilot.log - Fehler / Warnungen'; Tail $LocalLog 30 'FEHLER|ACHTUNG|OFFLINE|Hinweis|nicht m(ö|oe)glich|Exitcode|Abbruch|Fehler|START' }
@@ -189,8 +229,10 @@ while ($true) {
         '6' { Show-Prov }
         '7' { Save-All }
         '0' { try { $Host.UI.RawUI.BackgroundColor = 'Black' } catch { }; exit 0 }
-        default { Write-Host '  Ungültige Auswahl - bitte 0 bis 7' -ForegroundColor Yellow; Start-Sleep -Seconds 2; continue }
+        # continue im switch gilt nur fuer den switch (danach kaeme die Enter-Frage), deshalb ein Merker
+        default { Write-Host '  Ungültige Auswahl - bitte 0 bis 7' -ForegroundColor Yellow; Start-Sleep -Seconds 2; $back = $false }
     }
+    if (-not $back) { continue }
     Write-Host ''
     Read-Host '  Enter = zurück zum Menü' | Out-Null
 }
