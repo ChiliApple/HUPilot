@@ -613,7 +613,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <TextBlock Text="Teams-Webhook" VerticalAlignment="Center" ToolTip="Adresse eines Teams-Workflows, an die go bei einem Fehler am Gerät einen Bericht schickt." ToolTipService.ShowDuration="30000"/>
-        <DockPanel Grid.Column="1"><Button x:Name="bHookTest" DockPanel.Dock="Right" Content="Testnachricht senden" Padding="8,2" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Schickt eine kurze Testnachricht an die eingetragene Adresse. Das Ergebnis steht im Protokoll." ToolTipService.ShowDuration="30000"/><CheckBox x:Name="cShowHook" ToolTip="Teams-Webhook im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pHook" ToolTip="Teams-Webhook (optional): Bei einem roten Abschluss am Gerät schickt go einen Fehlerbericht in den Teams-Kanal; ohne Internet holt das Setup ihn später vom Stick nach.&#x0a;Die Adresse steht im Klartext auf jedem Stick. Wer sie kennt, kann in den Kanal schreiben: Stick nicht aus der Hand geben.&#x0a;Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht in jeder Nachricht.&#x0a;So anlegen: in Teams die App Workflows öffnen, die Vorlage &quot;Webhookbenachrichtigungen an einen Kanal&quot; wählen, Team und Kanal angeben und die angezeigte Adresse kopieren. Private Kanäle gehen nicht." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tHook" ToolTip="Teams-Webhook im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
+        <DockPanel Grid.Column="1"><Button x:Name="bHookTest" DockPanel.Dock="Right" Content="Testnachricht senden" Padding="8,2" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Schickt eine kurze Testnachricht an die eingetragene Adresse. Das Ergebnis steht im Protokoll." ToolTipService.ShowDuration="30000"/><CheckBox x:Name="cShowHook" ToolTip="Teams-Webhook im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pHook" ToolTip="Teams-Webhook (optional): Bei einem roten Abschluss am Gerät schickt go einen Fehlerbericht in den Teams-Kanal; ohne Internet holt das Setup ihn später vom Stick nach.&#x0a;Die Adresse steht im Klartext auf jedem Stick. Wer sie kennt, kann in den Kanal schreiben: Stick nicht aus der Hand geben.&#x0a;Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht in jeder Nachricht.&#x0a;Ein Bericht kann Seriennummer, Gerätename, Benutzername und WLAN-Namen enthalten: den Kanal nicht für alle öffnen, nur für die Admins.&#x0a;So anlegen: in Teams die App Workflows öffnen, die Vorlage &quot;Webhookbenachrichtigungen an einen Kanal&quot; wählen, Team und Kanal angeben und die angezeigte Adresse kopieren. Private Kanäle gehen nicht." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tHook" ToolTip="Teams-Webhook im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
       </Grid>
     </GroupBox>
     <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
@@ -966,9 +966,17 @@ function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '',
     $ms.ToolTip = 'Diese Zeile mit ihren Details, den letzten Protokollzeilen und den Angaben zu Version und Windows in den Teams-Kanal des Admins schicken (ohne Kennwörter und Schlüssel).'
     $ms.Add_Click({ Send-LogItemToAdmin $this.Tag })
     [void]$it.ContextMenu.Items.Add($ms)
+    # nur im Hauptfenster: liegen gebliebene Berichte an den Admin vom Stick auf Klick senden (bis zu 10)
+    if ($List -eq $ui.lLog) {
+        $mo = New-Object System.Windows.Controls.MenuItem
+        $mo.Header = 'Berichte vom Stick senden'; $mo.Uid = 'outbox'
+        $mo.ToolTip = 'Berichte an den Admin, die go am Stick abgelegt hat (Gerät ohne Internet), jetzt in den Teams-Kanal schicken. Bis zu 10 auf einmal.'
+        $mo.Add_Click({ try { Invoke-OutboxSendAll -Force } catch { } })
+        [void]$it.ContextMenu.Items.Add($mo)
+    }
     # beim Oeffnen: "Details kopieren" wieder mit urspruenglichem Text, "An Admin senden" nur mit Webhook, ohne sichtbaren Eintrag kein Menue
     $it.ContextMenu.Add_Opened({ foreach ($x in @($this.Items)) { try { if ($x.Uid -eq 'copy') { $x.Header = 'Details kopieren' } } catch { } } })
-    $it.Add_ContextMenuOpening({ param($s, $e) try { $any = $false; foreach ($x in @($s.ContextMenu.Items)) { if ($x.Uid -eq 'send') { $x.Visibility = $(if (Get-TeamsWebhook) { 'Visible' } else { 'Collapsed' }) }; if ([string]$x.Visibility -eq 'Visible') { $any = $true } }; if (-not $any) { $e.Handled = $true } } catch { } })
+    $it.Add_ContextMenuOpening({ param($s, $e) try { $any = $false; foreach ($x in @($s.ContextMenu.Items)) { if ($x.Uid -eq 'send') { $x.Visibility = $(if (Get-TeamsWebhook) { 'Visible' } else { 'Collapsed' }) }; if ($x.Uid -eq 'outbox') { $n = $(if (Get-TeamsWebhook) { Get-OutboxPending } else { 0 }); $x.Visibility = $(if ($n) { 'Visible' } else { 'Collapsed' }); $x.Header = 'Berichte vom Stick senden (' + $n + ')' }; if ([string]$x.Visibility -eq 'Visible') { $any = $true } }; if (-not $any) { $e.Handled = $true } } catch { } })
     $it.Content = $sp; $it.Padding = '4,1'
     $it.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail; Level = $Level }
     if ($Top) { $List.Items.Insert(0, $it) } else { [void]$List.Items.Add($it) }
@@ -1161,16 +1169,22 @@ function Get-ReadyHintKey([string]$Drive) {
     return ($x.Letter + '|' + $x.Size + '|' + $x.Serial)
 }
 # ---------- Fehlerberichte per Teams (Workflow-Webhook) ----------
-#   Vertrag mit go.ps1: Feld TeamsWebhook in config.json (leer = aus, nur https, keine alte webhook.office.com-Adresse).
-#   Nicht gesendete Berichte von go am Stick: HUPilot\logs\outbox\<yyyyMMdd-HHmmss>_<Seriennummer>.json, UTF-8 ohne BOM,
-#   { v = 1, created (UTC), source, level, title, lines, log }, schon bereinigt. Nach dem Senden geloescht, aelter als
-#   30 Tage oder ueber 50 Dateien hinaus verworfen (aelteste zuerst), unbekanntes v oder kaputt: liegen lassen, ein Hinweis.
+#   Vertrag mit go.ps1: Feld TeamsWebhook in config.json (leer = aus, nur https, keine alte Connector-Adresse).
+#   Nicht gesendete Berichte an den Admin am Stick: HUPilot\logs\outbox\<yyyyMMdd-HHmmss>_<Seriennummer>.json, UTF-8 ohne
+#   BOM, { v = 1, created (UTC), source, level, title, lines, log }, schon bereinigt. Nach dem Senden geloescht. Gueltige
+#   Berichte werden nie wegen ihres Alters verworfen (die Geraeteuhr kann weit zurueckliegen), nur ueber 50 Dateien hinaus
+#   (aelteste zuerst, nach dem Senden). Unlesbar, ueber 256 KB oder unbekanntes v: liegen lassen, Hinweis; erst nach 30 Tagen
+#   (Aenderungszeit) verworfen.
 #   Karte: Adaptive Card 1.4 (Vorlage _Werkzeuge\Handover_TeamsNotify.md), Titel mit dem Anzeigenamen (ein Kanal fuer
-#   mehrere Schulen), Log als ein Textblock in Festbreite, Fusszeile "Anzeigename | Datum Zeit | HUPilot <Quelle> <Version>",
-#   unter 24 KB (Log von vorne gekuerzt). Die Adresse ist ein Geheimnis: nie im Protokoll, in der Datei oder in einer Karte.
-#   Gesendet wird im Setup nur auf Klick (Testnachricht, An Admin senden) und beim Nachsenden der Berichte vom Stick.
+#   mehrere Schulen), Log als ein Textblock in Festbreite (Zeilen mit Leerzeile getrennt wie in go), Fusszeile
+#   "Anzeigename | Datum Zeit | HUPilot <Quelle> <Version>", immer unter 24 KB. Gesendet ohne Weiterleitung.
+#   Die Adresse ist ein Geheimnis: nie im Protokoll, in der Datei oder in einer Karte (auch nicht ihr Hostname).
+#   Gesendet wird im Setup nur auf Klick (Testnachricht, An Admin senden, Berichte vom Stick senden) und beim Nachsenden
+#   der Berichte, die go am Stick abgelegt hat.
 $script:TeamsMaxBytes = 24000
-$script:OutboxMaxDays = 30; $script:OutboxMaxFiles = 50; $script:OutboxPerRun = 10
+$script:OutboxMaxFiles = 50; $script:OutboxBadDays = 30; $script:OutboxMaxBytes = 256KB
+$script:OutboxPerRun = 3; $script:OutboxPerManual = 10; $script:OutboxRetryMin = 5
+$script:TeamsMaxTitle = 200; $script:TeamsMaxLines = 30; $script:TeamsMaxLine = 600; $script:TeamsMaxLogLine = 400
 # Host der abgeschalteten Office-365-Connectors (Muster an einer Stelle, Tests setzen es auf einen erfundenen Host)
 $script:HuOldHookHostRx = '(?i)(^|\.)webhook\.office\.com$'
 # '' = in Ordnung, sonst Grund
@@ -1189,16 +1203,25 @@ function Test-HuWebhookHostKnown([string]$Url) {
     return ($x.Host -match '(?i)(\.logic\.azure\.com|\.powerplatform\.com|\.powerautomate\.com|\.azure-apim\.net)$')
 }
 function Get-TeamsWebhook { try { return ([string](Get-Masked 'Hook')).Trim() } catch { return '' } }
-# Text fuer eine Karte bereinigen: Secret, Kennwoerter, MAK (bis auf 5 Zeichen), Webhook-Adresse, Tokens, https-Adressen
-# mit sig=, Tenant-ID und App-ID. $Secrets/$Ids nur fuer Tests, sonst aus den Feldern.
+# Werte fuer die Bereinigung, einmal je Durchgang berechnet: Geheimnisse (mit Hostname der Webhook-Adresse) und Kennungen
+function Get-TeamsProtectSet {
+    $s = @(); try { $s = @(Get-LogSecretValues) } catch { }
+    $i = @(); try { $c = Get-Cfg; $i = @([string]$c.TenantId, [string]$c.ClientId) } catch { }
+    return [pscustomobject]@{ S = $s; I = $i }
+}
+# Text fuer eine Karte bereinigen: Secret, Kennwoerter, MAK (bis auf 5 Zeichen), Webhook-Adresse samt Hostname, Tokens,
+# https-Adressen mit sig=, Tenant-ID und App-ID (auch ohne Bindestriche). $Secrets/$Ids: vorberechnet (Get-TeamsProtectSet).
 function Protect-TeamsText([string]$Text, $Secrets = $null, $Ids = $null) {
     if (-not $Text) { return '' }
-    if ($null -eq $Secrets) { $Secrets = @(Get-LogSecretValues) }
-    if ($null -eq $Ids) { $Ids = @(); try { $c = Get-Cfg; $Ids = @([string]$c.TenantId, [string]$c.ClientId) } catch { } }
+    if ($null -eq $Secrets -or $null -eq $Ids) { $ps = Get-TeamsProtectSet; if ($null -eq $Secrets) { $Secrets = $ps.S }; if ($null -eq $Ids) { $Ids = $ps.I } }
     $t = Hide-LogSecrets $Text @($Secrets)
+    foreach ($v in @($Secrets)) { $x = $null; if ([string]$v -match '^https://' -and [uri]::TryCreate([string]$v, [UriKind]::Absolute, [ref]$x) -and $x.Host.Length -ge 4) { $t = [regex]::Replace($t, [regex]::Escape($x.Host), '(Webhook)', 'IgnoreCase') } }
     $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*', '***')
     $t = [regex]::Replace($t, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
-    foreach ($i in @($Ids | Where-Object { $_ -and ([string]$_).Length -ge 8 })) { $t = [regex]::Replace($t, [regex]::Escape([string]$i), '(Kennung)', 'IgnoreCase') }
+    foreach ($i in @($Ids | Where-Object { $_ -and ([string]$_).Length -ge 8 })) {
+        $t = [regex]::Replace($t, [regex]::Escape([string]$i), '(Kennung)', 'IgnoreCase')
+        $t = [regex]::Replace($t, [regex]::Escape((([string]$i) -replace '-', '')), '(Kennung)', 'IgnoreCase')
+    }
     return $t
 }
 # Titel: Anzeigename vorne (mehrere Schulen in einem Kanal), leer = "HUPilot"
@@ -1215,34 +1238,44 @@ function Get-TeamsFooter([string]$Source = 'Setup', $When = $null, $Name = $null
     $p += ('HUPilot ' + $Source + $(if ($Version) { ' ' + $Version } else { '' }))
     return ($p -join '  |  ')
 }
-# Adaptive Card 1.4 als JSON (UTF-8 unter 24 KB): Titel farbig je Stufe, Zeilen, Log in Festbreite, Fusszeile
+function Limit-TeamsText([string]$s, [int]$Max) { if ($s.Length -gt $Max) { return ($s.Substring(0, $Max) + ' (gekürzt)') }; return $s }
+# Adaptive Card 1.4 als JSON, immer unter 24 KB: Titel farbig je Stufe (hoechstens 200 Zeichen), hoechstens 30 Zeilen zu je
+# 600 Zeichen, Log in Festbreite (Zeilen je 400 Zeichen, mit Leerzeile getrennt wie in go), Fusszeile.
+# Zu gross: zuerst das Log von vorne kuerzen (das Neueste bleibt, erste Zeile "(gekürzt)"), dann die Zeilen von hinten.
 function New-TeamsCard([string]$Title, [string[]]$Lines = @(), [string[]]$Log = @(), [string]$Level = 'Info', [string]$Footer = '') {
     $color = switch ($Level) { 'Error' { 'Attention' } 'Warning' { 'Warning' } 'OK' { 'Good' } default { 'Accent' } }
-    $lines2 = @($Lines | Where-Object { ([string]$_).Trim() } | ForEach-Object { $s = [string]$_; if ($s.Length -gt 1500) { $s.Substring(0, 1500) + ' (gekürzt)' } else { $s } })
-    $log2 = @($Log | ForEach-Object { [string]$_ })
-    $cut = $false
+    $title2 = Limit-TeamsText ([string]$Title) $script:TeamsMaxTitle
+    $lines2 = @($Lines | Where-Object { ([string]$_).Trim() } | Select-Object -First $script:TeamsMaxLines | ForEach-Object { Limit-TeamsText ([string]$_) $script:TeamsMaxLine })
+    $log2 = @($Log | ForEach-Object { Limit-TeamsText ([string]$_) $script:TeamsMaxLogLine })
+    $cut = $false; $cutLines = $false
     while ($true) {
         $body = New-Object System.Collections.Generic.List[object]
-        $body.Add([ordered]@{ type = 'TextBlock'; text = [string]$Title; weight = 'Bolder'; size = 'Medium'; wrap = $true; color = $color })
+        $body.Add([ordered]@{ type = 'TextBlock'; text = $title2; weight = 'Bolder'; size = 'Medium'; wrap = $true; color = $color })
         foreach ($l in $lines2) { $body.Add([ordered]@{ type = 'TextBlock'; text = $l; wrap = $true; spacing = 'Small' }) }
-        if ($log2.Count) { $body.Add([ordered]@{ type = 'TextBlock'; text = ((@($(if ($cut) { '(gekürzt)' })) + $log2 | Where-Object { $null -ne $_ }) -join "`n"); fontType = 'Monospace'; size = 'Small'; wrap = $true; spacing = 'Medium' }) }
+        if ($cutLines) { $body.Add([ordered]@{ type = 'TextBlock'; text = '(weitere Zeilen gekürzt)'; wrap = $true; spacing = 'Small'; isSubtle = $true }) }
+        if ($log2.Count) { $body.Add([ordered]@{ type = 'TextBlock'; text = ((@($(if ($cut) { '(gekürzt)' })) + $log2 | Where-Object { $null -ne $_ }) -join "`n`n"); fontType = 'Monospace'; size = 'Small'; wrap = $true; spacing = 'Medium' }) }
         if ($Footer) { $body.Add([ordered]@{ type = 'TextBlock'; text = $Footer; isSubtle = $true; size = 'Small'; wrap = $true; spacing = 'Medium' }) }
         $card = [ordered]@{ '$schema' = 'http://adaptivecards.io/schemas/adaptive-card.json'; type = 'AdaptiveCard'; version = '1.4'; body = $body.ToArray() }
         $msg = [ordered]@{ type = 'message'; attachments = @([ordered]@{ contentType = 'application/vnd.microsoft.card.adaptive'; contentUrl = $null; content = $card }) }
         $json = $msg | ConvertTo-Json -Depth 10 -Compress
-        if ([System.Text.Encoding]::UTF8.GetByteCount($json) -le $script:TeamsMaxBytes -or -not $log2.Count) { return $json }
-        # Log von vorne kuerzen (das Neueste bleibt), in Schritten von etwa einem Zehntel
-        $n = [math]::Max(1, [int]($log2.Count / 10)); $log2 = @($log2 | Select-Object -Skip $n); $cut = $true
+        if ([System.Text.Encoding]::UTF8.GetByteCount($json) -le $script:TeamsMaxBytes) { return $json }
+        if ($log2.Count) { $n = [math]::Max(1, [int]($log2.Count / 10)); $log2 = @($log2 | Select-Object -Skip $n); $cut = $true; continue }
+        if ($lines2.Count) { $lines2 = @($lines2 | Select-Object -First ($lines2.Count - 1)); $cutLines = $true; continue }
+        # nur noch Titel und Fusszeile: notfalls Fusszeile weglassen
+        if ($Footer) { $Footer = ''; continue }
+        return $json
     }
 }
-# Eigentlicher Aufruf an einer Stelle (Tests ersetzen ihn, beim Entwickeln wird nie an einen echten Webhook gesendet)
+# Eigentlicher Aufruf an einer Stelle (Tests ersetzen ihn, beim Entwickeln wird nie an einen echten Webhook gesendet).
+# Ohne Weiterleitung: eine Antwort 3xx zaehlt als Fehlschlag.
 function Invoke-HuWebPost([string]$Url, [byte[]]$Body, [int]$TimeoutSec) {
-    $null = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $Url -Method Post -Body $Body -ContentType 'application/json; charset=utf-8' -UseBasicParsing -TimeoutSec $TimeoutSec -ErrorAction Stop
+    $r = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $Url -Method Post -Body $Body -ContentType 'application/json; charset=utf-8' -UseBasicParsing -TimeoutSec $TimeoutSec -MaximumRedirection 0 -ErrorAction Stop
+    if ($r -and [int]$r.StatusCode -ge 300) { throw ('Weiterleitung abgelehnt (' + [int]$r.StatusCode + ')') }
 }
-# '' = gesendet, sonst Grund. Wirft nie, die Adresse erscheint nie im Grund.
+# '' = gesendet, sonst Grund. Wirft nie, weder die Adresse noch ihr Hostname erscheinen im Grund.
 function Send-TeamsCard([string]$Url, [string]$Json, [int]$TimeoutSec = 20) {
+    $u = ([string]$Url).Trim()
     try {
-        $u = ([string]$Url).Trim()
         if (-not $u) { return 'kein Teams-Webhook eingetragen' }
         $why = Test-HuWebhookUrl $u
         if ($why) { return ('Adresse ungültig: ' + $why) }
@@ -1251,104 +1284,169 @@ function Send-TeamsCard([string]$Url, [string]$Json, [int]$TimeoutSec = 20) {
         return ''
     } catch {
         $m = ''; try { $m = [string]$_.Exception.Message } catch { }
-        return ('Senden fehlgeschlagen: ' + ($m -replace 'https://\S+', '(Webhook)'))
+        $m = $m -replace 'https://\S+', '(Webhook)'
+        try { $x = [uri]$u; if ($x.Host) { $m = [regex]::Replace($m, [regex]::Escape($x.Host), '(Webhook)', 'IgnoreCase') } } catch { }
+        return ('Senden fehlgeschlagen: ' + $m)
     }
+}
+# Statustext neben dem Hauptknopf merken und wiederherstellen (ein Ergebnis von "Stick fertig machen" darf nicht verschwinden)
+function Get-ReadyState { try { return @{ Text = [string]$ui.tReady.Text; Tip = [string]$ui.tReady.ToolTip; Color = [string]$script:ReadyColor } } catch { return $null } }
+function Restore-ReadyState($Prev) {
+    try {
+        if ($Prev -and $Prev.Text) { Set-ReadyText $Prev.Text $(if ($Prev.Color) { $Prev.Color } else { 'HuText' }) $Prev.Tip }
+        else { $script:HintDrive = '?'; Update-ReadyHint }
+    } catch { }
 }
 # Knopf "Testnachricht senden"
 function Send-TeamsTest {
-    $u = Get-TeamsWebhook
-    if (-not $u) { Out-Log 'Kein Teams-Webhook eingetragen. Die Adresse aus dem Teams-Workflow bei "Teams-Webhook" einfügen.' 'Hinweis'; return }
-    $why = Test-HuWebhookUrl $u
-    if ($why) { Out-Log ('Teams-Webhook ungültig: ' + $why + '.') 'Fehler'; return }
-    if (-not (Test-HuWebhookHostKnown $u)) { Out-Log 'Die Adresse sieht nicht nach einem Teams-Workflow aus. Gesendet wird trotzdem, bitte im Kanal nachsehen.' 'Hinweis' }
-    Set-UiBusy $true
+    $prev = $null; $busy = $false
     try {
+        $u = Get-TeamsWebhook
+        if (-not $u) { Out-Log 'Kein Teams-Webhook eingetragen. Die Adresse aus dem Teams-Workflow bei "Teams-Webhook" einfügen.' 'Hinweis'; return }
+        $why = Test-HuWebhookUrl $u
+        if ($why) { Out-Log ('Teams-Webhook ungültig: ' + $why + '. Die Adresse aus dem Teams-Workflow vollständig einfügen (beginnt mit https://).') 'Fehler'; return }
+        if (-not (Test-HuWebhookHostKnown $u)) { Out-Log 'Die Adresse sieht nicht nach einem Teams-Workflow aus. Gesendet wird trotzdem, bitte im Kanal nachsehen.' 'Hinweis' }
+        $prev = Get-ReadyState
+        Set-UiBusy $true; $busy = $true
         Set-ReadyText 'Sende Testnachricht an Teams ...'; Step-Ui
         $c = Get-Cfg
-        $json = New-TeamsCard (Get-TeamsTitle 'Testnachricht' ([string]$c.Tenant)) @('Testnachricht aus dem HUPilot-Setup.', 'Kommt sie an, funktionieren die Fehlerberichte von den Sticks.') @() 'Info' (Get-TeamsFooter 'Setup' (Get-Date) ([string]$c.Tenant))
+        $json = New-TeamsCard (Get-TeamsTitle 'Testnachricht' ([string]$c.Tenant)) @('Testnachricht aus dem HUPilot-Setup.', 'Kommt sie an, funktionieren die Berichte an den Admin.') @() 'Info' (Get-TeamsFooter 'Setup' (Get-Date) ([string]$c.Tenant))
         $r = Send-TeamsCard $u $json 15
         if ($r) { Out-Log ('Testnachricht nicht gesendet: ' + $r + '. Prüfen: Adresse vollständig kopiert, Workflow in Teams eingeschaltet, Internet da.') 'Fehler' }
         else { Out-Log 'Testnachricht gesendet, bitte im Teams-Kanal nachsehen.' 'OK' }
-    } finally { Set-UiBusy $false; $script:HintDrive = '?'; try { Update-ReadyHint } catch { } }
+    } catch { try { Out-Log 'Testnachricht nicht gesendet. Internet und Teams-Webhook prüfen, dann nochmal versuchen.' 'Fehler' $_.Exception.Message } catch { } }
+    finally { if ($busy) { Set-UiBusy $false; Restore-ReadyState $prev } }
 }
-# Alte Berichte verwerfen: aelter als 30 Tage (Zeit aus dem Dateinamen, sonst Aenderungszeit), dann ueber 50 die aeltesten.
-# Rueckgabe: Zahl der verworfenen Dateien
+# Dateien in der Ablage (ohne die in dieser Sitzung schon gesendeten, die nicht loeschbar waren)
+function Get-OutboxFiles([string]$Dir, $Skip = $null) {
+    try {
+        if (-not [System.IO.Directory]::Exists($Dir)) { return @() }
+        return @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue | Where-Object { -not ($Skip -and $Skip.Contains($_.FullName)) } | Sort-Object Name)
+    } catch { return @() }
+}
+# Ueber 50 Dateien hinaus die aeltesten verwerfen (nach dem Senden). Rueckgabe: Zahl der verworfenen Dateien
 function Remove-OutboxOld([string]$Dir, [datetime]$NowUtc) {
-    $files = @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name)
-    $gone = 0; $keep = @()
-    foreach ($f in $files) {
-        $t = [datetime]::MinValue
-        $ok = [datetime]::TryParseExact(($f.Name -split '_')[0], 'yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$t)
-        if (-not $ok) { $t = $f.LastWriteTimeUtc }
-        if (($NowUtc - $t).TotalDays -gt $script:OutboxMaxDays) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $gone++ } catch { } }
-        else { $keep += $f }
-    }
-    if ($keep.Count -gt $script:OutboxMaxFiles) {
-        foreach ($f in @($keep | Select-Object -First ($keep.Count - $script:OutboxMaxFiles))) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $gone++ } catch { } }
+    $files = @(Get-OutboxFiles $Dir)
+    $gone = 0
+    if ($files.Count -gt $script:OutboxMaxFiles) {
+        foreach ($f in @($files | Select-Object -First ($files.Count - $script:OutboxMaxFiles))) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $gone++ } catch { } }
     }
     return $gone
 }
 # Berichte aus einem Ablageordner senden (ohne Oberflaeche, fuer Tests): hoechstens $Max, je Bericht $TimeoutSec,
-# Abbruch beim ersten Sendefehler (meist kein Netz). Rueckgabe Sent, Bad, Pruned, Reason, Left
-function Send-OutboxCore([string]$Dir, [string]$Url, [datetime]$NowUtc, [int]$Max = 10, [int]$TimeoutSec = 8, [scriptblock]$Tick = $null) {
-    $res = [pscustomobject]@{ Sent = 0; Bad = 0; Pruned = 0; Reason = ''; Left = 0 }
+# Abbruch beim ersten Sendefehler (meist kein Netz). Erst senden, dann aufraeumen.
+# $Protect: Get-TeamsProtectSet (einmal je Durchgang), $Skip: HashSet der schon gesendeten, nicht loeschbaren Dateien.
+# Rueckgabe Sent, Bad, BadOld (unlesbar und aelter als 30 Tage, verworfen), Pruned (ueber 50), Undeletable, Reason, Left
+function Send-OutboxCore([string]$Dir, [string]$Url, [datetime]$NowUtc, [int]$Max = 3, [int]$TimeoutSec = 8, [scriptblock]$Tick = $null, $Protect = $null, $Skip = $null) {
+    $res = [pscustomobject]@{ Sent = 0; Bad = 0; BadOld = 0; Pruned = 0; Undeletable = 0; Reason = ''; Left = 0 }
     if (-not [System.IO.Directory]::Exists($Dir)) { return $res }
-    $res.Pruned = Remove-OutboxOld $Dir $NowUtc
-    $files = @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+    if ($null -eq $Protect) { $Protect = Get-TeamsProtectSet }
+    $pt = { param($s) Protect-TeamsText ([string]$s) $Protect.S $Protect.I }
     $n = 0
-    foreach ($f in $files) {
+    foreach ($f in @(Get-OutboxFiles $Dir $Skip)) {
         if ($n -ge $Max) { break }
         $o = $null
-        try { $o = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop } catch { $res.Bad++; continue }
-        if ($null -eq $o -or [string]$o.v -ne '1') { $res.Bad++; continue }
+        if ($f.Length -le $script:OutboxMaxBytes) { try { $o = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop } catch { $o = $null } }
+        if ($null -eq $o -or $o -isnot [System.Management.Automation.PSCustomObject] -or [string]$o.v -ne '1') {
+            # unlesbar, zu gross oder unbekanntes v: liegen lassen; erst nach 30 Tagen verwerfen
+            if (($NowUtc - $f.LastWriteTimeUtc).TotalDays -gt $script:OutboxBadDays) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $res.BadOld++ } catch { $res.Bad++ } }
+            else { $res.Bad++ }
+            continue
+        }
         $n++
         $when = $null; try { $w = ConvertTo-UtcDate $o.created; if ($w) { $when = $w.ToLocalTime() } } catch { }
-        $title = Protect-TeamsText ([string]$o.title)
-        if (-not $title) { $title = 'Bericht vom Stick' }
-        $json = New-TeamsCard $title @($o.lines | ForEach-Object { Protect-TeamsText ([string]$_) }) @($o.log | ForEach-Object { Protect-TeamsText ([string]$_) }) ([string]$o.level) (Get-TeamsFooter ($(if ($o.source) { [string]$o.source } else { 'go' }) + ', nachgesendet vom Setup') $when)
+        $title = & $pt $o.title
+        if (-not $title) { $title = 'Bericht an den Admin' }
+        $src = (& $pt $(if ($o.source) { $o.source } else { 'go' })); if ($src.Length -gt 20) { $src = $src.Substring(0, 20) }
+        $json = New-TeamsCard $title @($o.lines | ForEach-Object { & $pt $_ }) @($o.log | ForEach-Object { & $pt $_ }) ([string]$o.level) (Get-TeamsFooter ($src + ', nachgesendet vom Setup') $when)
         $r = Send-TeamsCard $Url $json $TimeoutSec
         if ($r) { $res.Reason = $r; break }
-        try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { }
         $res.Sent++
+        try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { $res.Undeletable++; if ($Skip) { [void]$Skip.Add($f.FullName) } }
         if ($Tick) { & $Tick }
     }
-    $res.Left = @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue).Count
+    $res.Pruned = Remove-OutboxOld $Dir $NowUtc
+    $res.Left = @(Get-OutboxFiles $Dir $Skip).Count
     return $res
 }
-# Nachsenden vom gewaehlten Stick: beim Waehlen oder Erkennen eines Sticks (je Stick einmal je Sitzung), beim Start und am
-# Ende von "Stick fertig machen" (-Force). Nie waehrend eines laufenden Vorgangs, nie vor dem Anzeigen des Fensters.
-$script:OutboxTried = @{}; $script:OutboxRunning = $false
-function Invoke-OutboxSend([string]$Drive, [switch]$Force) {
-    if (-not $Drive -or $script:OutboxRunning -or $script:Busy) { return }
+# Merker je Ablage: Zustand (Zahl und juengster Name), Zeit eines Fehlschlags, schon gesendete nicht loeschbare Dateien.
+# Neuer Versuch, wenn sich der Zustand aendert (neue Berichte), nach einem Fehlschlag fruehestens nach 5 Minuten,
+# beim naechsten Anstecken (Clear-OutboxState) oder auf Klick (-Force).
+$script:OutboxState = @{}; $script:OutboxRunning = $false
+function Get-OutboxSig($Files) { $f = @($Files); if (-not $f.Count) { return '' }; return ('' + $f.Count + '|' + $f[-1].Name) }
+function Test-OutboxDue($State, [string]$Sig, [datetime]$Now, [bool]$Force) {
+    if (-not $Sig) { return $false }
+    if ($Force -or -not $State -or $State.Sig -ne $Sig) { return $true }
+    if ($State.FailedAt -and ($Now - $State.FailedAt).TotalMinutes -ge $script:OutboxRetryMin) { return $true }
+    return $false
+}
+# Neu angesteckt oder gewaehlt: wieder faellig. Schon gesendete, nicht loeschbare Dateien bleiben gemerkt (nie doppelt senden)
+function Clear-OutboxState([string]$Letter) {
+    if (-not $Letter) { return }
+    foreach ($k in @($script:OutboxState.Keys)) { if ($k.StartsWith($Letter.TrimEnd(':').ToLower() + ':')) { $script:OutboxState[$k].Sig = ''; $script:OutboxState[$k].FailedAt = $null } }
+}
+# Nachsenden: beim Waehlen oder Erkennen eines Sticks, beim Start und am Ende von "Stick fertig machen" (auch fuer die Quelle,
+# wenn das Setup vom Stick laeuft), auf Klick "Berichte vom Stick senden". Nie waehrend eines laufenden Vorgangs, nie vor dem
+# Anzeigen des Fensters, nie doppelt gleichzeitig. Automatisch hoechstens 3 je Durchgang, auf Klick 10.
+#   -Retry: nach "Stick fertig machen" erneut versuchen (automatisch, hoechstens 3). -Force: auf Klick (hoechstens 10).
+function Invoke-OutboxSend([string]$Drive = '', [switch]$Force, [switch]$Retry, [string]$Dir = '', [int]$Max = 0) {
+    if ($script:OutboxRunning -or $script:Busy) { return }
     try { if (-not $win.IsVisible) { return } } catch { return }
+    if (-not $Dir) { if (-not $Drive) { return }; $Dir = $Drive.TrimEnd('\') + '\HUPilot\logs\outbox' }
+    if (-not $Drive) { $Drive = $Dir.Substring(0, 2) }
     $u = Get-TeamsWebhook
     if (-not $u -or (Test-HuWebhookUrl $u)) { return }
-    $dir = $Drive.TrimEnd('\') + '\HUPilot\logs\outbox'
-    $key = Get-ReadyHintKey $Drive
-    if (-not $Force -and $script:OutboxTried.ContainsKey($key)) { return }
-    $script:OutboxTried[$key] = $true
-    try { if (-not [System.IO.Directory]::Exists($dir) -or -not @([System.IO.Directory]::GetFiles($dir, '*.json')).Count) { return } } catch { return }
+    $key = $Dir.ToLower()
+    $st = $script:OutboxState[$key]
+    if (-not $st) { $st = @{ Sig = ''; FailedAt = $null; Skip = (New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)) }; $script:OutboxState[$key] = $st }
+    $files = @(Get-OutboxFiles $Dir $st.Skip)
+    $sig = Get-OutboxSig $files
+    if (-not (Test-OutboxDue $st $sig (Get-Date) ([bool]($Force -or $Retry)))) { return }
+    if ($Max -le 0) { $Max = $(if ($Force) { $script:OutboxPerManual } else { $script:OutboxPerRun }) }
     $script:OutboxRunning = $true
+    $prev = Get-ReadyState
     Set-UiBusy $true
     try {
-        Set-ReadyText ('Sende Berichte vom Stick ' + $Drive + ' an den Admin ...'); Step-Ui
-        $r = Send-OutboxCore $dir $u ([datetime]::UtcNow) $script:OutboxPerRun 8 { Step-Ui }
-        if ($r.Pruned) { Out-Log ('' + $r.Pruned + ' alte Berichte am Stick ' + $Drive + ' verworfen (älter als 30 Tage oder mehr als 50).') 'Hinweis' }
-        if ($r.Sent) { Out-Log ('' + $r.Sent + ' Bericht' + $(if ($r.Sent -ne 1) { 'e' } else { '' }) + ' vom Stick an den Admin gesendet.') 'OK' }
-        if ($r.Reason) { Out-Log ('Berichte vom Stick ' + $Drive + ' nicht gesendet: ' + $r.Reason + '. Sie bleiben am Stick und werden später nachgesendet.') 'Hinweis' }
-        if ($r.Bad) { Out-Log ('' + $r.Bad + ' Bericht' + $(if ($r.Bad -ne 1) { 'e' } else { '' }) + ' am Stick ' + $Drive + ' nicht lesbar oder aus einer neueren Version, nicht gesendet. Sie bleiben liegen.') 'Hinweis' }
-    } catch { try { Out-Log 'Berichte vom Stick konnten nicht nachgesendet werden.' 'Hinweis' $_.Exception.Message } catch { } }
-    finally { $script:OutboxRunning = $false; Set-UiBusy $false; $script:HintDrive = '?'; try { Update-ReadyHint } catch { } }
+        Set-ReadyText ('Sende ' + $(if ($files.Count -gt $Max) { '' + $Max + ' von ' + $files.Count + ' Berichten' } elseif ($files.Count -eq 1) { '1 Bericht' } else { '' + $files.Count + ' Berichte' }) + ' an den Admin vom Stick ' + $Drive + ' ...'); Step-Ui
+        $r = Send-OutboxCore $Dir $u ([datetime]::UtcNow) $Max 8 { Step-Ui } (Get-TeamsProtectSet) $st.Skip
+        $st.Sig = Get-OutboxSig @(Get-OutboxFiles $Dir $st.Skip)
+        $st.FailedAt = $(if ($r.Reason) { Get-Date } else { $null })
+        $pl = { param($n) '' + $n + ' Bericht' + $(if ($n -ne 1) { 'e' } else { '' }) }
+        if ($r.Sent) { Out-Log ((& $pl $r.Sent) + ' an den Admin vom Stick ' + $Drive + ' gesendet.' + $(if ($r.Left -and -not $r.Reason) { ' ' + (& $pl $r.Left) + ' noch am Stick, sie folgen beim nächsten Anstecken oder per Rechtsklick im Protokoll "Berichte vom Stick senden".' } else { '' })) 'OK' }
+        if ($r.Undeletable) { Out-Log ((& $pl $r.Undeletable) + ' gesendet, Datei am Stick ' + $Drive + ' nicht löschbar (Stick schreibgeschützt?). In dieser Sitzung nicht noch einmal gesendet.') 'Hinweis' }
+        if ($r.Reason) { Out-Log ('Berichte an den Admin vom Stick ' + $Drive + ' nicht gesendet: ' + $r.Reason + '. Sie bleiben am Stick und werden beim nächsten Anstecken oder nach "Stick fertig machen" erneut versucht.') 'Hinweis' }
+        if ($r.Bad) { Out-Log ((& $pl $r.Bad) + ' am Stick ' + $Drive + ' nicht lesbar oder aus einer neueren Version, nicht gesendet. Sie bleiben liegen. Setup aktualisieren (Knopf Update), dann nochmal.') 'Hinweis' }
+        if ($r.BadOld) { Out-Log ('' + $r.BadOld + ' unlesbare Berichte am Stick ' + $Drive + ' verworfen (älter als 30 Tage).') 'Hinweis' }
+        if ($r.Pruned) { Out-Log ('' + $r.Pruned + ' älteste Berichte am Stick ' + $Drive + ' verworfen (mehr als 50).') 'Hinweis' }
+    } catch { try { Out-Log 'Berichte an den Admin vom Stick konnten nicht nachgesendet werden. Stick neu anstecken, sonst den Admin fragen.' 'Hinweis' $_.Exception.Message } catch { } }
+    finally { $script:OutboxRunning = $false; Set-UiBusy $false; Restore-ReadyState $prev }
+}
+# Gewaehlter Stick und, wenn das Setup vom Stick laeuft, die Quelle selbst (Get-UsbDriveList laesst die Quelle aus)
+function Invoke-OutboxSendAll([switch]$Force, [switch]$Retry) {
+    try { $d = Get-Drive; if ($d) { Invoke-OutboxSend $d -Force:$Force -Retry:$Retry } } catch { }
+    try { if ($srcDrive) { Invoke-OutboxSend $srcDrive -Force:$Force -Retry:$Retry -Dir (Join-Path $srcHU 'logs\outbox') } } catch { }
+}
+# Zahl der liegenden Berichte (ohne die schon gesendeten, nicht loeschbaren) fuer den Rechtsklick
+function Get-OutboxPending {
+    $n = 0; $dirs = @()
+    try { $d = Get-Drive; if ($d) { $dirs += ($d + '\HUPilot\logs\outbox') } } catch { }
+    try { if ($srcDrive) { $dirs += (Join-Path $srcHU 'logs\outbox') } } catch { }
+    foreach ($x in $dirs) { try { $st = $script:OutboxState[$x.ToLower()]; $n += @(Get-OutboxFiles $x $(if ($st) { $st.Skip } else { $null })).Count } catch { } }
+    return $n
 }
 # Rechtsklick "An Admin senden" auf einer Protokollzeile (Hauptfenster und Unterfenster)
 function Get-TeamsLevel([string]$LogLevel) { switch ($LogLevel) { 'Fehler' { return 'Error' } 'Hinweis' { return 'Warning' } 'OK' { return 'OK' } }; return 'Info' }
 function Get-TeamsLogTitle([string]$LogLevel) { switch ($LogLevel) { 'Fehler' { return 'Fehler im Setup' } 'Hinweis' { return 'Hinweis aus dem Setup' } }; return 'Meldung aus dem Setup' }
 function Send-LogItemToAdmin($Item) {
+    $list = $null
+    # Ergebnis ins Protokoll und, aus einem Unterfenster, auch dort
+    $say = { param($m, $lv) try { Out-Log $m $lv } catch { }; try { if ($list -and $list -ne $ui.lLog) { Add-LogItem $list $lv ((Get-Date -Format 'HH:mm:ss') + '  ' + $(if ($lv) { $lv + ': ' } else { '' }) + $m) '' $false } } catch { } }
     try {
-        $u = Get-TeamsWebhook
-        if (-not $u) { Out-Log 'Kein Teams-Webhook eingetragen, nichts gesendet.' 'Hinweis'; return }
-        $tag = $Item.Tag
         $list = [System.Windows.Controls.ItemsControl]::ItemsControlFromItemContainer($Item)
+        if ($script:Busy -or $script:OutboxRunning) { & $say 'Gerade läuft ein Vorgang. Danach nochmal "An Admin senden".' 'Hinweis'; return }
+        $u = Get-TeamsWebhook
+        if (-not $u) { & $say 'Kein Teams-Webhook eingetragen, nichts gesendet.' 'Hinweis'; return }
+        $tag = $Item.Tag
         $all = @(); if ($list) { $all = @($list.Items | ForEach-Object { [string]$_.Tag.Text }) }
         # neueste oben im Hauptfenster: fuer die Karte in zeitliche Reihenfolge bringen, die letzten rund 40 Zeilen
         if ($list -eq $ui.lLog -and $script:LogTop) { [array]::Reverse($all) }
@@ -1358,11 +1456,36 @@ function Send-LogItemToAdmin($Item) {
         if ($tag.Detail) { $lines += @((Format-TechDetail ([string]$tag.Detail)) -split "`r?`n") }
         $lines += ('HUPilot-Setup ' + $SetupVer + '  |  Quelle ' + $srcStick + '  |  ' + [string]$iv.Windows + '  |  PowerShell ' + [string]$PSVersionTable.PSVersion)
         $c = Get-Cfg
-        $json = New-TeamsCard (Get-TeamsTitle (Get-TeamsLogTitle ([string]$tag.Level)) ([string]$c.Tenant)) @($lines | ForEach-Object { Protect-TeamsText $_ }) @($log | ForEach-Object { Protect-TeamsText $_ }) (Get-TeamsLevel ([string]$tag.Level)) (Get-TeamsFooter 'Setup' (Get-Date) ([string]$c.Tenant))
+        $ps = Get-TeamsProtectSet
+        $json = New-TeamsCard (Get-TeamsTitle (Get-TeamsLogTitle ([string]$tag.Level)) ([string]$c.Tenant)) @($lines | ForEach-Object { Protect-TeamsText $_ $ps.S $ps.I }) @($log | ForEach-Object { Protect-TeamsText $_ $ps.S $ps.I }) (Get-TeamsLevel ([string]$tag.Level)) (Get-TeamsFooter 'Setup' (Get-Date) ([string]$c.Tenant))
         Set-UiBusy $true
         try { Step-Ui; $r = Send-TeamsCard $u $json 10 } finally { Set-UiBusy $false }
-        if ($r) { Out-Log ('Nicht an den Admin gesendet: ' + $r + '. Internet und Teams-Webhook prüfen.') 'Hinweis' } else { Out-Log 'An den Admin gesendet (Teams).' 'OK' }
-    } catch { try { Out-Log 'Senden an den Admin fehlgeschlagen.' 'Hinweis' $_.Exception.Message } catch { } }
+        if ($r) { & $say ('Bericht an den Admin nicht gesendet: ' + $r + '. Internet und Teams-Webhook prüfen, dann nochmal versuchen.') 'Hinweis' } else { & $say 'Bericht an den Admin gesendet (Teams).' 'OK' }
+    } catch { & $say 'Bericht an den Admin nicht gesendet. Internet und Teams-Webhook prüfen, dann nochmal versuchen.' 'Hinweis' }
+}
+
+# Vor dem Formatieren ("Sticks vorbereiten"): Berichte an den Admin je Stick senden (mit Teams-Webhook, Abbruch beim ersten
+# Sendefehler), Rueckgabe: je Stick mit uebrigen Berichten ein Satz fuer die Rueckfrage. Aendert nichts am Stick-Vergleich.
+function Send-OutboxBeforeFormat([string[]]$Letters, [scriptblock]$Log = $null, [scriptblock]$Tick = $null) {
+    $warn = @()
+    $u = Get-TeamsWebhook; $can = ($u -and -not (Test-HuWebhookUrl $u)); $ps = $null; $down = $false
+    foreach ($l in @($Letters | Where-Object { $_ })) {
+        $dl = ([string]$l).TrimEnd(':', '\') + ':'
+        $dir = $dl + '\HUPilot\logs\outbox'
+        $st = $script:OutboxState[$dir.ToLower()]
+        $skip = $(if ($st) { $st.Skip } else { $null })
+        if (-not @(Get-OutboxFiles $dir $skip).Count) { continue }
+        if ($can -and -not $down) {
+            if (-not $ps) { $ps = Get-TeamsProtectSet }
+            $r = Send-OutboxCore $dir $u ([datetime]::UtcNow) $script:OutboxMaxFiles 8 $Tick $ps $skip
+            if ($r.Sent -and $Log) { & $Log ('' + $r.Sent + ' Bericht' + $(if ($r.Sent -ne 1) { 'e' } else { '' }) + ' an den Admin vom Stick ' + $dl + ' gesendet.') 'OK' }
+            if ($r.Reason) { $down = $true; if ($Log) { & $Log ('Berichte an den Admin vom Stick ' + $dl + ' nicht gesendet: ' + $r.Reason + '.') 'Hinweis' } }
+        }
+        $n = @(Get-OutboxFiles $dir $skip).Count
+        if ($n -eq 1) { $warn += ('Auf Stick ' + $dl + ' liegt 1 nicht gesendeter Bericht an den Admin, er geht beim Formatieren verloren.') }
+        elseif ($n) { $warn += ('Auf Stick ' + $dl + ' liegen ' + $n + ' nicht gesendete Berichte an den Admin, sie gehen beim Formatieren verloren.') }
+    }
+    return $warn
 }
 
 # ---------- Merker zum gewaehlten Stick (direkt hinter dem Statustext), z. B. "MAK am Stick" ----------
@@ -1406,11 +1529,14 @@ function Update-StickFlags([switch]$Force) {
         $d = Get-Drive
         $key = Get-ReadyHintKey $d
         if (-not $Force -and $key -eq [string]$script:FlagKey) { return }
+        $changed = ($key -ne [string]$script:FlagKey)
         $script:FlagKey = $key
         $info = $null
         if ($d -and @($script:DriveList | Where-Object { $_.Letter -eq $d }).Count) { $info = Get-StickMakInfo $d }
         $ui.spFlags.Children.Clear()
         $sendDrive = $(if ($d -and @($script:DriveList | Where-Object { $_.Letter -eq $d }).Count) { $d } else { '' })
+        # neu angesteckt oder gewaehlt: Berichte vom Stick wieder faellig (auch nach einem Fehlschlag)
+        if ($sendDrive -and $changed) { Clear-OutboxState $sendDrive }
         foreach ($fl in @(Get-StickFlags $info)) {
             $bd = New-Object System.Windows.Controls.Border
             $bd.CornerRadius = New-Object System.Windows.CornerRadius(3); $bd.Padding = New-Object System.Windows.Thickness(6, 1, 6, 1); $bd.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
@@ -1423,7 +1549,7 @@ function Update-StickFlags([switch]$Force) {
             [void]$ui.spFlags.Children.Add($bd)
         }
     } catch { }
-    # Stick gewaehlt oder neu erkannt: Berichte vom Stick nachsenden (je Stick einmal je Sitzung, nie waehrend eines Vorgangs)
+    # Stick gewaehlt oder neu erkannt: Berichte vom Stick nachsenden (hoechstens 3, nie waehrend eines Vorgangs, nie zweimal fuer denselben Stand)
     if ($sendDrive) { try { Invoke-OutboxSend $sendDrive } catch { } }
 }
 function Update-ReadyHint {
@@ -1731,7 +1857,9 @@ function Show-PrepSticks {
         if (-not $pre) { & $plog 'Abgebrochen.'; return }
         # Rueckfrage nennt je Stick Buchstabe, Name, Dateisystem, Groesse und Modell
         $list = ($sel | ForEach-Object { '   ' + $_.Text }) -join "`r`n"
-        $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning')
+        # Berichte an den Admin, die go am Stick abgelegt hat: vorher senden, sonst in der Rueckfrage nennen (gehen beim Formatieren verloren)
+        $obw = @(); try { $obw = @(Send-OutboxBeforeFormat @($sel | ForEach-Object { $_.Letter }) $plog { try { $pw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) } catch { } }) } catch { }
+        $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + $(if ($obw.Count) { "`r`n`r`n" + ($obw -join "`r`n") } else { '' }) + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning')
         if ($q -ne 'Yes') { return }
         $ok = 0
         foreach ($st in $sel) {
@@ -4756,8 +4884,8 @@ $win.Add_ContentRendered({
     Show-SecretExpiry -Token $tok
     Set-Step 'Test' 'ok' 'Secret gültig (Start)'
 })
-# Beim Start: Berichte vom gewaehlten Stick nachsenden, sobald das Fenster steht (nach der Secret-Pruefung)
-$win.Add_ContentRendered({ try { Invoke-OutboxSend (Get-Drive) } catch { } })
+# Beim Start: Berichte vom gewaehlten Stick und von der Quelle (Setup vom Stick) nachsenden, sobald das Fenster steht
+$win.Add_ContentRendered({ try { Invoke-OutboxSendAll } catch { } })
 
 # ---------- Gemeinsam: Autopilot-Liste, Tag-Regeln ----------
 function Get-ApAll($h) {
@@ -5197,8 +5325,8 @@ function Invoke-StickReady {
     try { Invoke-StickReadyCore }
     catch { Stop-Ready '' ('Unerwarteter Fehler: ' + $_.Exception.Message) }
     finally { Set-UiBusy $false; Update-StickFlags -Force }
-    # Berichte vom Stick nachsenden (nach dem Durchgang, nie waehrenddessen)
-    try { Invoke-OutboxSend (Get-Drive) -Force } catch { }
+    # Berichte vom Stick und von der Quelle nachsenden (nach dem Durchgang, nie waehrenddessen, hoechstens 3 je Stick)
+    try { Invoke-OutboxSendAll -Retry } catch { }
 }
 $ui.bReady.Add_Click({ Invoke-StickReady })
 

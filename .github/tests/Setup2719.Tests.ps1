@@ -1285,9 +1285,11 @@ Describe 'v2.7.19 Nachtrag Korrekturrunde 4' {
 
 Describe 'v2.7.19 Teams: Fehlerberichte per Workflow-Webhook' {
     BeforeAll {
-        . ([scriptblock]::Create((@('Test-HuWebhookUrl', 'Test-HuWebhookHostKnown', 'Protect-TeamsText', 'Get-TeamsTitle', 'Get-TeamsFooter', 'New-TeamsCard', 'Send-TeamsCard', 'Remove-OutboxOld', 'Send-OutboxCore', 'Get-TeamsLevel', 'Get-TeamsLogTitle', 'Get-InfoLines') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        . ([scriptblock]::Create((@('Test-HuWebhookUrl', 'Test-HuWebhookHostKnown', 'Protect-TeamsText', 'Get-TeamsTitle', 'Get-TeamsFooter', 'New-TeamsCard', 'Send-TeamsCard', 'Remove-OutboxOld', 'Send-OutboxCore', 'Get-TeamsLevel', 'Get-TeamsLogTitle', 'Get-InfoLines', 'Limit-TeamsText', 'Get-TeamsProtectSet', 'Get-OutboxFiles', 'Get-OutboxSig', 'Test-OutboxDue', 'Clear-OutboxState', 'Send-OutboxBeforeFormat') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
         $script:HuOldHookHostRx = [regex]::Match($script:SetupText, "(?m)^\`$script:HuOldHookHostRx = '([^']+)'").Groups[1].Value
-        $script:TeamsMaxBytes = 24000; $script:OutboxMaxDays = 30; $script:OutboxMaxFiles = 50; $script:OutboxPerRun = 10
+        # Grenzen wie im Setup (Zeilen $script:TeamsMax... und $script:Outbox... aus dem Setup ausfuehren)
+        foreach ($m in [regex]::Matches($script:SetupText, '(?m)^\$script:(TeamsMaxBytes|OutboxMaxFiles|OutboxPerRun|TeamsMaxTitle) = [^\r\n]+')) { . ([scriptblock]::Create($m.Value)) }
+        $script:OutboxState = @{}
         $SetupVer = '2.7.19'
         # kuenstliche Adressen, zur Laufzeit zusammengesetzt (im Repo steht keine Adresse mit Signatur)
         $script:HookUrl = 'https://' + 'beispiel.invalid/workflows/kuenstlich/triggers/manual/paths/invoke?api-version=1' + '&sig=' + ('Q' * 32)
@@ -1341,7 +1343,8 @@ Describe 'v2.7.19 Teams: Fehlerberichte per Workflow-Webhook' {
         @($c.body | Where-Object { $_.text -in 'Zeile 1', 'Zeile 2' }).Count | Should -Be 2
         $lg = @($c.body | Where-Object { $_.fontType -eq 'Monospace' })[0]
         $lg.wrap | Should -BeTrue
-        $lg.text | Should -Be ("log a`nlog b")
+        # getrennt mit Leerzeile wie in go
+        $lg.text | Should -Be ("log a`n`nlog b")
         $c.body[-1].text | Should -Be 'Fuss'
     }
     It 'Karte bleibt unter 24 KB, Log von vorne gekuerzt, das Neueste bleibt' {
@@ -1378,7 +1381,7 @@ Describe 'v2.7.19 Teams: Fehlerberichte per Workflow-Webhook' {
         Send-TeamsCard $script:HookUrl '{"a":1}' 5 | Should -Be ''
         $script:Posts.Count | Should -Be 1
     }
-    It 'Nachsenden: gesendete geloescht, unbekanntes v und kaputte liegen lassen, alte verworfen, Titel unveraendert' {
+    It 'Nachsenden: gesendete geloescht, unbekanntes v und kaputte liegen lassen, alte gueltige gesendet, Titel unveraendert' {
         $d = New-Box 'outbox1'
         $now = [datetime]::UtcNow
         $ts = { param($m) $now.AddMinutes(-$m).ToString('yyyyMMdd-HHmmss') }
@@ -1388,11 +1391,13 @@ Describe 'v2.7.19 Teams: Fehlerberichte per Workflow-Webhook' {
         Write-Report $d ((& $ts 5) + '_SN4.json') '{ kaputt'
         Write-Report $d ($now.AddDays(-40).ToString('yyyyMMdd-HHmmss') + '_SN5.json') @{ v = 1; title = 'alt'; lines = @(); log = @() }
         $r = Send-OutboxCore $d $script:HookUrl $now 10 8
-        $r.Sent | Should -Be 2; $r.Bad | Should -Be 2; $r.Pruned | Should -Be 1; $r.Reason | Should -Be ''
+        # gueltige Berichte werden nie wegen ihres Alters verworfen (SN5 traegt ein Datum von vor 40 Tagen und wird gesendet)
+        $r.Sent | Should -Be 3; $r.Bad | Should -Be 2; $r.BadOld | Should -Be 0; $r.Pruned | Should -Be 0; $r.Reason | Should -Be ''
         @(Get-ChildItem $d -Filter *.json | ForEach-Object { $_.Name -replace '^\d{8}-\d{6}_', '' }) | Sort-Object | Should -Be @('SN3.json', 'SN4.json')
         # Titel wie gespeichert (go schreibt den Anzeigenamen hinein), fehlt er, wird nichts ergaenzt
-        ($script:Posts[0] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'Schule-Demo: Fehler am Gerät SN1'
-        ($script:Posts[1] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'Fehler am Gerät SN2'
+        ($script:Posts[0] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'alt'
+        ($script:Posts[1] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'Schule-Demo: Fehler am Gerät SN1'
+        ($script:Posts[2] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'Fehler am Gerät SN2'
     }
     It 'Nachsenden: Sendefehler laesst alles liegen und bricht ab; ueber 50 Dateien werden die aeltesten verworfen' {
         $d = New-Box 'outbox2'
@@ -1429,10 +1434,10 @@ Describe 'v2.7.19 Teams: Fehlerberichte per Workflow-Webhook' {
         $script:SetupText | Should -Match "\`$ms\.Header = 'An Admin senden'"
         $script:SetupText | Should -Match "if \(\`$x\.Uid -eq 'send'\) \{ \`$x\.Visibility = \`$\(if \(Get-TeamsWebhook\)"
         $script:SetupText | Should -Match 'if \(\$sendDrive\) \{ try \{ Invoke-OutboxSend \$sendDrive \} catch \{ \} \}'
-        $script:SetupText | Should -Match 'try \{ Invoke-OutboxSend \(Get-Drive\) -Force \} catch \{ \}'
-        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'if \(-not \$Drive -or \$script:OutboxRunning -or \$script:Busy\) \{ return \}'
+        $script:SetupText | Should -Match 'try \{ Invoke-OutboxSendAll -Retry \} catch \{ \}'
+        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'if \(\$script:OutboxRunning -or \$script:Busy\) \{ return \}'
         $script:FnByName['Invoke-OutboxSend'] | Should -Match 'if \(-not \$win\.IsVisible\) \{ return \}'
-        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'Send-OutboxCore \$dir \$u \(\[datetime\]::UtcNow\) \$script:OutboxPerRun 8'
+        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'Send-OutboxCore \$Dir \$u \(\[datetime\]::UtcNow\) \$Max 8 \{ Step-Ui \} \(Get-TeamsProtectSet\) \$st\.Skip'
         # logs (mit outbox) kommt nicht auf den Stick und wird dort nicht ueberschrieben
         $script:FnByName['Test-SkipForStick'] | Should -Match "\`$Name -eq 'logs'"
     }
@@ -1449,5 +1454,224 @@ Describe 'v2.7.19 Teams: Fehlerberichte per Workflow-Webhook' {
             if ($t -match $rx) { $bad += $f }
         }
         $bad | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'v2.7.19 Teams: Korrekturen nach der Pruefung' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Test-HuWebhookUrl', 'Protect-TeamsText', 'Get-TeamsTitle', 'Get-TeamsFooter', 'New-TeamsCard', 'Send-TeamsCard', 'Remove-OutboxOld', 'Send-OutboxCore', 'Limit-TeamsText', 'Get-TeamsProtectSet', 'Get-OutboxFiles', 'Get-OutboxSig', 'Test-OutboxDue', 'Clear-OutboxState', 'Send-OutboxBeforeFormat') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        $script:HuOldHookHostRx = [regex]::Match($script:SetupText, "(?m)^\`$script:HuOldHookHostRx = '([^']+)'").Groups[1].Value
+        foreach ($m in [regex]::Matches($script:SetupText, '(?m)^\$script:(TeamsMaxBytes|OutboxMaxFiles|OutboxPerRun|TeamsMaxTitle) = [^\r\n]+')) { . ([scriptblock]::Create($m.Value)) }
+        $script:OutboxState = @{}
+        $SetupVer = '2.7.19'
+        # kuenstliche Adresse unter example.invalid, zur Laufzeit zusammengesetzt
+        $script:HookUrl = 'https://' + 'hook.example.invalid/workflows/kuenstlich/invoke?api-version=1' + '&sig=' + ('R' * 32)
+        $script:Secrets = @('Geheim~0123456789abcdef', $script:HookUrl)
+        $script:Cfg = [pscustomobject]@{ Tenant = 'Schule-Demo'; TenantId = '11111111-2222-3333-4444-555555555555'; ClientId = '66666666-7777-8888-9999-000000000000' }
+        function Get-Cfg { return $script:Cfg }
+        function Get-LogSecretValues { return $script:Secrets }
+        function Get-TeamsWebhook { return $script:HookUrl }
+        $script:Posts = New-Object System.Collections.Generic.List[string]
+        $script:PostFail = ''
+        function Invoke-HuWebPost([string]$Url, [byte[]]$Body, [int]$TimeoutSec) {
+            if ($script:PostFail) { throw $script:PostFail }
+            $script:Posts.Add([System.Text.Encoding]::UTF8.GetString($Body))
+        }
+        function New-Box([string]$Name) { $d = Join-Path $TestDrive $Name; New-Item -ItemType Directory -Path $d -Force | Out-Null; return $d }
+        function Write-Report([string]$Dir, [string]$Name, $Obj) { $p = Join-Path $Dir $Name; [System.IO.File]::WriteAllText($p, $(if ($Obj -is [string]) { $Obj } else { $Obj | ConvertTo-Json -Depth 5 }), (New-Object System.Text.UTF8Encoding($false))); return $p }
+        function Get-CardBody([string]$Json) { return @(($Json | ConvertFrom-Json).attachments[0].content.body) }
+    }
+    BeforeEach { $script:Posts.Clear(); $script:PostFail = ''; $script:OutboxState = @{} }
+
+    It 'A: gueltige Berichte nie wegen des Alters verworfen; unlesbar und unbekanntes v erst nach 30 Tagen (Aenderungszeit)' {
+        $d = New-Box 'k-a1'
+        $old = [datetime]::UtcNow.AddDays(-60)
+        $p1 = Write-Report $d '20200101-000000_SN1.json' @{ v = 1; title = 'sehr alt'; lines = @(); log = @() }
+        [System.IO.File]::SetLastWriteTimeUtc($p1, $old)
+        $p2 = Write-Report $d '20260101-000000_SN2.json' '{ kaputt'
+        [System.IO.File]::SetLastWriteTimeUtc($p2, $old)
+        $p3 = Write-Report $d '20260102-000000_SN3.json' @{ v = 9; title = 'neu' }
+        [System.IO.File]::SetLastWriteTimeUtc($p3, $old)
+        [void](Write-Report $d '20260103-000000_SN4.json' '{ kaputt, aber jung')
+        $r = Send-OutboxCore $d $script:HookUrl ([datetime]::UtcNow) 3 8
+        $r.Sent | Should -Be 1
+        $r.BadOld | Should -Be 2
+        $r.Bad | Should -Be 1
+        @(Get-ChildItem $d -Filter *.json).Name | Should -Be @('20260103-000000_SN4.json')
+        $script:FnByName['Send-OutboxCore'] | Should -Not -Match 'OutboxMaxDays'
+        $script:FnByName['Remove-OutboxOld'] | Should -Not -Match 'TotalDays|AddDays'
+    }
+    It 'A: ueber 50 Dateien erst senden (aelteste zuerst), dann die aeltesten der uebrigen verwerfen' {
+        $d = New-Box 'k-a2'
+        foreach ($i in 1..55) { [void](Write-Report $d (('2026{0:D4}-000000' -f (1000 + $i)) + "_SN$i.json") @{ v = 1; title = "T$i"; lines = @(); log = @() }) }
+        $r = Send-OutboxCore $d $script:HookUrl ([datetime]::UtcNow) 3 8
+        $r.Sent | Should -Be 3
+        $r.Pruned | Should -Be 2
+        $r.Left | Should -Be 50
+        @($script:Posts | ForEach-Object { (Get-CardBody $_)[0].text }) | Should -Be @('T1', 'T2', 'T3')
+        Test-Path (Join-Path $d '20261004-000000_SN4.json') | Should -BeFalse
+        Test-Path (Join-Path $d '20261006-000000_SN6.json') | Should -BeTrue
+    }
+    It 'B: Dateien ueber 256 KB werden nicht gelesen und bleiben liegen' {
+        $d = New-Box 'k-b1'
+        $big = '{"v":1,"title":"gross","lines":["' + ('x' * 270000) + '"],"log":[]}'
+        [void](Write-Report $d '20261101-000000_SN1.json' $big)
+        $r = Send-OutboxCore $d $script:HookUrl ([datetime]::UtcNow) 3 8
+        $r.Sent | Should -Be 0; $r.Bad | Should -Be 1
+        $script:Posts.Count | Should -Be 0
+        Test-Path (Join-Path $d '20261101-000000_SN1.json') | Should -BeTrue
+    }
+    It 'B: Titel hoechstens 200, hoechstens 30 Zeilen zu 600, Logzeilen 400 Zeichen' {
+        $b = Get-CardBody (New-TeamsCard ('T' * 300) @(1..40 | ForEach-Object { 'Z' + $_ + ('y' * 1000) }) @(('L' * 1000)) 'Error' 'F')
+        $b[0].text.Length | Should -Be (200 + ' (gekürzt)'.Length)
+        $z = @($b | Where-Object { $_.text -like 'Z*' })
+        $z.Count | Should -Be 30
+        $z[0].text.Length | Should -Be (600 + ' (gekürzt)'.Length)
+        @($b | Where-Object { $_.fontType -eq 'Monospace' })[0].text.Length | Should -Be (400 + ' (gekürzt)'.Length)
+    }
+    It 'B: reicht das Kuerzen des Logs nicht, werden Zeilen von hinten gekuerzt; immer unter 24 KB (auch langes Detail)' {
+        # Zeichen mit mehreren Bytes (Euro: 3 Bytes in UTF-8, unter 5.1 als € 6), damit 30 Zeilen allein ueber 24 KB liegen
+        $eu = [string][char]0x20AC
+        $lines = @(1..30 | ForEach-Object { 'Z' + ('{0:D2}' -f $_) + ($eu * 590) })
+        $json = New-TeamsCard 'Titel' $lines @(1..50 | ForEach-Object { 'log ' + $_ }) 'Error' 'Fuss'
+        [System.Text.Encoding]::UTF8.GetByteCount($json) | Should -BeLessOrEqual 24000
+        $b = Get-CardBody $json
+        $z = @($b | Where-Object { $_.text -like 'Z*' })
+        $z.Count | Should -BeLessThan 30
+        $z[0].text | Should -Match '^Z01'
+        @($b | Where-Object { $_.text -eq '(weitere Zeilen gekürzt)' }).Count | Should -Be 1
+        $b[0].text | Should -Be 'Titel'
+        # "An Admin senden" mit einem einzigen sehr langen Detail (wie aus Format-TechDetail)
+        $det = @('Fehler') + @(($eu * 9000) -split '(.{500})' | Where-Object { $_ })
+        [System.Text.Encoding]::UTF8.GetByteCount((New-TeamsCard 'T' $det @(1..40 | ForEach-Object { ('"' * 399) }) 'Error' 'F')) | Should -BeLessOrEqual 24000
+    }
+    It 'C: Logzeilen mit Leerzeile getrennt wie in go' {
+        @((Get-CardBody (New-TeamsCard 'T' @() @('a', 'b', 'c') 'Info' '')) | Where-Object { $_.fontType -eq 'Monospace' })[0].text | Should -Be "a`n`nb`n`nc"
+    }
+    It 'D: ohne Weiterleitung senden, eine Antwort 3xx zaehlt als Fehlschlag' {
+        $script:FnByName['Invoke-HuWebPost'] | Should -Match '-MaximumRedirection 0'
+        $script:FnByName['Invoke-HuWebPost'] | Should -Match '\[int\]\$r\.StatusCode -ge 300\) \{ throw'
+        $script:PostFail = 'Weiterleitung abgelehnt (302)'
+        Send-TeamsCard $script:HookUrl '{}' 5 | Should -Be 'Senden fehlgeschlagen: Weiterleitung abgelehnt (302)'
+    }
+    It 'E: Hostname der Adresse und Tenant-ID ohne Bindestriche werden bereinigt; Quelle bereinigt und auf 20 Zeichen gekuerzt' {
+        $t = Protect-TeamsText 'Fehler bei hook.example.invalid: Name nicht aufgeloest, Tenant 11111111222233334444555555555555, App 66666666777788889999000000000000'
+        $t | Should -Not -Match 'hook\.example\.invalid'
+        $t | Should -Not -Match '1111111122223333|6666666677778888'
+        $t | Should -Match '\(Webhook\): Name'
+        ([regex]::Matches($t, '\(Kennung\)')).Count | Should -Be 2
+        $d = New-Box 'k-e1'
+        [void](Write-Report $d '20261101-000000_SN1.json' @{ v = 1; title = 'T'; source = 'go Geheim~0123456789abcdef und noch viel mehr Text'; lines = @(); log = @() })
+        $r = Send-OutboxCore $d $script:HookUrl ([datetime]::UtcNow) 3 8
+        $r.Sent | Should -Be 1
+        $f = (Get-CardBody $script:Posts[0])[-1].text
+        $f | Should -Not -Match 'Geheim~'
+        $f | Should -Match 'HUPilot go \*\*\*.{0,14}, nachgesendet vom Setup'
+        ([regex]::Match($f, 'HUPilot (.*), nachgesendet vom Setup').Groups[1].Value).Length | Should -BeLessOrEqual 20
+    }
+    It '4 und 5: neuer Versuch nur bei neuem Stand, nach Fehlschlag fruehestens nach 5 Minuten, beim Anstecken oder auf Klick' {
+        $now = Get-Date
+        Test-OutboxDue $null '' $now $false | Should -BeFalse
+        Test-OutboxDue $null '2|b.json' $now $false | Should -BeTrue
+        $st = @{ Sig = '2|b.json'; FailedAt = $null; Skip = (New-Object 'System.Collections.Generic.HashSet[string]') }
+        Test-OutboxDue $st '2|b.json' $now $false | Should -BeFalse
+        Test-OutboxDue $st '3|c.json' $now $false | Should -BeTrue
+        $st.FailedAt = $now.AddMinutes(-2)
+        Test-OutboxDue $st '2|b.json' $now $false | Should -BeFalse
+        $st.FailedAt = $now.AddMinutes(-6)
+        Test-OutboxDue $st '2|b.json' $now $false | Should -BeTrue
+        $st.FailedAt = $null
+        Test-OutboxDue $st '2|b.json' $now $true | Should -BeTrue
+        # Anstecken: Stand vergessen, schon gesendete nicht loeschbare Dateien bleiben gemerkt
+        [void]$st.Skip.Add('e:\hupilot\logs\outbox\x.json')
+        $script:OutboxState['e:\hupilot\logs\outbox'] = $st
+        $script:OutboxState['f:\hupilot\logs\outbox'] = @{ Sig = '1|a.json'; FailedAt = $null; Skip = $null }
+        Clear-OutboxState 'E:'
+        $st.Sig | Should -Be ''
+        $st.Skip.Count | Should -Be 1
+        $script:OutboxState['f:\hupilot\logs\outbox'].Sig | Should -Be '1|a.json'
+        Get-OutboxSig @() | Should -Be ''
+        $fn = $script:FnByName['Invoke-OutboxSend']
+        $fn | Should -Match '\$st\.FailedAt = \$\(if \(\$r\.Reason\) \{ Get-Date \} else \{ \$null \}\)'
+        $fn | Should -Match '\$Max = \$\(if \(\$Force\) \{ \$script:OutboxPerManual \} else \{ \$script:OutboxPerRun \}\)'
+        $fn | Should -Match 'Send-OutboxCore \$Dir \$u \(\[datetime\]::UtcNow\) \$Max 8 \{ Step-Ui \} \(Get-TeamsProtectSet\) \$st\.Skip'
+        $fn | Should -Match "Set-ReadyText \('Sende ' \+"
+        $fn | Should -Match 'werden beim nächsten Anstecken oder nach "Stick fertig machen" erneut versucht'
+        $script:SetupText | Should -Match '(?m)^\$script:OutboxPerRun = 3; \$script:OutboxPerManual = 10; \$script:OutboxRetryMin = 5'
+        # Anstecken: nur bei geaendertem Stick, nicht bei jedem Takt
+        $script:FnByName['Update-StickFlags'] | Should -Match 'if \(\$sendDrive -and \$changed\) \{ Clear-OutboxState \$sendDrive \}'
+        $script:FnByName['Update-StickFlags'] | Should -Match 'if \(-not \$Force -and \$key -eq \[string\]\$script:FlagKey\) \{ return \}'
+    }
+    It '8: gesendet, aber nicht loeschbar: Hinweis, in dieser Sitzung nicht noch einmal gesendet' {
+        $d = New-Box 'k-8'
+        $p = Write-Report $d '20261101-000000_SN1.json' @{ v = 1; title = 'T'; lines = @(); log = @() }
+        $skip = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        $fs = [System.IO.File]::Open($p, 'Open', 'Read', 'Read')
+        try {
+            $r = Send-OutboxCore $d $script:HookUrl ([datetime]::UtcNow) 3 8 $null $null $skip
+            $r.Sent | Should -Be 1; $r.Undeletable | Should -Be 1; $r.Left | Should -Be 0
+            $skip.Contains($p) | Should -BeTrue
+            $r2 = Send-OutboxCore $d $script:HookUrl ([datetime]::UtcNow) 3 8 $null $null $skip
+            $r2.Sent | Should -Be 0
+            $script:Posts.Count | Should -Be 1
+        } finally { $fs.Dispose() }
+        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'gesendet, Datei am Stick '' \+ \$Drive \+ '' nicht löschbar \(Stick schreibgeschützt\?\)'
+    }
+    It '2: vor dem Formatieren senden; was bleibt, steht in der Rueckfrage; Stick-Vergleich unveraendert' {
+        $root = New-Box 'k-2'
+        New-Item -ItemType Directory -Path (Join-Path $root 'HUPilot\logs\outbox') -Force | Out-Null
+        $letter = @('Q', 'R', 'S', 'T', 'U', 'V', 'W', 'Y', 'Z') | Where-Object { -not (Test-Path ($_ + ':\')) } | Select-Object -First 1
+        if (-not $letter) { Set-ItResult -Skipped -Because 'kein freier Laufwerksbuchstabe'; return }
+        cmd /c "subst $($letter): `"$root`"" | Out-Null
+        try {
+            $box = $letter + ':\HUPilot\logs\outbox'
+            foreach ($i in 1..2) { [void](Write-Report $box "20261101-00000${i}_SN$i.json" @{ v = 1; title = "T$i"; lines = @(); log = @() }) }
+            $logs = New-Object System.Collections.Generic.List[string]
+            $lg = { param($m, $lv) $logs.Add($lv + ': ' + $m) }
+            # ohne Internet: nichts gesendet, beide in der Rueckfrage
+            $script:PostFail = 'Die Verbindung mit dem Remoteserver kann nicht hergestellt werden.'
+            $w = @(Send-OutboxBeforeFormat @($letter) $lg)
+            $w | Should -Be @('Auf Stick ' + $letter + ': liegen 2 nicht gesendete Berichte an den Admin, sie gehen beim Formatieren verloren.')
+            ($logs -join '|') | Should -Match 'nicht gesendet: Senden fehlgeschlagen'
+            # mit Internet: gesendet, keine Warnung
+            $script:PostFail = ''; $logs.Clear()
+            @(Send-OutboxBeforeFormat @($letter) $lg).Count | Should -Be 0
+            $script:Posts.Count | Should -Be 2
+            ($logs -join '|') | Should -Match ('OK: 2 Berichte an den Admin vom Stick ' + $letter + ': gesendet\.')
+        } finally { cmd /c "subst $($letter): /d" | Out-Null }
+        $g = $script:SetupText
+        $g | Should -Match '\$obw = @\(\); try \{ \$obw = @\(Send-OutboxBeforeFormat @\(\$sel \| ForEach-Object \{ \$_\.Letter \}\) \$plog'
+        $g | Should -Match "\+ \`$list \+ \`$\(if \(\`$obw\.Count\) \{"
+        # der Vergleich direkt vor dem Formatieren bleibt (Compare-StickId)
+        $g | Should -Match 'Compare-StickId'
+    }
+    It '1, 3, 6, 7: Statustext wiederhergestellt, Quelle mitgenommen, Testnachricht mit catch, An Admin senden nicht waehrend eines Vorgangs' {
+        $script:FnByName['Invoke-OutboxSend'] | Should -Match '\$prev = Get-ReadyState'
+        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'Restore-ReadyState \$prev'
+        $script:FnByName['Send-TeamsTest'] | Should -Match '\$prev = Get-ReadyState'
+        $script:FnByName['Send-TeamsTest'] | Should -Match 'Restore-ReadyState \$prev'
+        $script:FnByName['Send-TeamsTest'] | Should -Match '\} catch \{ try \{ Out-Log ''Testnachricht nicht gesendet\.'
+        $script:FnByName['Restore-ReadyState'] | Should -Match 'Set-ReadyText \$Prev\.Text'
+        $script:FnByName['Invoke-OutboxSendAll'] | Should -Match "Invoke-OutboxSend \`$srcDrive -Force:\`$Force -Retry:\`$Retry -Dir \(Join-Path \`$srcHU 'logs\\outbox'\)"
+        $script:SetupText | Should -Match '\$win\.Add_ContentRendered\(\{ try \{ Invoke-OutboxSendAll \} catch \{ \} \}\)'
+        $script:FnByName['Send-LogItemToAdmin'] | Should -Match 'if \(\$script:Busy -or \$script:OutboxRunning\) \{ & \$say ''Gerade läuft ein Vorgang'
+        $script:FnByName['Send-LogItemToAdmin'] | Should -Match 'if \(\$list -and \$list -ne \$ui\.lLog\) \{ Add-LogItem \$list'
+        $script:FnByName['Send-LogItemToAdmin'] | Should -Match '\$ps = Get-TeamsProtectSet'
+    }
+    It '4: Rechtsklick "Berichte vom Stick senden" nur im Hauptfenster, nur mit Webhook und liegenden Berichten' {
+        $a = $script:FnByName['Add-LogItem']
+        $a | Should -Match "if \(\`$List -eq \`$ui\.lLog\) \{"
+        $a | Should -Match "\`$mo\.Header = 'Berichte vom Stick senden'; \`$mo\.Uid = 'outbox'"
+        $a | Should -Match 'Invoke-OutboxSendAll -Force'
+        $a | Should -Match "if \(\`$x\.Uid -eq 'outbox'\) \{ \`$n = \`$\(if \(Get-TeamsWebhook\) \{ Get-OutboxPending \} else \{ 0 \}\)"
+    }
+    It '9 und 10: Meldungen mit dem naechsten Schritt, einheitliche Begriffe, Tooltip zum Kanal' {
+        $t = $script:SetupText
+        $t | Should -Match "Teams-Webhook ungültig: ' \+ \`$why \+ '\. Die Adresse aus dem Teams-Workflow vollständig einfügen"
+        $t | Should -Match 'nicht lesbar oder aus einer neueren Version, nicht gesendet\. Sie bleiben liegen\. Setup aktualisieren \(Knopf Update\), dann nochmal\.'
+        $t | Should -Match 'Berichte an den Admin vom Stick konnten nicht nachgesendet werden\. Stick neu anstecken, sonst den Admin fragen\.'
+        $t | Should -Match 'Bericht an den Admin nicht gesendet\. Internet und Teams-Webhook prüfen, dann nochmal versuchen\.'
+        $t | Should -Not -Match 'Senden an den Admin fehlgeschlagen'
+        $t | Should -Match 'Ein Bericht kann Seriennummer, Gerätename, Benutzername und WLAN-Namen enthalten: den Kanal nicht für alle öffnen, nur für die Admins\.'
     }
 }
