@@ -3517,14 +3517,17 @@ function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$Ha
     if ($EnrollState -in 'failed', 'blocked' -or $ProfileStatus -eq 'failed') { return 'Fehler' }
     if ($ProfileStatus -eq 'notAssigned') { return 'Kein Profil für diesen Tag' }
     if ($Remediation -eq 'automaticRemediationRequired') { return 'Hardware wird abgeglichen' }
-    if ($ProfileStatus -in 'assignedInSync', 'assignedUnkownSyncState', 'assignedUnknownSyncState', 'assignedOutOfSync' -and $HasAssignedDate) { return 'Profil da, Gerät noch nicht angemeldet' }
+    # zugewiesen ohne Zuweisungsdatum zaehlt als Profil da (am Geraet belegt: Anmeldeseite der Schule kam ohne Datum); nur die Anzeige,
+    # go wartet vor dem Zuruecksetzen weiter auf das Datum. Nicht synchron ohne Datum bleibt Warten (Sync anstossen).
+    if ($ProfileStatus -in 'assignedInSync', 'assignedUnkownSyncState', 'assignedUnknownSyncState') { return 'Profil da, Gerät noch nicht angemeldet' }
+    if ($ProfileStatus -eq 'assignedOutOfSync' -and $HasAssignedDate) { return 'Profil da, Gerät noch nicht angemeldet' }
     return 'Wartet auf Profil'
 }
-function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollState) {
+function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate = $true) {
     switch ($Stand) {
         'Fertig' { return 'Nichts, das Gerät ist fertig.' }
         'Wartet auf Profil' { if ($ProfileStatus -eq 'assignedOutOfSync') { return 'Autopilot-Sync anstoßen und ein paar Minuten warten.' } return 'Nichts, läuft. Das Profil kommt meist in 5 bis 15 Minuten.' }
-        'Profil da, Gerät noch nicht angemeldet' { return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
+        'Profil da, Gerät noch nicht angemeldet' { if (-not $HasAssignedDate) { return 'Profil ist zugewiesen, das Datum von Microsoft fehlt noch. Gerät neu starten: Kommt die Anmeldeseite der Schule, passt es.' } return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
         'Kein Profil für diesen Tag' { return 'Tag prüfen: kein Profil zugewiesen ("2. Tags prüfen"), oder mit "Tag ändern" einen Tag mit Profil wählen.' }
         'Fehler' { if ($EnrollState -eq 'blocked') { return 'Gerät ist in Intune blockiert. Admin fragen.' } return 'Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen.' }
         'Hardware geändert' { return 'Mit "Autopilot-Eintrag löschen" entfernen, mit Stick neu registrieren.' }
@@ -3999,6 +4002,9 @@ function Get-IntunePlan($Row, [bool]$CanIntune) {
     $id = [string]$Row.IntuneId; $link = [string]$Row.IntuneLink; $more = ([int]$Row.IntuneSnCount -gt 1)
     if ($id -and ($link -eq 'ms' -or $link -eq 'sn')) {
         if (-not $CanIntune) { return [pscustomobject]@{ Kind = 'right'; Id = $id; Link = $link; More = $more; Text = 'Eintrag bleibt stehen (Recht fehlt)' } }
+        # Microsoft nennt eine Kennung, zu der es in der vollstaendig geladenen Intune-Liste keinen Eintrag gibt (frisch importiertes Geraet):
+        # Ausfuehrung unveraendert (liest den Eintrag frisch, loescht ihn, falls es ihn doch gibt), die Rueckfrage verspricht aber nichts.
+        if ($Row.IntuneMissing) { return [pscustomobject]@{ Kind = 'delete'; Id = $id; Link = $link; More = $more; Missing = $true; Text = 'kein Eintrag gefunden. Gibt es ihn doch, wird er mit gelöscht.' } }
         return [pscustomobject]@{ Kind = 'delete'; Id = $id; Link = $link; More = $more; Text = ('Eintrag ' + $id + ' wird gelöscht') }
     }
     if ($Row.IntuneAmbig) { return [pscustomobject]@{ Kind = 'ambig'; Id = ''; Link = ''; More = $more; Text = 'Intune-Eintrag nicht eindeutig zuordenbar, bleibt stehen, Admin im Intune-Portal' } }
@@ -4048,7 +4054,7 @@ function Get-DeleteWarnings($Row, [datetime]$Now, $AllRows = $null) {
 function Get-DeletePlanText($Rows, [bool]$CanIntune, [datetime]$Now, $Plans = $null) {
     $Rows = @($Rows); $nl = "`r`n"
     $plans = $(if ($Plans -and @($Plans).Count -eq $Rows.Count) { @($Plans) } else { @($Rows | ForEach-Object { Get-IntunePlan $_ $CanIntune }) })
-    $nDel = @($plans | Where-Object { $_.Kind -eq 'delete' }).Count
+    $nDel = @($plans | Where-Object { $_.Kind -eq 'delete' -and -not $_.Missing }).Count
     $nRight = @($plans | Where-Object { $_.Kind -eq 'right' }).Count
     $nAmbig = @($plans | Where-Object { $_.Kind -eq 'ambig' }).Count
     $geraet = { param($n) '' + $n + ' Gerät' + $(if ($n -ne 1) { 'en' } else { '' }) }
@@ -4738,7 +4744,7 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         }
     } catch { Out-Log 'Autopilot-Geräte nicht lesbar. 1. Verbindung testen.' 'Fehler' $_.Exception.Message; return $null }
     # Optional: Intune-Geraete (Primaerer Benutzer, Geraetename, letzter Sync) - braucht DeviceManagementManagedDevices.Read.All
-    $md = @{}; $mdCnt = @{}; $mdPartial = $false
+    $md = @{}; $mdCnt = @{}; $mdPartial = $false; $mdFull = $false
     try {
         $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=operatingSystem eq 'Windows'&`$select=id,serialNumber,deviceName,userPrincipalName,lastSyncDateTime,enrolledDateTime&`$top=999"
         $page = 0
@@ -4749,6 +4755,7 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
             foreach ($m in @($r.value)) { if ($m.serialNumber) { $md[[string]$m.id] = $m; $k = 'SN:' + [string]$m.serialNumber; $md[$k] = $m; $mdCnt[$k] = 1 + [int]$mdCnt[$k] } }
             $uri = $r.'@odata.nextLink'
         }
+        $mdFull = $true   # alle Seiten gelesen: nur dann ist "nicht in der Liste" eine Aussage
     } catch {
         # abgebrochen, nachdem schon Seiten gelesen waren: Liste unvollstaendig, keine Zuordnung ueber die Seriennummer
         if ($md.Count) { $mdPartial = $true; Out-Log 'Intune-Angaben unvollständig (Liste nicht ganz geladen). Intune-Einträge werden deshalb nicht über die Seriennummer zugeordnet. "Aktualisieren" hilft.' 'Hinweis' $_.Exception.Message }
@@ -4775,7 +4782,7 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         $id = [string]$d.id
         $dm = $(if ($dup.ContainsKey($id)) { $dup[$id] } else { $null })
         $stand = Get-DeviceStand $ps $es $hasDate $rem
-        $todo = Get-DeviceTodo $stand $ps $es
+        $todo = Get-DeviceTodo $stand $ps $es $hasDate
         if ($pend.ContainsKey($id)) { $stand = 'Wird gelöscht'; $todo = Get-PendingTodo ([datetime]$pend[$id].Since) $now }
         elseif ($dm) { $stand = 'Doppelt'; $todo = Get-DuplicateTodo $dm.Count $dm.Rank }
         $lc = ''; $lcS = ''
@@ -4816,6 +4823,7 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
             Id             = $id
             IntuneId       = $il.Id
             IntuneLink     = $il.Link
+            IntuneMissing  = ($il.Link -eq 'ms' -and -not $il.Im -and $mdFull)
             IntuneAmbig    = $il.Ambig
             IntuneSnCount  = $il.SnCount
             EnrollState    = $es

@@ -406,7 +406,7 @@ Describe 'Setup: Status in Klartext' {
         Get-DeviceStand 'notAssigned' 'enrolled' $false | Should -Be 'Fertig'
         Get-DeviceStand 'assignedInSync' 'notContacted' $true | Should -Be 'Profil da, Gerät noch nicht angemeldet'
         Get-DeviceStand 'assignedOutOfSync' 'notContacted' $true | Should -Be 'Profil da, Gerät noch nicht angemeldet'
-        Get-DeviceStand 'assignedInSync' 'notContacted' $false | Should -Be 'Wartet auf Profil'
+        Get-DeviceStand 'assignedInSync' 'notContacted' $false | Should -Be 'Profil da, Gerät noch nicht angemeldet'
         Get-DeviceStand 'pending' 'notContacted' $false | Should -Be 'Wartet auf Profil'
         Get-DeviceStand 'unknown' '' $false | Should -Be 'Wartet auf Profil'
         Get-DeviceStand 'notAssigned' 'notContacted' $false | Should -Be 'Kein Profil für diesen Tag'

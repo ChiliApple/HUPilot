@@ -15,6 +15,9 @@
 - **Stand "Doppelt":** mehrere Einträge mit derselben Seriennummer. "Was tun" sagt, welcher der ältere ist. Lässt sich das nicht sicher sagen, steht dort "Alter unklar".
 - **Neue Kacheln:** "Hardware geändert", "Hardware wird abgeglichen", "Doppelt" und "Wird gelöscht" erscheinen nur, wenn es solche Geräte gibt. Filter, Druck, Excel und Details kennen die neuen Stände.
 - **Behoben: Auswahl bei doppelten Seriennummern:** Nach dem Aktualisieren war auch der zweite Eintrag derselben Seriennummer markiert. "Tag ändern" hätte so beide geändert. Die Auswahl bleibt jetzt genau bei den angeklickten Zeilen.
+- **Profil da auch ohne Datum:** Meldet Microsoft das Profil als zugewiesen, trägt aber das Datum nicht ein, zeigt der Status jetzt "Profil da, Gerät noch nicht angemeldet" statt "Wartet auf Profil".
+  - "Was tun" sagt dann: Gerät neu starten, kommt die Anmeldeseite der Schule, passt es.
+- **Löschen ohne Intune-Eintrag:** Gibt es zu einem Gerät in Intune noch keinen Eintrag, sagt die Rückfrage das, statt das Löschen eines Intune-Eintrags anzukündigen.
 
 ### 🔐 Secret und MAK
 - **Abgelaufenes Secret geführt erneuern:** deutlicher Hinweis oben im Fenster und der Knopf "Neues Secret anlegen", auch neben "Stick fertig machen".
@@ -66,7 +69,7 @@
 - **Adresse im Entra-Portal:** Microsoft kann sie ohne Ankündigung ändern. Dann die App-Registrierung von Hand öffnen.
 
 ### ✅ Qualität
-- 339 automatische Tests.
+- 341 automatische Tests.
 
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen

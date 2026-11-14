@@ -43,6 +43,39 @@ Describe 'v2.7.19: Datei vollstaendig' {
     }
 }
 
+Describe 'v2.7.19: Befunde aus dem Test am Geraet' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Get-DeviceStand', 'Get-DeviceTodo', 'Get-IntunePlan') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+    }
+    It 'zugewiesen ohne Datum zaehlt als Profil da, mit eigenem Was tun; nicht synchron ohne Datum bleibt Warten' {
+        Get-DeviceStand 'assignedInSync' 'notContacted' $false | Should -Be 'Profil da, Gerät noch nicht angemeldet'
+        Get-DeviceStand 'assignedUnkownSyncState' 'notContacted' $false | Should -Be 'Profil da, Gerät noch nicht angemeldet'
+        Get-DeviceStand 'assignedOutOfSync' 'notContacted' $false | Should -Be 'Wartet auf Profil'
+        Get-DeviceStand 'pending' 'notContacted' $false | Should -Be 'Wartet auf Profil'
+        Get-DeviceTodo 'Profil da, Gerät noch nicht angemeldet' 'assignedInSync' '' $false | Should -Match '^Profil ist zugewiesen, das Datum von Microsoft fehlt noch\. Gerät neu starten'
+        Get-DeviceTodo 'Profil da, Gerät noch nicht angemeldet' 'assignedInSync' '' $true | Should -Match 'WLAN'
+        Get-DeviceTodo 'Profil da, Gerät noch nicht angemeldet' '' '' | Should -Match 'WLAN'
+        $script:SetupText | Should -Match ([regex]::Escape('$todo = Get-DeviceTodo $stand $ps $es $hasDate'))
+    }
+    It 'Loeschen: verknuepfte Intune-Kennung ohne Eintrag in der ganz geladenen Liste verspricht nichts, Ausfuehrung bleibt gleich' {
+        $row = [pscustomobject]@{ IntuneId = 'm1'; IntuneLink = 'ms'; IntuneSnCount = 0; IntuneAmbig = $false; IntuneMissing = $true }
+        $p = Get-IntunePlan $row $true
+        $p.Kind | Should -Be 'delete'; $p.Id | Should -Be 'm1'; $p.Missing | Should -BeTrue
+        $p.Text | Should -Be 'kein Eintrag gefunden. Gibt es ihn doch, wird er mit gelöscht.'
+        # ohne das Feld (alte Zeilen, Demo) und mit gefundenem Eintrag: wie bisher
+        $row.IntuneMissing = $false
+        (Get-IntunePlan $row $true).Text | Should -Be 'Eintrag m1 wird gelöscht'
+        (Get-IntunePlan ([pscustomobject]@{ IntuneId = 'm1'; IntuneLink = 'ms'; IntuneSnCount = 0; IntuneAmbig = $false }) $true).Text | Should -Be 'Eintrag m1 wird gelöscht'
+        # ohne Recht bleibt die Aussage "Recht fehlt"
+        $row.IntuneMissing = $true
+        (Get-IntunePlan $row $false).Kind | Should -Be 'right'
+        # nur bei vollstaendig geladener Liste, und der Satz "verschwindet aus Intune" zaehlt diese Geraete nicht
+        $script:SetupText | Should -Match ([regex]::Escape("IntuneMissing  = (`$il.Link -eq 'ms' -and -not `$il.Im -and `$mdFull)"))
+        $script:SetupText | Should -Match ([regex]::Escape("`$_.Kind -eq 'delete' -and -not `$_.Missing"))
+        $i = $script:SetupText.IndexOf('$mdFull = $true'); $j = $script:SetupText.IndexOf('} catch {', $i)
+        $script:SetupText.Substring($i, $j - $i) | Should -Not -Match 'Invoke-RestMethod'
+    }
+}
 Describe 'v2.7.19: Hashes importieren zeigt, dass es laeuft' {
     It 'Pulspunkt und Hinweis erscheinen beim Start des Imports und verschwinden im finally' {
         $script:SetupText | Should -Match 'x:Name="eHPulse"[^>]*Visibility="Collapsed"'
