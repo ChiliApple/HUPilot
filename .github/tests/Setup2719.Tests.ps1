@@ -168,6 +168,87 @@ Describe 'v2.7.19 Punkt 8: Verweise in Tooltips zeigen auf vorhandene Stellen' {
     }
 }
 
+Describe 'v2.7.19 Punkt 9: Merker MAK am Stick' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Get-StickMakInfo', 'Get-StickFlags') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        $script:Key = 'ABCDE-FGHIJ-KLMNO-PQRST-UVW12'
+        function New-Stick([string]$Name, $Content) {
+            $d = Join-Path $TestDrive $Name
+            New-Item -ItemType Directory -Path (Join-Path $d 'HUPilot') -Force | Out-Null
+            if ($null -ne $Content) { [System.IO.File]::WriteAllText((Join-Path $d 'HUPilot\config.json'), $Content, (New-Object System.Text.UTF8Encoding($false))) }
+            return $d
+        }
+    }
+    It 'MAK gefuellt: Merker mit den letzten 5 Zeichen, der ganze Schluessel erscheint nirgends' {
+        $i = Get-StickMakInfo (New-Stick 'voll' ('{"Tenant":"Test","EditionKey":"' + $script:Key + '"}'))
+        $i.HasMak | Should -BeTrue
+        $i.Tail | Should -Be 'UVW12'
+        ($i | ConvertTo-Json -Compress) | Should -Not -Match 'ABCDE'
+        $f = @(Get-StickFlags $i)
+        $f.Count | Should -Be 1
+        $f[0].Text | Should -Be 'MAK am Stick'
+        $f[0].Color | Should -Be 'HuStandErrBg'
+        $f[0].Tip | Should -Match 'endet auf UVW12'
+        $f[0].Tip | Should -Match 'Nein wählen'
+        ($f | ConvertTo-Json -Compress) | Should -Not -Match 'ABCDE|FGHIJ|PQRST'
+    }
+    It 'MAK leer, Feld fehlt, Datei fehlt, Datei kaputt, kein Stick: kein Merker, kein Fehler' {
+        foreach ($c in @(@('leer', '{"EditionKey":""}'), @('blank', '{"EditionKey":"   "}'), @('ohne', '{"Tenant":"Test"}'), @('fehlt', $null), @('kaputt', '{ "EditionKey": "ABC'), @('liste', '[1,2]'))) {
+            $i = Get-StickMakInfo (New-Stick $c[0] $c[1])
+            @(Get-StickFlags $i).Count | Should -Be 0 -Because $c[0]
+        }
+        Get-StickMakInfo '' | Should -BeNullOrEmpty
+        Get-StickMakInfo (Join-Path $TestDrive 'gibtsnicht') | Should -BeNullOrEmpty
+        @(Get-StickFlags $null).Count | Should -Be 0
+    }
+    It 'kurzer Schluessel: Merker ohne Endung' {
+        $i = Get-StickMakInfo (New-Stick 'kurz' '{"EditionKey":"AB"}')
+        $i.HasMak | Should -BeTrue; $i.Tail | Should -Be ''
+        (Get-StickFlags $i)[0].Tip | Should -Not -Match 'endet auf'
+    }
+    It 'config.json wird mit Kodierung gelesen, Merker wird bei allen Anlaessen aktualisiert' {
+        $script:FnByName['Get-StickMakInfo'] | Should -Match '\[System\.IO\.File\]::ReadAllText\(\$p, \[System\.Text\.Encoding\]::UTF8\)'
+        $script:SetupText | Should -Match 'function Update-ReadyHint \{\r?\n\s+Update-StickFlags'
+        $script:SetupText | Should -Match '\$ui\.bReload\.Add_Click\(\{ Update-Drives; Update-StickFlags -Force \}\)'
+        $script:SetupText | Should -Match "finally \{ Set-UiBusy \`$false; Update-StickFlags -Force \}\r?\n\}\r?\n\`$ui\.bReady\.Add_Click"
+        $script:SetupText | Should -Match "Set-Step 'Copy' 'err' \`$script:CopyErr \}\r?\n\s+\} finally \{ Set-UiBusy \`$false; Update-StickFlags -Force \}"
+        $script:SetupText | Should -Match "try \{ Update-ReadyHint \} catch \{ \}; Update-StickFlags -Force \}"
+        # Merker hinter dem Text, der Text kuerzt (nicht der Merker)
+        $x = @($script:XamlBlocks | Where-Object { $_.Name -eq 'xaml' })[0].Xaml
+        $x | Should -Match '<DockPanel x:Name="dpReady"[^>]*HorizontalAlignment="Left"'
+        $x | Should -Match '<StackPanel x:Name="spFlags" DockPanel\.Dock="Right"'
+    }
+    It 'Merker bleibt bei langem Text ganz sichtbar, der Text wird gekuerzt (STA, beide Themes)' {
+        $res = Invoke-Sta {
+            param($xamlText, $theme, $dark, $light, $fnText)
+            Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            $script:HuThemeXaml = $theme; $script:HuColorsDark = $dark; $script:HuColorsLight = $light; $script:HuWindows = New-Object System.Collections.ArrayList
+            . ([scriptblock]::Create($fnText))
+            foreach ($th in 'dunkel', 'hell') {
+                $script:HuTheme = $th
+                $x = [xml]$xamlText; Add-HuTheme $x
+                $w = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $x))
+                $w.Width = 890
+                $w.FindName('tReady').Text = 'Stick E: ist fertig und kontrolliert (10:40), mit Hinweisen im Protokoll und noch viel mehr Text, der nicht passt'
+                $bd = New-Object System.Windows.Controls.Border; $bd.SetResourceReference([System.Windows.Controls.Border]::BackgroundProperty, 'HuStandErrBg')
+                $tb = New-Object System.Windows.Controls.TextBlock; $tb.Text = 'MAK am Stick'; $tb.FontWeight = 'Bold'; $bd.Child = $tb; $bd.Margin = '8,0,0,0'; $bd.Padding = '6,1,6,1'
+                [void]$w.FindName('spFlags').Children.Add($bd)
+                # Fenster wird nicht gezeigt: Inhalt mit den Ressourcen des Fensters herausloesen und selbst anordnen
+                $root = $w.Content; $rs = $w.Resources; $w.Content = $null; $root.Resources = $rs
+                $root.Measure((New-Object System.Windows.Size(862, 700))); $root.Arrange((New-Object System.Windows.Rect(0, 0, 862, 700))); $root.UpdateLayout()
+                $p = $bd.TranslatePoint((New-Object System.Windows.Point(0, 0)), $w.FindName('bdReady'))
+                '' + [int]$bd.ActualWidth + '|' + [int]($p.X + $bd.ActualWidth) + '|' + [int]$w.FindName('bdReady').ActualWidth + '|' + [int]$tb.DesiredSize.Width
+            }
+        } @(@($script:XamlBlocks | Where-Object { $_.Name -eq 'xaml' })[0].Xaml, $script:ThemeXaml, $script:DarkXaml, $script:LightXaml, ((@('Add-HuTheme', 'Get-HuColorsXaml') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        $res.Count | Should -Be 2
+        foreach ($r in $res) {
+            $v = @($r.Split('|') | ForEach-Object { [int]$_ })
+            $v[0] | Should -BeGreaterThan ($v[3])          # Merker ganz so breit wie sein Text
+            $v[1] | Should -BeLessOrEqual $v[2]             # endet innerhalb der Leiste
+        }
+    }
+}
+
 Describe 'v2.7.19 Zusatz: Details kopieren per Rechtsklick' {
     BeforeAll { . ([scriptblock]::Create($script:FnByName['Get-DetailCopyText'])) }
     It 'Zeile plus gegliederte Meldung, ohne Secrets' {

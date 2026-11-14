@@ -544,7 +544,11 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
         <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="13" Height="13" Margin="0,0,8,0" Stroke="White" StrokeThickness="1.5"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
       </Button>
       <Button x:Name="bReadySec" DockPanel.Dock="Left" Content="Neues Secret anlegen" Padding="10,6" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" Foreground="{DynamicResource HuErr}" ToolTip="Das Secret ist abgelaufen oder falsch, damit lädt kein Stick Geräte hoch.&#x0a;Öffnet die Seite &quot;Zertifikate und Geheimnisse&quot; der App-Registrierung im Browser (wie der Knopf oben)." ToolTipService.ShowDuration="30000"/>
-      <TextBlock x:Name="tReady" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="" ToolTip="Stand für den gewählten Stick: bereit, aktueller Schritt oder Ergebnis des letzten Durchgangs.&#x0a;Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
+      <!-- Statustext und direkt dahinter die Merker zum gewaehlten Stick (z. B. MAK am Stick). Bei wenig Platz kuerzt der Text, nie ein Merker. -->
+      <DockPanel x:Name="dpReady" Margin="12,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center">
+        <StackPanel x:Name="spFlags" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"/>
+        <TextBlock x:Name="tReady" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="" ToolTip="Stand für den gewählten Stick: bereit, aktueller Schritt oder Ergebnis des letzten Durchgangs.&#x0a;Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
+      </DockPanel>
     </DockPanel>
   </Border>
   <ScrollViewer x:Name="svMain" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -634,7 +638,7 @@ Add-HuTheme $xaml
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 Register-HuWindow $win
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick','bdSecret','bSecNew','tSecBanner','bReadySec') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick','bdSecret','bSecNew','tSecBanner','bReadySec','spFlags') { $ui[$n] = $win.FindName($n) }
 
 # Fenster an den Bildschirm anpassen: nie groesser als der Arbeitsbereich (ohne Taskleiste) und ganz sichtbar.
 # Auf kleinen Notebooks (z. B. 1366x768 oder hohe Skalierung) ragte das Fenster sonst unter die Taskleiste.
@@ -1096,7 +1100,60 @@ function Get-ReadyHintKey([string]$Drive) {
     if (-not $x) { return $Drive }
     return ($x.Letter + '|' + $x.Size + '|' + $x.Serial)
 }
+# ---------- Merker zum gewaehlten Stick (direkt hinter dem Statustext), z. B. "MAK am Stick" ----------
+#   Gelesen wird nur, ob EditionKey in HUPilot\config.json am Stick gefuellt ist, und die letzten 5 Zeichen. Der ganze
+#   Schluessel verlaesst Get-StickMakInfo nie (nicht in Oberflaeche, Protokoll oder Protokolldatei).
+#   Kein Stick, Stick nicht bereit, keine, zu grosse oder kaputte config.json: kein Merker, kein Fehler.
+#   Weitere Merker (z. B. Secret abgelaufen) kommen spaeter als weiterer Eintrag in Get-StickFlags dazu.
+function Get-StickMakInfo([string]$Drive) {
+    if (-not $Drive) { return $null }
+    try {
+        $p = $Drive.TrimEnd('\') + '\HUPilot\config.json'
+        if (-not [System.IO.File]::Exists($p)) { return $null }
+        if ((New-Object System.IO.FileInfo($p)).Length -gt 1MB) { return $null }
+        $o = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+        if ($null -eq $o -or $o -isnot [System.Management.Automation.PSCustomObject]) { return $null }
+        $k = ([string]$o.EditionKey).Trim()
+        $tail = $(if ($k.Length -ge 5) { $k.Substring($k.Length - 5) } else { '' })
+        $o = $null; $has = [bool]$k; $k = $null
+        return [pscustomobject]@{ HasMak = $has; Tail = $tail }
+    } catch { return $null }
+}
+# Merker aus den gelesenen Angaben (ohne Oberflaeche, fuer Tests): Liste von @{ Key; Text; Color; Tip }
+function Get-StickFlags($MakInfo) {
+    $f = @()
+    if ($MakInfo -and $MakInfo.HasMak) {
+        $f += [pscustomobject]@{ Key = 'mak'; Text = 'MAK am Stick'; Color = 'HuStandErrBg'
+            Tip = ('Auf diesem Stick liegt der MAK (Volumenlizenz-Schlüssel) im Klartext' + $(if ($MakInfo.Tail) { ', er endet auf ' + $MakInfo.Tail } else { '' }) + '. Gedacht nur für Geräte mit Windows Home.' + "`n" +
+                'Stick ohne MAK: nochmal Stick fertig machen und bei der Frage, ob der MAK mit auf den Stick soll, Nein wählen. Ist das Feld MAK (Pro) leer, kommt keine Frage und der Stick wird ohne MAK bespielt.') }
+    }
+    return $f
+}
+$script:FlagKey = '?'
+function Update-StickFlags([switch]$Force) {
+    try {
+        $d = Get-Drive
+        $key = Get-ReadyHintKey $d
+        if (-not $Force -and $key -eq [string]$script:FlagKey) { return }
+        $script:FlagKey = $key
+        $info = $null
+        if ($d -and @($script:DriveList | Where-Object { $_.Letter -eq $d }).Count) { $info = Get-StickMakInfo $d }
+        $ui.spFlags.Children.Clear()
+        foreach ($fl in @(Get-StickFlags $info)) {
+            $bd = New-Object System.Windows.Controls.Border
+            $bd.CornerRadius = New-Object System.Windows.CornerRadius(3); $bd.Padding = New-Object System.Windows.Thickness(6, 1, 6, 1); $bd.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
+            $bd.SetResourceReference([System.Windows.Controls.Border]::BackgroundProperty, $fl.Color)
+            $tb = New-Object System.Windows.Controls.TextBlock
+            $tb.Text = $fl.Text; $tb.FontWeight = [System.Windows.FontWeights]::Bold; $tb.TextWrapping = 'NoWrap'
+            $tb.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, 'HuStandText')
+            $bd.Child = $tb; $bd.ToolTip = $fl.Tip; $bd.Tag = $fl.Key
+            [System.Windows.Controls.ToolTipService]::SetShowDuration($bd, 60000)
+            [void]$ui.spFlags.Children.Add($bd)
+        }
+    } catch { }
+}
 function Update-ReadyHint {
+    Update-StickFlags
     $d = Get-Drive
     $key = Get-ReadyHintKey $d
     if ($key -eq [string]$script:HintDrive) { return }
@@ -1854,7 +1911,7 @@ $cmU.Add_Opened({
 })
 $ui.bUpd.ContextMenu = $cmU
 $win.Add_KeyDown({ if ($_.Key -eq 'F1') { & $ShowHelp } })
-$ui.bReload.Add_Click({ Update-Drives })
+$ui.bReload.Add_Click({ Update-Drives; Update-StickFlags -Force })
 
 $ui.bLoad.Add_Click({
     $p = $srcCfg
@@ -2739,7 +2796,7 @@ $ui.bCopy.Add_Click({
         if (-not $pre) { Set-Step 'Copy' 'open'; return }
         Set-Step 'Copy' 'run'; Step-Ui
         if (Copy-ToStick $dr $pre.WithMak) { Set-Step 'Copy' 'ok' ('Stick ' + $dr) } else { Set-Step 'Copy' 'err' $script:CopyErr }
-    } finally { Set-UiBusy $false }
+    } finally { Set-UiBusy $false; Update-StickFlags -Force }
 })
 
 # ICD-Ausgabe fuer Protokoll und Datei: Kennwoerter (roh und XML-escapt) und den Base64-Block der -EncodedCommand-Zeile ausblenden
@@ -2930,7 +2987,7 @@ function Invoke-IcdAction([scriptblock]$Body) {
     if ($script:Busy) { return }
     Set-UiBusy $true
     try { & $Body } catch { Out-Log 'Paketbau: Vorgang abgebrochen.' 'Fehler' $_.Exception.Message }
-    finally { Set-UiBusy $false; $script:IcdMB = 0; try { Update-IcdUi } catch { }; [void](Update-PkgState); $script:HintDrive = '?'; try { Update-ReadyHint } catch { } }
+    finally { Set-UiBusy $false; $script:IcdMB = 0; try { Update-IcdUi } catch { }; [void](Update-PkgState); $script:HintDrive = '?'; try { Update-ReadyHint } catch { }; Update-StickFlags -Force }
 }
 $ui.cIcdStick.Add_Click({
     if ($script:IcdUiSet) { return }
@@ -4676,7 +4733,7 @@ function Invoke-StickReady {
     Set-UiBusy $true
     try { Invoke-StickReadyCore }
     catch { Stop-Ready '' ('Unerwarteter Fehler: ' + $_.Exception.Message) }
-    finally { Set-UiBusy $false }
+    finally { Set-UiBusy $false; Update-StickFlags -Force }
 }
 $ui.bReady.Add_Click({ Invoke-StickReady })
 
