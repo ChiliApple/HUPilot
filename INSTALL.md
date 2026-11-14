@@ -4,7 +4,7 @@
 Entra > App-Registrierungen > **Neue Registrierung** > Name `HUPilot-Upload`, nur dieses Verzeichnis, keine Umleitungs-URI
 - API-Berechtigungen > Microsoft Graph > **Anwendung** > `DeviceManagementServiceConfig.ReadWrite.All` > **Administratorzustimmung**. Reicht auch für *Tag ändern*, *Autopilot-Sync anstoßen* und *Autopilot-Eintrag löschen* im Status-Fenster.
 - optional (nur Lesen): `Application.Read.All` für den Ablauf des Secrets (Setup und Hinweis am Gerät); `DeviceManagementManagedDevices.Read.All` für primären Benutzer, Gerätename, letzten Sync bei *Status*; `Group.Read.All` für die Tag-Prüfung (Gerät und *Tags prüfen*); `User.Read.All` für die Prüfung des Benutzers bei Vorab-Zuweisung
-- optional, ohne Recht in der App-Registrierung: **Fehlerberichte per Teams**. In Teams die App *Workflows* öffnen, Vorlage "Webhookbenachrichtigungen an einen Kanal", Adresse kopieren und im Setup bei *Teams-Webhook* eintragen, *Testnachricht senden*. Private Kanäle gehen nicht. Die Adresse liegt im Klartext am Stick, die Firewall im Einrichtungs-WLAN muss sie durchlassen
+- optional, ohne Recht in der App-Registrierung: **Fehlerberichte per Teams**. In Teams die App *Workflows* öffnen, Vorlage "Webhookbenachrichtigungen an einen Kanal", Adresse kopieren und im Setup bei *Teams-Webhook* eintragen, *Testnachricht senden*. Private Kanäle gehen nicht. Die Adresse liegt im Klartext am Stick, die Firewall im Einrichtungs-WLAN muss sie durchlassen. Ohne Internet am Gerät bleibt der Bericht in `HUPilot\logs\outbox` am Stick und geht später von go oder vom Setup hinaus
 - optional (Schreiben): `DeviceManagementManagedDevices.ReadWrite.All`: go kann Geräte nach einem **Mainboardtausch** neu registrieren (löscht den alten Intune-Eintrag, ersetzt `DeviceManagementManagedDevices.Read.All`), und *Autopilot-Eintrag löschen* im Status-Fenster löscht auch den Intune-Eintrag. Ohne dieses Recht löscht das Setup nur den Autopilot-Eintrag und sagt das vorher
 - Zertifikate & Geheimnisse > neues Secret, kurz gültig > den **Wert** kopieren
 
@@ -26,6 +26,7 @@ Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der
 | `AdminName`, `AdminPassword` | optional lokaler Admin (leer = keiner), kommt mit dem WLAN-Paket |
 | `Admin2Name`, `Admin2Password` | optional zweiter lokaler Admin, z. B. Elternverein (leer = keiner) |
 | `EditionKey` | optional MAK für Windows Pro (Home auf Pro umstellen, leer = aus). Das Setup fragt beim Kopieren, ob er auf den Stick soll |
+| `TeamsWebhook` | optional Adresse eines Teams-Workflows für Fehlerberichte (leer = aus), im Setup Feld *Teams-Webhook* |
 
 **Kein** `.ppkg` ins Hauptverzeichnis des Sticks legen.
 
@@ -54,6 +55,6 @@ Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go
 ## Fehlersuche
 - Updates: Knopf *Update* im Setup (prüft beim Start online). Klick startet `HUPilot\Setup\Pull.ps1`: lädt das Release, prüft Prüfsumme und Signatur, ersetzt erst dann. Rechtsklick: Vorversion, Kanal Stabil/Test.
 - Erstinstallation ohne Stick: `Pull.ps1` aus dem Repo laden und ausführen (`powershell -ExecutionPolicy Bypass -File Pull.ps1`), legt `Desktop\HUPilot` an
-- Logs: Gerät `C:\Windows\Temp\HUPilot.log` und `HUPilot-Wipe.log`, Stick `HUPilot\logs\`, Setup `HUPilot\logs\setup_<Datum>.log` (die letzten 20)
+- Logs: Gerät `C:\Windows\Temp\HUPilot.log` und `HUPilot-Wipe.log`, Stick `HUPilot\logs\` (noch nicht gesendete Berichte in `outbox`), Setup `HUPilot\logs\setup_<Datum>.log` (die letzten 20)
 - Am Gerät: `D:\diag`, Diagnose-Menü zum Abfotografieren (ändert nichts), *7* speichert alles am Stick
 - Setup startet nicht: `C:\Users\Public\HUPilot-Setup-Start.log`
