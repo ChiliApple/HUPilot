@@ -19,7 +19,7 @@ Hash mit Group Tag hochladen, Gerät ohne Hersteller-Programme zurücksetzen: <c
 ## Ablauf am Gerät
 
 1. Neues Gerät im ersten Einrichtungsbildschirm, Stick anstecken, **Shift+F10**, dann `D:\go` (das Fenster öffnet maximiert)
-2. go prüft zuerst Einstellungen, Seriennummer, Windows, WLAN-Paket und Hash, dann kommen die Fragen: Tag (optional Benutzer) und "zurücksetzen ja/nein" (je 10 s, sonst Standard)
+2. go prüft zuerst Einstellungen, Seriennummer, Windows, WLAN-Paket und Hash, dann kommen die Fragen: Tag und "zurücksetzen ja/nein" (je 10 s, sonst Standard), optional der Benutzer (ohne Zeitlimit)
 3. Zusammenfassung, danach läuft alles ohne weitere Fragen, mit "Schritt x von 6"
 4. Upload, dann **grün "STICK ABZIEHEN"**, nächstes Gerät
 5. Gerät wartet auf das Autopilot-Profil (ohne Profil weiter warten, höchstens 80 Minuten) und setzt sich selbst zurück, danach Autopilot-Anmeldung
@@ -33,7 +33,7 @@ Jedes Ende zeigt drei Sätze: was passiert ist, was jetzt passiert und was zu tu
 | Grün | Upload fertig, Stick abziehen |
 | Gelb | Netzteil fehlt, kein Profil für den Tag, noch kein Profil (weiter warten), **Hash gespeichert** (offline, später am PC hochladen) |
 | Blau | Zurücksetzen startet, Windows wird auf Pro umgestellt |
-| Rot | Fehler, **nichts** zurückgesetzt. Ursache und nächster Schritt stehen am Bildschirm. Diagnose zum Abfotografieren: `D:\diag`. Mit eingetragenem Teams-Webhook geht ein Bericht an den Admin, ohne Internet bleibt er am Stick und wird später gesendet |
+| Rot | Fehler, **nichts** zurückgesetzt. Ursache und nächster Schritt stehen am Bildschirm. Ausnahme "ZURÜCKSETZEN NOCH NICHT BEGONNEN": Windows hat das Zurücksetzen angenommen, es kann noch von selbst starten (Gerät nicht benutzen, am Strom lassen, 15 Minuten warten, sonst Foto an den Admin). Bricht das Hilfsprogramm zum Zurücksetzen mittendrin ab, nennt das Bild, was schon verändert wurde. Diagnose zum Abfotografieren: `D:\diag`. Mit eingetragenem Teams-Webhook geht ein Bericht an den Admin, ohne Internet bleibt er am Stick und wird später gesendet |
 
 ## Vorbereitung
 
@@ -54,7 +54,7 @@ Kacheln und Zeilen zeigen jeden Stand: Fertig, Wartet auf Profil, Profil da (noc
 
 <p align="center"><img src="Assets/screenshot-loeschen.png" width="420" alt="Erste Abfrage beim Löschen"/> <img src="Assets/screenshot-details.png" width="400" alt="Details-Fenster eines Geräts"/></p>
 
-**7. Hashes importieren** lädt offline gespeicherte Hashes hoch. Importfehler 806 (schon unter einem alten Eintrag in Autopilot) und 808 (anderer Organisation zugeordnet) stehen in Klartext mit dem nächsten Schritt da.
+**7. Hashes importieren** lädt offline gespeicherte Hashes hoch. Bei den Importfehlern 806 (schon unter einem alten Eintrag in Autopilot) und 808 (schon registriert, meist bei einer anderen Organisation, manchmal unter einem alten Eintrag im eigenen Intune) zeigt die Tabelle eine Kurzform, der volle Text mit dem nächsten Schritt steht im Protokoll darunter.
 
 <p align="center"><img src="Assets/screenshot-hashes.png" width="640" alt="Hashes importieren, Import läuft"/></p>
 
@@ -62,18 +62,20 @@ Die Oberfläche gibt es dunkel und hell, umschaltbar mit dem Knopf oben rechts.
 
 <p align="center"><img src="Assets/screenshot-setup-hell.png" width="420" alt="HUPilot-Setup, helle Oberfläche"/></p>
 
-> **Status:** in Erprobung. Upload, Tag-Wechsel, Tag-Prüfung, Offline-Hashes, Zurücksetzen (auch im Akkubetrieb), WLAN-Paket und Autopilot laufen. **Noch nicht auf einem unberührten Neugerät bestätigt:** dass nach dem Zurücksetzen keine Hersteller-Programme zurückkommen.
+> **Status:** in Erprobung. Upload, Tag-Wechsel, Tag-Prüfung, Offline-Hashes und ihr Import, "nur hochladen", WLAN-Paket, Autopilot, Bericht an den Admin per Teams, Löschen im Status samt Intune-Eintrag und Druck laufen.
+>
+> **Grenzen, noch nicht am echten Gerät bestätigt:** Zurücksetzen mit dem Ablauf dieser Version (neue Meldungen "noch nicht begonnen" und "schon verändert"), Windows Home auf Pro mit echtem MAK (Aktivierung und ob sie das Zurücksetzen übersteht), Fehler 808, Stand "Hardware geändert" im Status, dass nach dem Zurücksetzen auf einem unberührten Neugerät keine Hersteller-Programme zurückkommen.
 
 ## Gut zu wissen
 
 - Zurücksetzen ohne Hersteller-Programme: `C:\Recovery\Customizations` wird weggeschoben, dann *Alles entfernen* (RemoteWipe `doWipePersistProvisionedData`). Hersteller-Store-Apps kann Windows trotzdem wiederherstellen.
 - **Kein CleanPC-Paket verwenden:** Windows wendet gespeicherte Pakete nach jedem Zurücksetzen erneut an (Endlosschleife).
 - Optional bis zu zwei lokale Admins, z. B. Kustode und Elternverein (Kennwort und Konto laufen nie ab), kommen mit dem WLAN-Paket. Das Setup zeigt, ob das Paket noch zu WLAN und Admins passt. Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage`), bleibt am eingerichteten Gerät das vorhandene Paket.
-- Kein Internet oder Secret abgelaufen: der Hash wird am Stick gespeichert und später im Setup hochgeladen. Die Uhrzeit stellt go selbst. Das Setup warnt beim Kopieren, wenn das Secret abgelaufen ist oder bald abläuft.
+- Kein Internet oder Secret abgelaufen: der Hash wird am Stick gespeichert und später im Setup hochgeladen. Ohne Zugang zum Entra-Portal für ein neues Secret: den Admin fragen. Die Uhrzeit stellt go selbst. Das Setup warnt beim Kopieren, wenn das Secret abgelaufen ist oder bald abläuft.
 - Fehlerberichte per Teams (optional): Adresse eines Teams-Workflows im Setup bei *Teams-Webhook* eintragen, *Testnachricht senden*. go schickt bei Rot einen Bericht mit dem Log dieses Laufs, im Setup schickt Rechtsklick im Protokoll, *An Admin senden* eine Zeile mit Details. Die Adresse liegt im Klartext am Stick, Berichte können Seriennummer, Gerätename, Benutzer- und WLAN-Namen enthalten: Kanal nur für die Admins.
 - Das Setup schreibt ein Protokoll je Sitzung nach `HUPilot\logs` (ohne Secret, Kennwörter und Schlüssel).
 - Setup prüft beim Start online auf neue Versionen (Knopf *Update*, gold = neu). Updates kommen als GitHub-Release mit Prüfsumme und Signatur des Herausgebers und werden erst nach Freigabe angeboten (Kanal *Stabil*, *Test* per Rechtsklick).
-- Schutz: Gerät mit Benutzerprofil: rote Rückfrage. Ohne Netzteil und unter 50 % Akku: wartet.
+- Schutz: Gerät mit Benutzerprofil: rote Rückfrage. Ohne Netzteil und unter 50 % Akku: wartet. Ist der Akku-Stand nicht lesbar, kommt ein gelbes Bild: Netzteil anstecken oder mit `J` übergehen.
 - Secret kurz gültig halten, Stick nicht aus der Hand geben (`DeviceManagementServiceConfig.ReadWrite.All` gibt es nur mit Schreibrecht).
 
 ---

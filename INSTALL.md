@@ -11,7 +11,7 @@ Entra > App-Registrierungen > **Neue Registrierung** > Name `HUPilot-Upload`, nu
 ## 2. Stick / Quelle
 `Stick\` auf den Stick oder in einen Vorbereitungsordner kopieren (z. B. je Schule einer), `HUPilot-Setup.cmd` starten.
 Das Setup arbeitet immer mit dem Ordner, aus dem es läuft: laden, speichern, WLAN-Paket bauen. *Stick fertig machen* und *Auf Stick kopieren* kopieren ihn 1:1 auf den gewählten Stick (ohne `logs` und `_`-Ordner) und kontrollieren die Dateien.
-Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der Pin-Knopf oben rechts legt eine Desktop-Verknüpfung an.
+Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der Pin-Knopf oben rechts legt eine Desktop-Verknüpfung an. Angeboten wird alles, was per USB angeschlossen ist, auch eine externe USB-Festplatte: Datenträger über 128 GB sind markiert und bekommen eine eigene Rückfrage. Liegen am Stick nicht importierte Hashes, nennt die Rückfrage sie, Nein ist dann vorgewählt.
 
 | config.json | |
 |---|---|
@@ -54,7 +54,7 @@ Sperrt Intune Bereitstellungspakete (`AllowAddProvisioningPackage = 0`), kann go
 
 ## Fehlersuche
 - Updates: Knopf *Update* im Setup (prüft beim Start online). Klick startet `HUPilot\Setup\Pull.ps1`: lädt das Release, prüft Prüfsumme und Signatur, ersetzt erst dann. Rechtsklick: Vorversion, Kanal Stabil/Test.
-- Erstinstallation ohne Stick: `Pull.ps1` aus dem Repo laden und ausführen (`powershell -ExecutionPolicy Bypass -File Pull.ps1`), legt `Desktop\HUPilot` an
+- Erstinstallation ohne Stick: `Pull.ps1` aus dem Repo laden und ausführen (`powershell -ExecutionPolicy Bypass -File Pull.ps1`), legt `Desktop\HUPilot` an. `Pull.ps1` selbst wird dabei nicht geprüft, hier gilt das Vertrauen in GitHub. Die Dateien des Releases, das es lädt, prüft es wie bei jedem Update: Prüfsumme jeder Datei und Signatur des Herausgebers (Fingerabdruck des Zertifikats eingebaut, keine Prüfung von Sperrlisten). Ausschalten lässt sich die Signaturpflicht nur bewusst mit `"AllowUnsigned": true` in `HUPilot\Config\update.json`; dann sind auch unsignierte Stände und Entwicklungsstände eines Branches (ohne Prüfsumme) möglich.
 - Logs: Gerät `C:\Windows\Temp\HUPilot.log` und `HUPilot-Wipe.log`, Stick `HUPilot\logs\` (noch nicht gesendete Berichte in `outbox`), Setup `HUPilot\logs\setup_<Datum>.log` (die letzten 20)
 - Am Gerät: `D:\diag`, Diagnose-Menü zum Abfotografieren (ändert nichts), *7* speichert alles am Stick
 - Setup startet nicht: `C:\Users\Public\HUPilot-Setup-Start.log`
