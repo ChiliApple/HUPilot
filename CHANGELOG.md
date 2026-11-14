@@ -25,7 +25,19 @@
 - **Merker "MAK am Stick":** Liegt auf dem gewählten Stick ein MAK, steht das rot neben dem Hauptknopf. Der Tooltip nennt die letzten 5 Zeichen und wie der Stick ohne MAK bespielt wird.
   - Sind die Einstellungen am Stick nicht lesbar, steht dort gelb "Stick prüfen".
 
+### 📨 Bericht an den Admin
+- **Fehlerbericht per Teams:** Geht am Gerät etwas schief, schickt go von selbst einen Bericht in einen Teams-Kanal. Niemand muss mehr den Bildschirm fotografieren.
+  - Einrichten: im Setup die Adresse eines Teams-Workflows bei "Teams-Webhook" eintragen, "Testnachricht senden", speichern, Stick neu bespielen. Leer heißt aus.
+  - Der Bericht nennt Anzeigename, Seriennummer, Modell, Windows, Version, den Schritt und die drei Sätze vom Bildschirm, dazu die letzten Zeilen des Logs.
+  - Gesendet wird bei jedem roten Ende, außerdem bei "Secret abgelaufen oder falsch" und wenn nach allen Warterunden kein Profil da ist. Nicht nach einem bewussten Abbruch.
+  - Ohne Internet bleibt der Bericht am Stick. Gesendet wird er beim nächsten Lauf mit Internet oder vom Setup, sobald der Stick am PC steckt.
+  - Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht vorne in jeder Nachricht.
+  - Secret, Kennwörter, MAK, Tenant-ID und App-ID gehen nicht mit. Am Ablauf am Gerät ändert das Senden nichts.
+- **An Admin senden:** Rechtsklick auf eine Protokollzeile im Setup schickt die Meldung mit Details in denselben Kanal. Von selbst sendet das Setup nichts.
+- **Berichte vom Stick senden:** Liegen auf einem Stick noch Berichte, sendet das Setup sie beim Anstecken, nach "Stick fertig machen" und vor dem Formatieren in "Sticks vorbereiten".
+
 ### 🎨 Oberfläche
+- **Status: "Was tun" nie abgeschnitten:** Die Spalte war auf eine feste Breite begrenzt, lange Texte endeten mitten im Satz. Sie richtet sich jetzt nach dem längsten Text und bricht nur auf einem zu schmalen Bildschirm um.
 - **Tooltips lesbar:** Alle Tooltips haben eine feste Höchstbreite und brechen um, nichts läuft mehr aus dem Bild.
   - Antworten von Microsoft stehen gegliedert da: Fehlercode, Beschreibung, Zeitpunkt und Kennungen je in einer Zeile.
 - **Behoben: falsche Verweise in Tooltips:** Der Tooltip von "4. WLAN-Paket bauen" verwies auf die falsche Stelle. Er nennt jetzt selbst, welche ICD.exe benutzt wird. Alle Verweise in Tooltips wurden geprüft.
@@ -42,13 +54,16 @@
 - **Kein neues Pflichtrecht.** Das Löschen des Autopilot-Eintrags läuft über das vorhandene `DeviceManagementServiceConfig.ReadWrite.All`.
 - **Optional:** Mit `DeviceManagementManagedDevices.ReadWrite.All` löscht das Setup auch den Intune-Eintrag. Ohne dieses Recht löscht es nur den Autopilot-Eintrag und sagt das vorher. Den Intune-Eintrag entfernt dann ein Admin im Intune-Portal.
 
+- **Teams-Webhook:** Die Adresse liegt im Klartext auf jedem Stick. Wer sie kennt, kann in den Kanal schreiben, lesen kann er nichts. Im Bericht können Seriennummer, Gerätename, Benutzername und WLAN-Name stehen: den Kanal nicht für alle öffnen.
+
 ### 🚧 Grenzen
+- **Bericht an den Admin:** Private Kanäle gehen laut Microsoft nicht, ein Standardkanal in einem privaten Team schon. Die Firewall im Einrichtungs-WLAN muss die Adresse des Workflows durchlassen.
 - **Älter oder neuer bei doppelten Einträgen:** Microsoft liefert kein Anlagedatum. Das Setup leitet es aus dem letzten Kontakt und der Profil-Zuweisung ab.
 - **Dauer des Löschens:** Microsoft nennt keine Obergrenze, es kann länger als 30 Minuten dauern.
 - **Adresse im Entra-Portal:** Microsoft kann sie ohne Ankündigung ändern. Dann die App-Registrierung von Hand öffnen.
 
 ### ✅ Qualität
-- 264 automatische Tests.
+- 335 automatische Tests.
 
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen

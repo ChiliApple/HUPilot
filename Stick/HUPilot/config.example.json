@@ -22,5 +22,6 @@
   "Reset": true,
   "RemoveOtherPackages": false,
   "EditionKey": "",
+  "TeamsWebhook": "",
   "MinBattery": 50
 }
