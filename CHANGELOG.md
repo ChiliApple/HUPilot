@@ -1,5 +1,56 @@
 ﻿# Changelog
 
+## v2.8.0 - 2026-11-14
+Stable-Release der Testversionen 2.7.18 bis 2.8.0 - "Ehrliche Meldungen, sicheres Formatieren".
+
+### 🔄 Zurücksetzen am Gerät
+- **Rot sagt genau, was passiert ist:** Hat Windows das Zurücksetzen schon angenommen, startet es aber nicht, heißt das Bild jetzt "ZURÜCKSETZEN NOCH NICHT BEGONNEN" und sagt, dass es noch starten kann.
+  - Was tun: Gerät nicht benutzen, am Strom lassen, 15 Minuten warten. Startet es nicht neu: Foto an den Admin.
+  - Vorher stand dort fälschlich, das Gerät sei nicht zurückgesetzt worden.
+- **Schon Verändertes wird genannt:** Bricht die Vorbereitung mittendrin ab, sagt das Bild, was schon geändert wurde, zum Beispiel "Hersteller-Apps entfernt".
+- **Nur der aktuelle Lauf zählt:** Reste eines früheren Versuchs können die Auswertung nicht mehr verfälschen.
+- **Hardware-Änderung:** Gleicht Microsoft die Änderung selbst ab, empfiehlt go jetzt abzubrechen und es in einer Stunde nochmal zu versuchen. Neu registrieren bleibt mit N möglich.
+- **Akku nicht lesbar:** Kann go den Akku-Stand nicht lesen, bittet es um das Netzteil, statt still weiterzumachen.
+- **Erst weitergehen, wenn das Gerät neu startet:** Das grüne Bild sagt das jetzt ausdrücklich (etwa 5 Minuten).
+- **Klartext statt Rohtext:** Rote Bilder zeigen nur noch den Klartext und den Fehlercode, die ganze Antwort von Microsoft steht im Log.
+
+### 💾 Sticks vorbereiten
+- **Warnung vor Datenverlust:** Liegen auf einem Stick nicht importierte Hashes oder das Stick-Protokoll, nennt die Rückfrage das mit Anzahl. "Nein" ist dann vorgewählt.
+  - Zuerst abbrechen und "7. Hashes importieren", dann erst formatieren.
+- **Festplatten:** Datenträger über 128 GB stehen mit dem Zusatz "(groß, Festplatte?)" in der Liste und bekommen eine eigene Rückfrage. "Nein" lässt nur diesen Datenträger aus.
+
+### 🔐 Secret und Schutz der Daten
+- **Bereinigung gründlicher:** Secret, Kennwörter, MAK und die Teams-Adresse werden auch in kodierter Schreibweise aus Protokoll, Bericht und Diagnose entfernt.
+- **Diagnose am Gerät:** Die gespeicherte Diagnose-Datei ist bereinigt, die Teams-Adresse wird nicht mehr angezeigt.
+- **Log am Gerät und am Stick:** Secret, Kennwörter, Tenant-ID und App-ID stehen dort nicht mehr im Klartext.
+- **Behoben: fehlerhafte config.json:** War die Datei kein gültiges JSON, konnte ihr Inhalt samt Secret im Log landen. Jetzt steht dort nur noch, dass und wo die Datei fehlerhaft ist.
+- **Abgelaufenes Secret:** Der Hinweis erklärt die Begriffe und sagt, was zu tun ist, wenn man keinen Zugang zum Entra-Portal hat.
+  - Am Gerät steht dazu, ob der Admin schon eine Nachricht bekommen hat.
+
+### 📥 Import
+- **Übersichtliche Tabelle:** "7. Hashes importieren" zeigt bei den Fehlern 806 und 808 eine kurze Zeile, der ganze Text mit dem nächsten Schritt steht im Protokoll darunter.
+- **Fehler 808 genauer:** Meist ist das Gerät bei einer anderen Organisation registriert, manchmal steckt ein alter Eintrag im eigenen Intune dahinter. Der Text nennt beides.
+- **Behoben: Umlaute:** Umlaute im Benutzernamen gingen in der Hash-Datei am Stick verloren, am Gerät und beim Verschieben erledigter Zeilen im Setup.
+- **Hash-Datei sicher ersetzt:** Das Setup schreibt die Datei erst daneben und tauscht sie dann aus. Ein gezogener Stick kostet keine offenen Zeilen mehr.
+
+### 🎨 Oberfläche
+- **Ampel im Hauptknopf sichtbar:** Der Punkt in "Stick fertig machen" war auf dem grünen Knopf nicht zu erkennen.
+- **Home auf Pro:** Ein fehlgeschlagener Versuch sperrt die normale Frage nur noch 24 Stunden.
+
+### ⬆️ Update
+- **Unvollständige Dateiliste:** Liefert GitHub die Liste der Dateien gekürzt oder fehlt eine Datei, bricht das Update ab, bevor etwas ersetzt wird.
+
+### ⚠️ Nach dem Update
+- **Sticks neu bespielen:** Jeden Stick einmal mit "Stick fertig machen" aktualisieren, sonst läuft am Gerät noch die alte Version.
+- **Rechte unverändert:** Pflicht bleibt `DeviceManagementServiceConfig.ReadWrite.All`. Für die Anzeige des Secret-Ablaufs `Application.Read.All`, für das Löschen des Intune-Eintrags `DeviceManagementManagedDevices.ReadWrite.All`, beide optional.
+
+### 🚧 Grenzen
+- **Rückgabewert beim Zurücksetzen:** Microsoft dokumentiert nicht, welchen Wert ein angenommener Aufruf liefert. Ein anderer Wert als 0 gilt deshalb als unklar, nicht als Fehler.
+- **Hardware-Änderung:** Welche der beiden Meldungen von Microsoft "wird selbst abgeglichen" bedeutet, ist nach unserem Verständnis zugeordnet, nicht von Microsoft bestätigt.
+- **Noch nicht am echten Gerät geprüft:** Fehler 808, Stand "Hardware geändert", abgelaufenes Secret, Umstellung von Home auf Pro mit echtem MAK.
+
+### ✅ Qualität
+- 492 automatische Tests.
 ## v2.7.19 - 2026-11-14
 ### 📊 Status
 - **Autopilot-Eintrag löschen:** neuer Knopf im Status-Fenster, zum Beispiel für ein Gerät, das mit neuem Mainboard vom Support zurückkommt.
@@ -36,7 +87,7 @@
   - Ohne Internet bleibt der Bericht am Stick. Gesendet wird er beim nächsten Lauf mit Internet oder vom Setup, sobald der Stick am PC steckt.
   - Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht vorne in jeder Nachricht.
   - Secret, Kennwörter, MAK, Tenant-ID und App-ID gehen nicht mit. Am Ablauf am Gerät ändert das Senden nichts.
-- **An Admin senden:** Rechtsklick auf eine Protokollzeile im Setup schickt die Meldung mit Details in denselben Kanal. Von selbst sendet das Setup nichts.
+- **An Admin senden:** Rechtsklick auf eine Protokollzeile im Setup schickt die Meldung mit Details in denselben Kanal. Eigene Meldungen sendet das Setup nie von selbst.
 - **Berichte vom Stick senden:** Liegen auf einem Stick noch Berichte, sendet das Setup sie beim Anstecken, nach "Stick fertig machen" und vor dem Formatieren in "Sticks vorbereiten".
 
 ### 🎨 Oberfläche
