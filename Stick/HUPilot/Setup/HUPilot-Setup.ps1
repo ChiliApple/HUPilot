@@ -16,7 +16,17 @@
 param([string]$SmokeTest = '')
 $ErrorActionPreference = 'Stop'
 $StartLog = Join-Path $env:PUBLIC 'HUPilot-Setup-Start.log'   # gleicher Ort fuer Benutzer + Admin-Konto
-function Start-Log([string]$m) { try { Add-Content -Path $StartLog -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  PID ' + $PID + '  ' + $m) -Encoding UTF8 } catch { } }
+# Muster fuer Geheimes, die ohne bekannte Werte greifen (auch vor dem Laden der Einstellungen): client_secret in JSON und
+# Formular, Tokens (Bearer, access_token, JWT), Webhook-Adressen mit Signatur sig=. Wird von Hide-LogSecrets mitbenutzt.
+function Hide-SecretPatterns([string]$Text) {
+    if (-not $Text) { return $Text }
+    $t = [regex]::Replace($Text, '(?i)("(?:client_secret|access_token|refresh_token|id_token|password)"\s*:\s*")(?:[^"\\]|\\.)*(")', '$1***$2')
+    $t = [regex]::Replace($t, '(?i)\b((?:client_secret|access_token|refresh_token|id_token)=)[^&\s"''<>]+', '$1***')
+    $t = [regex]::Replace($t, '(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}', '$1***')
+    $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*', '***')
+    return [regex]::Replace($t, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
+}
+function Start-Log([string]$m) { try { Add-Content -Path $StartLog -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  PID ' + $PID + '  ' + (Hide-SecretPatterns $m)) -Encoding UTF8 } catch { } }
 Start-Log ('Start: ' + $PSCommandPath + '  als ' + [Environment]::UserName)
 
 # --- Als Administrator neu starten (ICD-Kommandozeile braucht Adminrechte - MS Doku) ---
@@ -38,6 +48,8 @@ Start-Log 'als Admin gestartet'
 # Fehler sichtbar machen (Fenster laeuft ohne Konsole)
 trap {
     $msg = ($_ | Out-String)
+    # bekannte Werte (Secret, Kennwoerter, MAK, Webhook), soweit schon geladen, sonst nur die Muster
+    try { $hv = $null; try { $hv = @(Get-LogSecretValues) } catch { }; if (Get-Command Hide-LogSecrets -ErrorAction SilentlyContinue) { $msg = Hide-LogSecrets $msg $hv } else { $msg = Hide-SecretPatterns $msg } } catch { try { $msg = Hide-SecretPatterns $msg } catch { $msg = 'Fehler (Text nicht bereinigbar)' } }
     try { Set-Content -Path (Join-Path $env:PUBLIC 'HUPilot-Setup-Fehler.txt') -Value $msg -Encoding UTF8 } catch { }
     if ($SmokeTest) { try { Set-Content -LiteralPath $SmokeTest -Value ('FEHLER: ' + $msg) -Encoding UTF8 } catch { } }
     else { try { [void][System.Windows.MessageBox]::Show($msg, 'HUPilot-Setup - Fehler') } catch { } }
@@ -542,7 +554,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
         <Button x:Name="bReload" Content="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="12" Padding="6,4" Margin="4,0,0,0" VerticalAlignment="Center" ToolTip="Sticks neu einlesen.&#x0a;Angesteckte und abgezogene Sticks erkennt das Setup von selbst, dieser Knopf ist nur der Rückfall." ToolTipService.ShowDuration="30000"/>
       </StackPanel>
       <Button x:Name="bReady" DockPanel.Dock="Left" Style="{StaticResource HuMain}" Padding="18,8" FontSize="15" FontWeight="Bold" ToolTip="Macht den gewählten Stick in einem Durchgang fertig:&#x0a;Felder prüfen, Verbindung und Secret prüfen, Tags prüfen (nur Warnung), speichern,&#x0a;WLAN-Paket bauen, wenn es fehlt oder veraltet ist, auf den Stick kopieren und die kopierten Dateien kontrollieren.&#x0a;Bricht beim ersten echten Fehler ab und sagt, was zu tun ist." ToolTipService.ShowDuration="60000">
-        <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="13" Height="13" Margin="0,0,8,0" Stroke="White" StrokeThickness="1.5"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
+        <StackPanel Orientation="Horizontal"><Grid Width="17" Height="17" Margin="0,0,8,0" VerticalAlignment="Center"><Ellipse Fill="{DynamicResource HuPanel}" Stroke="White" StrokeThickness="1.5"/><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="9" Height="9" Margin="0" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
       </Button>
       <Button x:Name="bReadySec" DockPanel.Dock="Left" Content="Neues Secret anlegen" Padding="10,6" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" Foreground="{DynamicResource HuErr}" ToolTip="Das Secret ist abgelaufen oder falsch, damit lädt kein Stick Geräte hoch.&#x0a;Öffnet die Seite &quot;Zertifikate &amp; Geheimnisse&quot; der App-Registrierung im Browser (wie der Knopf oben)." ToolTipService.ShowDuration="30000"/>
       <!-- Statustext und direkt dahinter die Merker zum gewaehlten Stick (z. B. MAK am Stick). Bei wenig Platz kuerzt der Text, nie ein Merker. -->
@@ -863,10 +875,28 @@ function Split-LogLevel([string]$m) {
     return @('', $m)
 }
 # Geheimes ausblenden: bekannte Werte (Secret, Kennwoerter) durch ***, Produktschluessel bis auf die letzten 5 Zeichen
+# Schreibweisen eines Werts, wie er in Meldungen auftauchen kann: woertlich, URL-kodiert (Formular, Adresse; Hex gross und
+# klein, Leerzeichen als +), JSON-escaped (Backslash, Anfuehrungszeichen, \/, & usw. wie ConvertTo-Json in PowerShell 5.1)
+function Get-SecretVariants([string]$Value) {
+    $r = New-Object System.Collections.Generic.List[string]
+    if (-not $Value) { return @() }
+    $r.Add($Value)
+    try {
+        $u = [uri]::EscapeDataString($Value)
+        $r.Add($u); $r.Add([regex]::Replace($u, '%[0-9A-F]{2}', { param($m) $m.Value.ToLowerInvariant() })); $r.Add($u.Replace('%20', '+'))
+    } catch { }
+    $j = $Value.Replace('\', '\\').Replace('"', '\"')
+    $r.Add($j); $r.Add($j.Replace('/', '\/'))
+    $r.Add($j.Replace('&', '\u0026').Replace('<', '\u003c').Replace('>', '\u003e').Replace("'", '\u0027'))
+    return @($r | Select-Object -Unique)
+}
 function Hide-LogSecrets([string]$Text, [string[]]$Values) {
     if (-not $Text) { return $Text }
-    foreach ($v in @($Values | Where-Object { $_ -and $_.Length -ge 4 } | Sort-Object Length -Descending)) { $Text = $Text.Replace($v, '***') }
-    # Webhook-Adressen (mit Signatur sig=) nie ausgeben, auch wenn sie nicht als Wert bekannt sind
+    # Schreibweisen je Wert (Get-SecretVariants, im Setup immer da; Tests, die nur diese Funktion laden: nur woertlich)
+    $all = @(foreach ($v in @($Values | Where-Object { $_ -and $_.Length -ge 4 })) { try { Get-SecretVariants $v } catch [System.Management.Automation.CommandNotFoundException] { $v } })
+    foreach ($v in @($all | Where-Object { $_.Length -ge 4 } | Sort-Object Length -Descending)) { $Text = $Text.Replace($v, '***') }
+    # Muster ohne bekannten Wert: client_secret, Tokens (Hide-SecretPatterns), Webhook-Adressen mit Signatur sig=
+    try { $Text = Hide-SecretPatterns $Text } catch [System.Management.Automation.CommandNotFoundException] { }
     $Text = [regex]::Replace($Text, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
     return [regex]::Replace($Text, '\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-([A-Za-z0-9]{5})\b', '*****-*****-*****-*****-$1')
 }
@@ -1722,6 +1752,32 @@ function Compare-StickId($Old, $New) {
     return @($script:StickIdFields | Where-Object { [string]$Old.$_ -ne [string]$New.$_ })
 }
 function Get-StickKey($Id) { return (@($script:StickIdFields | ForEach-Object { [string]$Id.$_ }) -join '|') }
+# Datentraeger ab dieser Groesse sind vermutlich USB-Festplatten: in der Liste markiert, vor dem Formatieren eigene Rueckfrage
+$script:PrepBigDiskGB = 128
+function Test-PrepBigDisk([int64]$Size) { return ($Size -gt ([int64]$script:PrepBigDiskGB * 1GB)) }
+# Zeilen einer CSV am Stick ohne Kopfzeile und Leerzeilen. -1 = Datei da, aber nicht lesbar (gesperrt), 0 = fehlt oder leer
+function Get-CsvDataLines([string]$Path, [string]$HeaderPrefix) {
+    try {
+        if (-not [System.IO.File]::Exists($Path)) { return 0 }
+        $fs = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try { $sr = New-Object System.IO.StreamReader($fs, $true); $txt = $sr.ReadToEnd() } finally { $fs.Dispose() }
+        return @($txt -split "`r?`n" | Where-Object { $_.Trim() -and -not $_.StartsWith($HeaderPrefix) }).Count
+    } catch { return -1 }
+}
+# Was beim Formatieren verloren geht (ausser Berichten an den Admin, siehe Send-OutboxBeforeFormat): nicht importierte Hashes
+# (oft die einzige Kopie) zuerst, dann das Stick-Protokoll. Rueckgabe: Zeilen fuer die Rueckfrage, @{ Lines; Hashes }
+function Get-StickDataWarnings([string[]]$Letters) {
+    $hl = @(); $pl = @(); $nh = 0
+    foreach ($l in @($Letters | Where-Object { $_ })) {
+        $d = $l.Substring(0, 1).ToUpper() + ':'
+        $h = Get-CsvDataLines ($d + '\HUPilot\logs\hashes.csv') 'Device Serial Number'
+        if ($h -gt 0) { $nh += $h; $hl += ('Stick ' + $d + ' ' + $h + ' nicht importierte' + $(if ($h -ne 1) { ' Hashes gehen' } else { 'r Hash geht' }) + ' verloren. Zuerst abbrechen und "7. Hashes importieren".') }
+        elseif ($h -lt 0) { $nh++; $hl += ('Stick ' + $d + ' hashes.csv ist nicht lesbar (in Excel offen?), darin können nicht importierte Hashes liegen. Zuerst abbrechen, die Datei schließen und "7. Hashes importieren".') }
+        $p = Get-CsvDataLines ($d + '\HUPilot\logs\protokoll.csv') 'Zeit'
+        if ($p -gt 0) { $pl += ('Stick ' + $d + ' das Stick-Protokoll (' + $p + ' Einträge, für "6. Status") geht verloren.') }
+    }
+    return [pscustomobject]@{ Lines = @($hl + $pl); Hashes = $nh }
+}
 function Get-UsbSticks {
     $res = @()
     foreach ($v in @(Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter })) {
@@ -1730,9 +1786,11 @@ function Get-UsbSticks {
             $part = Get-Partition -DriveLetter $dl -ErrorAction Stop
             $disk = $part | Get-Disk -ErrorAction Stop
             if ([string]$disk.BusType -ne 'USB' -or $disk.IsBoot -or $disk.IsSystem -or [int]$disk.Number -eq $script:SrcDisk) { continue }
+            $big = Test-PrepBigDisk ([int64]$disk.Size)
             $res += [pscustomobject]@{
                 Letter = $dl; Disk = [int]$disk.Number; Id = (New-StickId $disk $part $v $dl)
-                Text   = ('{0}:  {1,-12} {2,-6} {3,6:N1} GB   {4}' -f $dl, $(if ($v.FileSystemLabel) { $v.FileSystemLabel } else { '(ohne Name)' }), $v.FileSystem, ($v.Size / 1GB), $disk.FriendlyName)
+                Big    = $big; Model = [string]$disk.FriendlyName; DiskGB = [math]::Round(([int64]$disk.Size / 1GB), 1)
+                Text   = ('{0}:  {1,-12} {2,-6} {3,6:N1} GB   {4}' -f $dl, $(if ($v.FileSystemLabel) { $v.FileSystemLabel } else { '(ohne Name)' }), $v.FileSystem, ($v.Size / 1GB), $disk.FriendlyName) + $(if ($big) { '   (groß, Festplatte?)' } else { '' })
             }
         } catch { }
     }
@@ -1865,8 +1923,19 @@ function Show-PrepSticks {
         $list = ($sel | ForEach-Object { '   ' + $_.Text }) -join "`r`n"
         # Berichte an den Admin, die go am Stick abgelegt hat: vorher senden, sonst in der Rueckfrage nennen (gehen beim Formatieren verloren)
         $obw = @(); try { $obw = @(Send-OutboxBeforeFormat @($sel | ForEach-Object { $_.Letter }) $plog { try { $pw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) } catch { } }) } catch { }
-        $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + $(if ($obw.Count) { "`r`n`r`n" + ($obw -join "`r`n") } else { '' }) + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning')
-        if ($q -ne 'Yes') { return }
+        # nicht importierte Hashes und Stick-Protokoll: am Anfang der Warnungen, dann ist Nein vorgewaehlt
+        $dw = [pscustomobject]@{ Lines = @(); Hashes = 0 }; try { $dw = Get-StickDataWarnings @($sel | ForEach-Object { $_.Letter }) } catch { }
+        $warnAll = @(@($dw.Lines) + $obw)
+        foreach ($wl in $warnAll) { & $plog $wl 'Hinweis' }
+        $q = [System.Windows.MessageBox]::Show($pw, ('Diese Sticks werden FORMATIERT (' + $fs + ', Name ' + $label + ') - alle Daten gehen verloren:' + "`r`n`r`n" + $list + $(if ($warnAll.Count) { "`r`n`r`n" + ($warnAll -join "`r`n") } else { '' }) + "`r`n`r`nFortfahren?"), 'HUPilot - Sticks formatieren', 'YesNo', 'Warning', $(if ($dw.Hashes -gt 0) { 'No' } else { 'Yes' }))
+        if ($q -ne 'Yes') { & $plog 'Abgebrochen, nichts formatiert.'; return }
+        # vermutlich USB-Festplatten: je Datentraeger eine eigene rote Rueckfrage, Nein vorgewaehlt; Nein = nur dieser bleibt unberuehrt
+        foreach ($bg in @($sel | Where-Object { $_.Big })) {
+            $qb = [System.Windows.MessageBox]::Show($pw, ($bg.Letter + ': ' + $bg.Model + ', ' + ('{0:N1}' -f $bg.DiskGB) + ' GB' + "`r`n`r`n" + 'Das ist vermutlich eine Festplatte, kein Stick. Alle Daten darauf gehen verloren.' + "`r`n`r`n" + 'Wirklich formatieren?'), 'HUPilot - Festplatte formatieren?', 'YesNo', 'Stop', 'No')
+            if ($qb -ne 'Yes') { $sel = @($sel | Where-Object { $_ -ne $bg }); & $plog ($bg.Letter + ': nicht formatiert (Festplatte?, Nein gewählt).') 'Hinweis' }
+            else { & $plog ($bg.Letter + ': großer Datenträger (' + ('{0:N1}' -f $bg.DiskGB) + ' GB), Formatieren ausdrücklich bestätigt.') 'Hinweis' }
+        }
+        if (-not $sel.Count) { & $plog 'Nichts formatiert.' 'Hinweis'; return }
         $ok = 0
         foreach ($st in $sel) {
             $dl = $st.Letter
@@ -2786,8 +2855,8 @@ $script:SecMode = ''; $script:SecEndText = ''; $script:SecAwait = $false; $scrip
 function Get-SecretBanner([string]$Mode, [string]$EndText = '') {
     $save = 'Jetzt speichern ("3. Speichern" oder "Stick fertig machen") und danach jeden Stick neu bespielen: Stick anstecken, "Stick fertig machen". Alte Sticks laden keine Geräte mehr hoch.'
     switch ($Mode) {
-        'expired'  { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das Secret ist abgelaufen' + $(if ($EndText) { ' (seit ' + $EndText + ')' } else { '' }) + '. Damit lädt kein Stick Geräte hoch. Klick auf "Neues Secret anlegen" und den neuen Wert bei "Secret (Wert)" einfügen.' } }
-        'awaiting' { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Im Browser: "Neuer geheimer Clientschlüssel", Ablauf wählen (möglichst kurz, über "Benutzerdefiniert"), "Hinzufügen". Dann den Wert aus der Spalte "Wert" kopieren (nicht die "Geheimnis-ID") und hier bei "Secret (Wert)" einfügen. Das Setup prüft dann von selbst.' } }
+        'expired'  { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das Secret (der geheime Schlüssel, mit dem HUPilot sich bei Microsoft anmeldet) ist abgelaufen' + $(if ($EndText) { ' (seit ' + $EndText + ')' } else { '' }) + '. Damit lädt kein Stick Geräte hoch. Klick auf "Neues Secret anlegen" und den neuen Wert bei "Secret (Wert)" einfügen. Ohne Zugang zum Entra-Portal (Verwaltung der App-Registrierungen bei Microsoft): den Admin fragen, er legt das Secret an und gibt den Wert weiter.' } }
+        'awaiting' { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Im Browser: "Neuer geheimer Clientschlüssel" (so heißt das Secret im Portal), Ablauf wählen (möglichst kurz, über "Benutzerdefiniert"), "Hinzufügen". Dann den Wert aus der Spalte "Wert" kopieren (nicht die "Geheimnis-ID", das ist nur die Kennung) und hier bei "Secret (Wert)" einfügen. Das Setup prüft dann von selbst. Kein Zugang zum Portal: den Admin fragen.' } }
         'checking' { return @{ Show = $true; Color = 'HuRun'; Button = $false; Text = 'Prüfe das neue Secret ...' } }
         'net'      { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Keine Verbindung zu Microsoft. Das neue Secret ist noch nicht geprüft, ungültig ist es deshalb nicht. Internet prüfen, dann "1. Verbindung testen".' } }
         'wrong'    { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das eingefügte Secret ist falsch. Oft ist die "Geheimnis-ID" statt des Werts kopiert. Im Portal den Wert aus der Spalte "Wert" kopieren und bei "Secret (Wert)" einfügen.' } }
@@ -5043,27 +5112,67 @@ $ui.bTags.Add_Click({
 # (schon im eigenen Tenant registriert), 808 ZtdDeviceAssignedToOtherTenant (anderer Tenant). Bei beiden kann laut
 # Microsoft auch ein alter Datensatz im eigenen Tenant oder in Intune die Ursache sein. Andere Codes: $null.
 function Get-ImportErrorText([string]$Code, [string]$Name) {
+    # Texte je Fehler, je eine Zeile (mit go abgestimmt): Was ({0} = Fehlercode roh), Tun, Kurz (Tabelle "Hashes importieren")
+    $Was808 = 'Das Gerät ist bei Microsoft noch einer anderen Organisation zugeordnet, zum Beispiel dem Vorbesitzer (Fehler {0}).'
+    $Tun808 = 'Zuerst unter "6. Status" nach einem alten Eintrag mit dieser Seriennummer suchen, ihn löschen und warten, bis er aus der Liste verschwunden ist (bis zu 30 Minuten). Gibt es keinen: Der Händler oder Vorbesitzer muss das Gerät freigeben, den Admin fragen.'
+    $Kurz808 = 'Fehler 808: andere Organisation, siehe Protokoll'
+    $Was806 = 'Das Gerät steht schon in Autopilot, unter einem alten Eintrag (Fehler {0}).'
+    $Tun806 = 'Unter "6. Status" den alten Eintrag mit "Autopilot-Eintrag löschen" entfernen, warten, bis der Eintrag aus der Liste verschwunden ist (bis zu 30 Minuten), dann nochmal importieren. Kein Eintrag zu finden: den Admin fragen.'
+    $Kurz806 = 'Fehler 806: alter Eintrag, siehe Protokoll'
     $Code = ([string]$Code).Trim(); $Name = ([string]$Name).Trim()
     $roh = (@($Name, $Code) | Where-Object { $_ -and $_ -ne '0' }) -join ' '
     if (-not $roh) { return $null }
-    if ($Code -eq '808' -or $Name -match 'AssignedToOtherTenant') {
-        return @{ Nr = '808'; Was = ('Das Gerät ist bei Microsoft noch einer anderen Organisation zugeordnet, zum Beispiel dem Vorbesitzer (Fehler ' + $roh + ').')
-            Tun = 'Zuerst unter "6. Status" nach einem alten Eintrag mit dieser Seriennummer suchen, ihn löschen und warten, bis er aus der Liste verschwunden ist (bis zu 30 Minuten). Gibt es keinen: Der Händler oder Vorbesitzer muss das Gerät freigeben, den Admin fragen.' }
-    }
-    if ($Code -eq '806' -or $Name -match 'AlreadyAssigned') {
-        return @{ Nr = '806'; Was = ('Das Gerät steht schon in Autopilot, unter einem alten Eintrag (Fehler ' + $roh + ').')
-            Tun = 'Unter "6. Status" den alten Eintrag mit "Autopilot-Eintrag löschen" entfernen, warten, bis der Eintrag aus der Liste verschwunden ist (bis zu 30 Minuten), dann nochmal importieren. Kein Eintrag zu finden: den Admin fragen.' }
-    }
+    if ($Code -eq '808' -or $Name -match 'AssignedToOtherTenant') { return @{ Nr = '808'; Was = ($Was808 -f $roh); Tun = $Tun808; Kurz = $Kurz808 } }
+    if ($Code -eq '806' -or $Name -match 'AlreadyAssigned') { return @{ Nr = '806'; Was = ($Was806 -f $roh); Tun = $Tun806; Kurz = $Kurz806 } }
     return $null
+}
+# Protokollzeile einer Zeile in "Hashes importieren": voller Text (LogText) statt der Kurzform, "Fehler:" nur einmal
+# (die Stufe steht schon vorne)
+function Get-HashRowLogText($Row) {
+    $t = $(if ([string]$Row.LogText) { [string]$Row.LogText } else { [string]$Row.Status })
+    return ([string]$Row.Seriennr + ': ' + ($t -replace '^\s*Fehler\s*:\s*', ''))
+}
+# hashes.csv lesen und schreiben, ohne Umlaute (z. B. im UPN) zu verlieren. go schreibt die Datei als ASCII (Teilmenge von
+# UTF-8). Erkannt wird: BOM, sonst gueltiges UTF-8, sonst ANSI (Codepage des Systems, z. B. von Excel gespeichert).
+# Zurueckgeschrieben wird in derselben Kodierung; reine ASCII-Inhalte bleiben dabei Byte fuer Byte ASCII.
+function Read-HashText([string]$Path) {
+    $b = [System.IO.File]::ReadAllBytes($Path)
+    $enc = $null; $skip = 0
+    if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) { $enc = New-Object System.Text.UTF8Encoding($true); $skip = 3 }
+    elseif ($b.Length -ge 2 -and $b[0] -eq 0xFF -and $b[1] -eq 0xFE) { $enc = New-Object System.Text.UnicodeEncoding($false, $true); $skip = 2 }
+    else {
+        try { [void](New-Object System.Text.UTF8Encoding($false, $true)).GetString($b); $enc = New-Object System.Text.UTF8Encoding($false) }
+        catch { try { $enc = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage) } catch { $enc = [System.Text.Encoding]::Default } }
+    }
+    $txt = $enc.GetString($b, $skip, $b.Length - $skip)
+    return [pscustomobject]@{ Lines = @($txt -split "`r?`n" | Where-Object { $_ -ne '' }); Enc = $enc }
+}
+function Write-HashText([string]$Path, [string[]]$Lines, $Enc, [switch]$Append) {
+    $txt = (@($Lines) -join "`r`n") + $(if (@($Lines).Count) { "`r`n" } else { '' })
+    if ($Append -and [System.IO.File]::Exists($Path)) { [System.IO.File]::AppendAllText($Path, $txt, $Enc) }
+    else { [System.IO.File]::WriteAllText($Path, $txt, $Enc) }
+}
+# Erledigte Zeilen (Seriennummern in $Done) aus $File nach hashes-erledigt.csv daneben verschieben. Rueckgabe: Zahl verschoben
+function Move-HashDone([string]$File, [string[]]$Done) {
+    $r = Read-HashText $File
+    $keep = @($r.Lines | Where-Object { $sn = $_.Split(',')[0]; -not ($Done -contains $sn) })
+    $moved = @($r.Lines | Where-Object { $sn = $_.Split(',')[0]; $Done -contains $sn })
+    if (-not $moved.Count) { return 0 }
+    $erl = Join-Path (Split-Path $File -Parent) 'hashes-erledigt.csv'
+    $encE = $r.Enc
+    if ([System.IO.File]::Exists($erl)) { $encE = (Read-HashText $erl).Enc; Write-HashText $erl $moved $encE -Append }
+    else { Write-HashText $erl (@('Device Serial Number,Windows Product ID,Hardware Hash,Group Tag,Assigned User') + $moved) $encE }
+    Write-HashText $File $keep $r.Enc
+    return $moved.Count
 }
 function Read-HashCsv([string]$File) {
     $out = @()
-    $lines = @(); try { $lines = @([System.IO.File]::ReadAllLines($File)) } catch { }
+    $lines = @(); try { $lines = @((Read-HashText $File).Lines) } catch { }
     foreach ($l in $lines) {
         if (-not $l -or $l -like 'Device Serial Number*') { continue }
         $p = $l.Split(',')
         if ($p.Count -lt 3 -or -not $p[0] -or -not $p[2]) { continue }
-        $out += [pscustomobject]@{ Seriennr = $p[0].Trim(); Tag = $(if ($p.Count -gt 3) { $p[3].Trim() } else { '' }); Benutzer = $(if ($p.Count -gt 4) { $p[4].Trim() } else { '' }); Status = 'offen'; Datei = $File; Hash = $p[2].Trim(); ImpId = ''; Done = $false; Detail = '' }
+        $out += [pscustomobject]@{ Seriennr = $p[0].Trim(); Tag = $(if ($p.Count -gt 3) { $p[3].Trim() } else { '' }); Benutzer = $(if ($p.Count -gt 4) { $p[4].Trim() } else { '' }); Status = 'offen'; Datei = $File; Hash = $p[2].Trim(); ImpId = ''; Done = $false; Detail = ''; LogText = '' }
     }
     return $out
 }
@@ -5132,7 +5241,7 @@ function Show-HashImport {
     $hlog = { param($m, $lv = '', $dt = '') Out-SubLog $g.tHLog $hw 'Hashes importieren' $m $lv $dt }
     $g.tHLog.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'C' -and ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) { [void](Copy-LogItems $g.tHLog); $e.Handled = $true } })
     # Zeile eines Geraets: Stufe aus dem Stand, rohe Graph-Meldung als Detail
-    $hrow = { param($r) & $hlog ($r.Seriennr + ': ' + $r.Status) $(if ($r.Status -like 'Fehler*') { 'Fehler' } elseif ($r.Done) { 'OK' } elseif ($r.Status -like 'Import nach*' -or $r.Status -like 'abgebrochen*') { 'Hinweis' } else { '' }) ([string]$r.Detail) }
+    $hrow = { param($r) & $hlog (Get-HashRowLogText $r) $(if ($r.Status -like 'Fehler*') { 'Fehler' } elseif ($r.Done) { 'OK' } elseif ($r.Status -like 'Import nach*' -or $r.Status -like 'abgebrochen*') { 'Hinweis' } else { '' }) ([string]$r.Detail) }
     $refresh = { $g.dGrid.ItemsSource = $null; $g.dGrid.ItemsSource = @($script:HRows); Set-GridColumnsFit $g.dGrid $script:HRows; $hw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
     $addFile = {
         param($f)
@@ -5205,7 +5314,9 @@ function Show-HashImport {
                     if ($s2 -eq 'complete') { $r.Status = 'OK - importiert'; $r.Done = $true }
                     elseif ($s2 -eq 'error') {
                         $ie = Get-ImportErrorText ([string]$st.state.deviceErrorCode) ([string]$st.state.deviceErrorName)
-                        $r.Status = $(if ($ie) { 'Fehler: ' + $ie.Was + ' ' + $ie.Tun } else { 'Fehler: Import abgelehnt (' + [string]$st.state.deviceErrorName + ')' })
+                        # Tabelle kurz, Protokoll darunter mit vollem Text und naechstem Schritt
+                        $r.Status = $(if ($ie) { $ie.Kurz } else { 'Fehler: Import abgelehnt (' + [string]$st.state.deviceErrorName + ')' })
+                        $r.LogText = $(if ($ie) { $ie.Was + ' ' + $ie.Tun } else { '' })
                         $r.Detail = [string]$st.state.deviceErrorName + ' (' + [string]$st.state.deviceErrorCode + ')'
                     }
                     if ($s2 -in 'complete', 'error') {
@@ -5224,14 +5335,9 @@ function Show-HashImport {
             try {
                 $done = @($script:HRows | Where-Object { $_.Done -and $_.Datei -eq $f } | ForEach-Object { $_.Seriennr })
                 if (-not $done.Count) { continue }
-                $lines = @(Get-Content -Path $f)
-                $keep = @($lines | Where-Object { $sn = $_.Split(',')[0]; -not ($done -contains $sn) })
-                $moved = @($lines | Where-Object { $sn = $_.Split(',')[0]; $done -contains $sn })
+                $mc = Move-HashDone $f $done
                 $erl = Join-Path (Split-Path $f -Parent) 'hashes-erledigt.csv'
-                if (-not (Test-Path $erl)) { Set-Content -Path $erl -Value 'Device Serial Number,Windows Product ID,Hardware Hash,Group Tag,Assigned User' -Encoding ASCII }
-                Add-Content -Path $erl -Value $moved -Encoding ASCII
-                Set-Content -Path $f -Value $keep -Encoding ASCII
-                & $hlog ('' + $moved.Count + ' erledigte Zeile(n) nach hashes-erledigt.csv verschoben') 'OK' $erl
+                & $hlog ('' + $mc + ' erledigte Zeile(n) nach hashes-erledigt.csv verschoben') 'OK' $erl
             } catch { & $hlog ('Datei ' + $f + ' konnte nicht aktualisiert werden. Ist sie in Excel offen?') 'Fehler' $_.Exception.Message }
         }
         & $refresh

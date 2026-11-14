@@ -1687,7 +1687,8 @@ Describe 'v2.7.19 Teams: Korrekturen nach der Pruefung' {
         } finally { cmd /c "subst $($letter): /d" | Out-Null }
         $g = $script:SetupText
         $g | Should -Match '\$obw = @\(\); try \{ \$obw = @\(Send-OutboxBeforeFormat @\(\$sel \| ForEach-Object \{ \$_\.Letter \}\) \$plog'
-        $g | Should -Match "\+ \`$list \+ \`$\(if \(\`$obw\.Count\) \{"
+        # seit 2.8.0: Berichte zusammen mit Hashes und Stick-Protokoll in $warnAll (Setup280.Tests.ps1)
+        $g | Should -Match "\+ \`$list \+ \`$\(if \(\`$warnAll\.Count\) \{"
         # der Vergleich direkt vor dem Formatieren bleibt (Compare-StickId)
         $g | Should -Match 'Compare-StickId'
     }
