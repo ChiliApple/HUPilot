@@ -134,7 +134,7 @@ Describe 'v2.7.19 Punkt 8: Verweise in Tooltips zeigen auf vorhandene Stellen' {
         foreach ($m in [regex]::Matches([regex]::Match($script:SetupText, '(?m)^\$script:StandClass = (@\{.*\})\r?$').Groups[1].Value, "'([^']+)' = ")) { [void]$lab.Add($m.Groups[1].Value) }
         $script:Labels = $lab
         # Namen ausserhalb des Setups, die ein Tooltip in Anfuehrung nennen darf (Microsoft-Oberflaechen, Werkzeuge)
-        $script:External = @('Imaging and Configuration Designer', 'Zertifikate & Geheimnisse', 'Neuer geheimer Clientschlüssel', 'Hinzufügen', 'Wert', 'Geheimnis-ID', 'Benutzerdefiniert')
+        $script:External = @('Imaging and Configuration Designer', 'Zertifikate & Geheimnisse', 'Neuer geheimer Clientschlüssel', 'Hinzufügen', 'Wert', 'Geheimnis-ID', 'Benutzerdefiniert', 'Webhookbenachrichtigungen an einen Kanal')
     }
     It 'es werden Tooltips aus allen Fenstern und aus dem Code gefunden' {
         $script:Tips.Count | Should -BeGreaterThan 100
@@ -236,7 +236,7 @@ Describe 'v2.7.19 Punkt 9: Merker MAK am Stick' {
         $script:FnByName['Get-StickMakInfo'] | Should -Match '\[System\.IO\.File\]::ReadAllText\(\$p, \[System\.Text\.Encoding\]::UTF8\)'
         $script:SetupText | Should -Match 'function Update-ReadyHint \{\r?\n\s+Update-StickFlags'
         $script:SetupText | Should -Match '\$ui\.bReload\.Add_Click\(\{ Update-Drives; Update-StickFlags -Force \}\)'
-        $script:SetupText | Should -Match "finally \{ Set-UiBusy \`$false; Update-StickFlags -Force \}\r?\n\}\r?\n\`$ui\.bReady\.Add_Click"
+        $script:SetupText | Should -Match "finally \{ Set-UiBusy \`$false; Update-StickFlags -Force \}\r?\n(?:[^\r\n]*\r?\n){0,2}\}\r?\n\`$ui\.bReady\.Add_Click"
         $script:SetupText | Should -Match "Set-Step 'Copy' 'err' \`$script:CopyErr \}\r?\n\s+\} finally \{ Set-UiBusy \`$false; Update-StickFlags -Force \}"
         $script:SetupText | Should -Match "try \{ Update-ReadyHint \} catch \{ \}; Update-StickFlags -Force \}"
         # Merker hinter dem Text, der Text kuerzt (nicht der Merker)
@@ -465,7 +465,7 @@ Describe 'v2.7.19 Paket 2: Secret abgelaufen, gefuehrt erneuern' {
         $script:SetupText | Should -Match "if \(\`$kind -eq 'expired'\) \{ Set-SecretMode 'expired' \}"
         $script:SetupText | Should -Match "if \(\`$script:SecMode -in 'ok', 'okNoEnd'\) \{ Set-SecretMode 'saved'"
         $script:SetupText | Should -Match '\[System\.Windows\.DataObject\]::AddPastingHandler\(\$sf, \[System\.Windows\.DataObjectPastingEventHandler\]\$reqSecCheck\)'
-        $script:SetupText | Should -Match "foreach \(\`$n in 'pSecret','pEdKey','pKey','pAdmPw','pAdm2Pw'\) \{ \`$ui\[\`$n\]\.Add_PasswordChanged\(\{ Update-Dirty \}\) \}"
+        $script:SetupText | Should -Match "foreach \(\`$n in 'pSecret','pEdKey','pKey','pAdmPw','pAdm2Pw','pHook'\) \{ \`$ui\[\`$n\]\.Add_PasswordChanged\(\{ Update-Dirty \}\) \}"
         $x = [xml]@($script:XamlBlocks | Where-Object { $_.Name -eq 'xaml' })[0].Xaml
         $ns = New-Object System.Xml.XmlNamespaceManager($x.NameTable); $ns.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
         foreach ($n in 'bdSecret', 'bSecNew', 'tSecBanner', 'bReadySec') { $x.SelectSingleNode("//*[@x:Name='$n']", $ns) | Should -Not -BeNullOrEmpty -Because $n }
@@ -1081,7 +1081,7 @@ Describe 'v2.7.19 Korrekturrunde 2' {
         (Get-StickMakInfo (New-Stick 'ok2' '{"EditionKey":""}')).Unreadable | Should -BeFalse
     }
     It '10: "Details kopieren" heisst beim naechsten Oeffnen wieder so' {
-        $script:SetupText | Should -Match "\`$cm\.Add_Opened\(\{ foreach \(\`$x in @\(\`$this\.Items\)\) \{ try \{ \`$x\.Header = 'Details kopieren' \} catch \{ \} \} \}\)"
+        $script:SetupText | Should -Match "\`$it\.ContextMenu\.Add_Opened\(\{ foreach \(\`$x in @\(\`$this\.Items\)\) \{ try \{ if \(\`$x\.Uid -eq 'copy'\) \{ \`$x\.Header = 'Details kopieren' \} \} catch \{ \} \} \}\)"
     }
     It '11: Hinweis nach dem Klick ohne feste Ablaufwerte, Portal-Begriffe in Anfuehrung' {
         $b = (Get-SecretBanner 'awaiting').Text
@@ -1243,7 +1243,7 @@ Describe 'v2.7.19 Korrekturrunde 4' {
         $script:SetupText | Should -Not -Match "\`$dr \+ ': '"
         $script:SetupText | Should -Not -Match "Out-Log \(\`$Target \+ ': '"
         $script:SetupText | Should -Match "'Am gewählten Stick ' \+ \`$dr \+ ' ' \+ \(Get-IcdStateText \`$dst\)"
-        $script:SetupText | Should -Match "Out-Log \('Stick ' \+ \`$dr \+ ' ohne MAK'\)"
+        $script:SetupText | Should -Match "Out-Log \(\`$Target \+ ' ' \+ \`$\(if \(\`$withMak\) \{ 'mit MAK' \} else \{ 'ohne MAK' \}\)\)"
         # Laufwerk ist "D:", Ergebnis "Stick D: ohne MAK"
         ('Stick ' + 'D:' + ' ohne MAK') | Should -Be 'Stick D: ohne MAK'
     }
@@ -1257,5 +1257,197 @@ Describe 'v2.7.19 Korrekturrunde 4' {
         $cols.Count | Should -Be 18
         @($cols | Sort-Object -Unique).Count | Should -Be 1
         $cols[0] | Should -Be 20
+    }
+}
+
+Describe 'v2.7.19 Nachtrag Korrekturrunde 4' {
+    It '4: nirgends Laufwerk mit Doppelpunkt und danach noch ein Doppelpunkt (Quelltext und erzeugte Texte)' {
+        # Variablen, die ein Laufwerk MIT Doppelpunkt enthalten ("D:") bzw. "Stick D:"
+        $drv = 'dr|d|a|Drive|LostDrive|srcDrive|Target'
+        $hits = @([regex]::Matches($script:SetupText, "\`$(?:script:)?(?:$drv)\b\s*\+\s*'\s*:") | ForEach-Object { $_.Value })
+        $hits | Should -BeNullOrEmpty
+        # erzeugte Texte: jede einfache Verkettung 'Text' + $Laufwerk + 'Text' mit "D:" ausrechnen
+        $vals = @{ dr = 'D:'; d = 'D:'; a = 'D:'; Drive = 'D:'; LostDrive = 'D:'; srcDrive = 'D:'; Target = 'Stick D:' }
+        $bad = @(); $n = 0
+        foreach ($m in [regex]::Matches($script:SetupText, "'((?:[^']|'')*)'\s*\+\s*\`$(?:script:)?($drv)\b\s*\+\s*'((?:[^']|'')*)'")) {
+            $n++
+            $txt = $m.Groups[1].Value + $vals[$m.Groups[2].Value] + $m.Groups[3].Value
+            if ($txt -match '[A-Z]::') { $bad += $txt }
+        }
+        $n | Should -BeGreaterThan 10
+        $bad | Should -BeNullOrEmpty
+    }
+    It '5: "ohne MAK" wird je Durchgang nur einmal protokolliert, die config.json nur einmal geschrieben' {
+        @([regex]::Matches($script:SetupText, "Out-Log \([^\r\n]*'ohne MAK'")).Count | Should -Be 1
+        @([regex]::Matches($script:FnByName['Copy-ToStick'], "WriteAllBytes\(\(Join-Path \`$dst 'config\.json'\)")).Count | Should -Be 1
+    }
+}
+
+Describe 'v2.7.19 Teams: Fehlerberichte per Workflow-Webhook' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Test-HuWebhookUrl', 'Test-HuWebhookHostKnown', 'Protect-TeamsText', 'Get-TeamsTitle', 'Get-TeamsFooter', 'New-TeamsCard', 'Send-TeamsCard', 'Remove-OutboxOld', 'Send-OutboxCore', 'Get-TeamsLevel', 'Get-TeamsLogTitle', 'Get-InfoLines') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        $script:HuOldHookHostRx = [regex]::Match($script:SetupText, "(?m)^\`$script:HuOldHookHostRx = '([^']+)'").Groups[1].Value
+        $script:TeamsMaxBytes = 24000; $script:OutboxMaxDays = 30; $script:OutboxMaxFiles = 50; $script:OutboxPerRun = 10
+        $SetupVer = '2.7.19'
+        # kuenstliche Adressen, zur Laufzeit zusammengesetzt (im Repo steht keine Adresse mit Signatur)
+        $script:HookUrl = 'https://' + 'beispiel.invalid/workflows/kuenstlich/triggers/manual/paths/invoke?api-version=1' + '&sig=' + ('Q' * 32)
+        $script:Secrets = @('Geheim~0123456789abcdef', 'wlanpasswort1', 'adminpw12345', $script:HookUrl)
+        $script:Cfg = [pscustomobject]@{ Tenant = 'Schule-Demo'; TenantId = '11111111-2222-3333-4444-555555555555'; ClientId = '66666666-7777-8888-9999-000000000000' }
+        function Get-Cfg { return $script:Cfg }
+        function Get-LogSecretValues { return $script:Secrets }
+        $script:Posts = New-Object System.Collections.Generic.List[string]
+        $script:PostFail = ''
+        function Invoke-HuWebPost([string]$Url, [byte[]]$Body, [int]$TimeoutSec) {
+            if ($script:PostFail) { throw $script:PostFail }
+            $script:Posts.Add([System.Text.Encoding]::UTF8.GetString($Body))
+        }
+        function New-Box([string]$Name) { $d = Join-Path $TestDrive $Name; New-Item -ItemType Directory -Path $d -Force | Out-Null; return $d }
+        function Write-Report([string]$Dir, [string]$Name, $Obj) { [System.IO.File]::WriteAllText((Join-Path $Dir $Name), $(if ($Obj -is [string]) { $Obj } else { $Obj | ConvertTo-Json -Depth 5 }), (New-Object System.Text.UTF8Encoding($false))) }
+    }
+    BeforeEach { $script:Posts.Clear(); $script:PostFail = '' }
+    It 'Pruefung der Adresse: leer, kein https, alte Office-365-Adresse = Grund; Workflow-Adresse = in Ordnung' {
+        Test-HuWebhookUrl '' | Should -Be 'leer'
+        Test-HuWebhookUrl ('http://' + 'beispiel.invalid/x') | Should -Be 'keine https-Adresse'
+        # Vorgabe: Muster des alten Hosts (Vergleich der Muster-Zeichenfolge, keine Adresse)
+        [regex]::Match($script:SetupText, "(?m)^\`$script:HuOldHookHostRx = '([^']+)'").Groups[1].Value | Should -Be '(?i)(^|\.)webhook\.office\.com$'
+        $script:FnByName['Test-HuWebhookUrl'] | Should -Match '\$x\.Host -match \$script:HuOldHookHostRx'
+        # alter Connector-Host: Verhalten mit erfundenem Muster pruefen (im Repo steht keine Adresse dieser Form), dann zuruecksetzen
+        $std = $script:HuOldHookHostRx
+        try {
+            $script:HuOldHookHostRx = '(?i)(^|\.)alt\.example\.invalid$'
+            Test-HuWebhookUrl 'https://firma.alt.example.invalid/x' | Should -Match 'alte Office-365-Adresse'
+            Test-HuWebhookUrl 'https://neu.example.invalid/x' | Should -Be ''
+        } finally { $script:HuOldHookHostRx = $std }
+        Test-HuWebhookUrl $script:HookUrl | Should -Be ''
+        Test-HuWebhookHostKnown ('https://prod-01.westeurope.' + 'logic.azure.com/workflows/x') | Should -BeTrue
+        Test-HuWebhookHostKnown $script:HookUrl | Should -BeFalse
+    }
+    It 'Titel mit dem Anzeigenamen vorne, leer = HUPilot' {
+        Get-TeamsTitle 'Testnachricht' 'Schule-Demo' | Should -Be 'Schule-Demo: Testnachricht'
+        Get-TeamsTitle 'Testnachricht' '' | Should -Be 'HUPilot: Testnachricht'
+        Get-TeamsTitle (Get-TeamsLogTitle 'Fehler') 'Schule-Demo' | Should -Be 'Schule-Demo: Fehler im Setup'
+        Get-TeamsTitle (Get-TeamsLogTitle '') 'Schule-Demo' | Should -Be 'Schule-Demo: Meldung aus dem Setup'
+        Get-TeamsLevel 'Fehler' | Should -Be 'Error'; Get-TeamsLevel 'Hinweis' | Should -Be 'Warning'; Get-TeamsLevel '' | Should -Be 'Info'
+        Get-TeamsFooter 'Setup' (Get-Date '2026-11-14 18:30') 'Schule-Demo' '2.7.19' | Should -Be 'Schule-Demo  |  14.11.2026 18:30  |  HUPilot Setup 2.7.19'
+    }
+    It 'Karte: Adaptive Card 1.4, Farbe je Stufe, Log in Festbreite mit Umbruch, Fusszeile' {
+        $j = New-TeamsCard 'Schule-Demo: Fehler im Setup' @('Zeile 1', '', 'Zeile 2') @('log a', 'log b') 'Error' 'Fuss' | ConvertFrom-Json
+        $j.type | Should -Be 'message'
+        $j.attachments[0].contentType | Should -Be 'application/vnd.microsoft.card.adaptive'
+        $c = $j.attachments[0].content
+        $c.version | Should -Be '1.4'
+        $c.body[0].text | Should -Be 'Schule-Demo: Fehler im Setup'
+        $c.body[0].color | Should -Be 'Attention'
+        @($c.body | Where-Object { $_.text -in 'Zeile 1', 'Zeile 2' }).Count | Should -Be 2
+        $lg = @($c.body | Where-Object { $_.fontType -eq 'Monospace' })[0]
+        $lg.wrap | Should -BeTrue
+        $lg.text | Should -Be ("log a`nlog b")
+        $c.body[-1].text | Should -Be 'Fuss'
+    }
+    It 'Karte bleibt unter 24 KB, Log von vorne gekuerzt, das Neueste bleibt' {
+        $log = @(1..2000 | ForEach-Object { 'Protokollzeile ' + $_ + ' ' + ('x' * 80) })
+        $json = New-TeamsCard 'T' @('a') $log 'Error' 'F'
+        [System.Text.Encoding]::UTF8.GetByteCount($json) | Should -BeLessOrEqual 24000
+        $lg = @((($json | ConvertFrom-Json).attachments[0].content.body) | Where-Object { $_.fontType -eq 'Monospace' })[0].text
+        $lg | Should -Match '^\(gekürzt\)'
+        $lg | Should -Match 'Protokollzeile 2000 '
+        $lg | Should -Not -Match 'Protokollzeile 1 '
+    }
+    It 'Bereinigung: kein Secret, keine Kennwoerter, keine Adresse, kein Token, keine Tenant- und App-ID, MAK nur 5 Zeichen' {
+        $tok = 'eyJ0eXAiOiJKV1QifQ' + '.eyJyb2xlcyI6W119abcdefgh' + '.sigsigsig'
+        $raw = 'Secret Geheim~0123456789abcdef WLAN wlanpasswort1 Admin adminpw12345 Hook ' + $script:HookUrl + ' Token ' + $tok + ' Tenant 11111111-2222-3333-4444-555555555555 App 66666666-7777-8888-9999-000000000000 MAK ABCDE-FGHIJ-KLMNO-PQRST-UVW12 andere ' + ('https://' + 'x.invalid/y?sig=' + ('Z' * 20))
+        $t = Protect-TeamsText $raw
+        foreach ($bad in 'Geheim~', 'wlanpasswort1', 'adminpw12345', 'beispiel.invalid', 'eyJ0eXAi', '11111111-2222', '66666666-7777', 'ABCDE-FGHIJ', 'x.invalid', 'QQQQQQQQ') { $t | Should -Not -Match ([regex]::Escape($bad)) -Because $bad }
+        $t | Should -Match 'UVW12'
+        $t | Should -Match '\(Webhook\)'
+        $t | Should -Match '\(Kennung\)'
+    }
+    It 'Protokoll und Protokolldatei blenden die Adresse aus (Hide-LogSecrets kennt sie und jede Adresse mit sig=)' {
+        Hide-LogSecrets ('Fehler bei ' + ('https://' + 'x.invalid/a?b=1&sig=' + ('A' * 20)) + ' Ende') @() | Should -Be 'Fehler bei (Webhook) Ende'
+        $script:FnByName['Get-LogSecretValues'] | Should -Match "\(\[string\]\(Get-Masked 'Hook'\)\)\.Trim\(\)"
+    }
+    It 'Senden wirft nie, Grund ohne Adresse; ungueltige Adresse sendet nicht' {
+        $script:PostFail = 'Der Remoteserver hat einen Fehler zurückgegeben: (404) bei ' + $script:HookUrl
+        $r = Send-TeamsCard $script:HookUrl '{}' 5
+        $r | Should -Match '^Senden fehlgeschlagen: '
+        $r | Should -Not -Match 'beispiel\.invalid|sig='
+        $script:PostFail = ''
+        Send-TeamsCard ('http://' + 'beispiel.invalid/x') '{}' 5 | Should -Match '^Adresse ungültig: keine https-Adresse'
+        Send-TeamsCard '' '{}' 5 | Should -Be 'kein Teams-Webhook eingetragen'
+        $script:Posts.Count | Should -Be 0
+        Send-TeamsCard $script:HookUrl '{"a":1}' 5 | Should -Be ''
+        $script:Posts.Count | Should -Be 1
+    }
+    It 'Nachsenden: gesendete geloescht, unbekanntes v und kaputte liegen lassen, alte verworfen, Titel unveraendert' {
+        $d = New-Box 'outbox1'
+        $now = [datetime]::UtcNow
+        $ts = { param($m) $now.AddMinutes(-$m).ToString('yyyyMMdd-HHmmss') }
+        Write-Report $d ((& $ts 30) + '_SN1.json') @{ v = 1; created = $now.ToString('yyyy-MM-ddTHH:mm:ssZ'); source = 'go'; level = 'Error'; title = 'Schule-Demo: Fehler am Gerät SN1'; lines = @('Zeile'); log = @('l1') }
+        Write-Report $d ((& $ts 20) + '_SN2.json') @{ v = 1; created = $now.ToString('yyyy-MM-ddTHH:mm:ssZ'); source = 'go'; level = 'Error'; title = 'Fehler am Gerät SN2'; lines = @('Zeile'); log = @() }
+        Write-Report $d ((& $ts 10) + '_SN3.json') @{ v = 2; title = 'neu' }
+        Write-Report $d ((& $ts 5) + '_SN4.json') '{ kaputt'
+        Write-Report $d ($now.AddDays(-40).ToString('yyyyMMdd-HHmmss') + '_SN5.json') @{ v = 1; title = 'alt'; lines = @(); log = @() }
+        $r = Send-OutboxCore $d $script:HookUrl $now 10 8
+        $r.Sent | Should -Be 2; $r.Bad | Should -Be 2; $r.Pruned | Should -Be 1; $r.Reason | Should -Be ''
+        @(Get-ChildItem $d -Filter *.json | ForEach-Object { $_.Name -replace '^\d{8}-\d{6}_', '' }) | Sort-Object | Should -Be @('SN3.json', 'SN4.json')
+        # Titel wie gespeichert (go schreibt den Anzeigenamen hinein), fehlt er, wird nichts ergaenzt
+        ($script:Posts[0] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'Schule-Demo: Fehler am Gerät SN1'
+        ($script:Posts[1] | ConvertFrom-Json).attachments[0].content.body[0].text | Should -Be 'Fehler am Gerät SN2'
+    }
+    It 'Nachsenden: Sendefehler laesst alles liegen und bricht ab; ueber 50 Dateien werden die aeltesten verworfen' {
+        $d = New-Box 'outbox2'
+        $now = [datetime]::UtcNow
+        foreach ($i in 1..3) { Write-Report $d ($now.AddMinutes(-$i).ToString('yyyyMMdd-HHmmss') + "_SN$i.json") @{ v = 1; title = "T$i"; lines = @(); log = @() } }
+        $script:PostFail = 'Die Verbindung mit dem Remoteserver kann nicht hergestellt werden.'
+        $r = Send-OutboxCore $d $script:HookUrl $now 10 8
+        $r.Sent | Should -Be 0; $r.Reason | Should -Match 'Senden fehlgeschlagen'; $r.Left | Should -Be 3
+        $script:PostFail = ''
+        $e = New-Box 'outbox3'
+        foreach ($i in 1..55) { Write-Report $e ($now.AddMinutes(-$i).ToString('yyyyMMdd-HHmmss') + "_SN$i.json") @{ v = 1; title = "T$i"; lines = @(); log = @() } }
+        (Remove-OutboxOld $e $now) | Should -Be 5
+        @(Get-ChildItem $e -Filter *.json).Count | Should -Be 50
+        Test-Path (Join-Path $e ($now.AddMinutes(-55).ToString('yyyyMMdd-HHmmss') + '_SN55.json')) | Should -BeFalse
+        # hoechstens 10 je Durchgang
+        $r2 = Send-OutboxCore $e $script:HookUrl $now 10 8
+        $r2.Sent | Should -Be 10
+    }
+    It 'Verdrahtung: Feld, Laden, Speichern, Merker, Info, Rechtsklick, Ausloeser; Pruefung nur beim Speichern und Testen' {
+        $x = @($script:XamlBlocks | Where-Object { $_.Name -eq 'xaml' })[0].Xaml
+        $x | Should -Match 'Header="Fehlerberichte per Teams \(optional, leer lassen = aus\)"'
+        foreach ($n in 'pHook', 'tHook', 'cShowHook', 'bHookTest') { $x | Should -Match ('x:Name="' + $n + '"') }
+        $x | Should -Match 'Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht in jeder Nachricht\.'
+        $x | Should -Match 'Private Kanäle gehen nicht\.'
+        $script:SetupText | Should -Match "Hook = 'cShowHook'"
+        $script:FnByName['Get-Cfg'] | Should -Match "TeamsWebhook = \(\[string\]\(Get-Masked 'Hook'\)\)\.Trim\(\)"
+        $script:SetupText | Should -Match "Set-Masked 'Hook' \(\[string\]\`$c\.TeamsWebhook\)"
+        $script:SetupText | Should -Match "'RemoveOtherPackages','TeamsWebhook','EditionKey','SecretExpires'\) \{"
+        $script:SetupText | Should -Match "'pAdm2Pw','pHook'\) \{ \`$ui\[\`$n\]\.Add_PasswordChanged"
+        $script:FnByName['Test-Fields'] | Should -Not -Match 'Hook|Webhook'
+        $script:FnByName['Save-Cfg'] | Should -Match 'Test-HuWebhookUrl \$hookV'
+        $script:FnByName['Get-InfoValues'] | Should -Match "Teams = \`$\(if"
+        (Get-InfoLines @{ Version = '2.7.19'; Source = 'E:\'; PS = '5.1'; Windows = 'W'; Adk = 'a'; IcdCopy = 'b'; Log = ''; Teams = 'eingetragen' }) -join "`n" | Should -Match 'Teams-Webhook: eingetragen'
+        $script:SetupText | Should -Match "\`$ms\.Header = 'An Admin senden'"
+        $script:SetupText | Should -Match "if \(\`$x\.Uid -eq 'send'\) \{ \`$x\.Visibility = \`$\(if \(Get-TeamsWebhook\)"
+        $script:SetupText | Should -Match 'if \(\$sendDrive\) \{ try \{ Invoke-OutboxSend \$sendDrive \} catch \{ \} \}'
+        $script:SetupText | Should -Match 'try \{ Invoke-OutboxSend \(Get-Drive\) -Force \} catch \{ \}'
+        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'if \(-not \$Drive -or \$script:OutboxRunning -or \$script:Busy\) \{ return \}'
+        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'if \(-not \$win\.IsVisible\) \{ return \}'
+        $script:FnByName['Invoke-OutboxSend'] | Should -Match 'Send-OutboxCore \$dir \$u \(\[datetime\]::UtcNow\) \$script:OutboxPerRun 8'
+        # logs (mit outbox) kommt nicht auf den Stick und wird dort nicht ueberschrieben
+        $script:FnByName['Test-SkipForStick'] | Should -Match "\`$Name -eq 'logs'"
+    }
+    It 'im Repo steht keine echte Webhook-Adresse' {
+        $root = $script:Root
+        $files = @(git -C $root ls-files 2>$null)
+        $files.Count | Should -BeGreaterThan 20
+        $bad = @()
+        $rx = 'https://[A-Za-z0-9.-]+\.(logic\.azure\.com|powerplatform\.com|powerautomate\.com|azure-apim\.net)[^\s"''<>]*sig=[A-Za-z0-9%_-]{16,}'
+        foreach ($f in $files) {
+            $p = Join-Path $root $f
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or $f -match '\.(png|ico|ppkg|cat|zip|dll|exe)$') { continue }
+            $t = ''; try { $t = [System.IO.File]::ReadAllText($p) } catch { continue }
+            if ($t -match $rx) { $bad += $f }
+        }
+        $bad | Should -BeNullOrEmpty
     }
 }

@@ -609,7 +609,14 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
         <DockPanel Grid.Row="3" Grid.Column="1"><CheckBox x:Name="cShowAdm2" ToolTip="Kennwort von Admin 2 im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pAdm2Pw" ToolTip="Kennwort des zweiten lokalen Admins (mind. 8 Zeichen, auf allen Geräten gleich).&#x0a;Steht im Klartext in config.json und im WLAN-Paket - Stick nicht aus der Hand geben." ToolTipService.ShowDuration="30000" Margin="2"/><TextBox x:Name="tAdm2Pw" ToolTip="Kennwort von Admin 2 im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
       </Grid>
     </GroupBox>
-    <WrapPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,0">
+    <GroupBox Grid.Row="5" Header="Fehlerberichte per Teams (optional, leer lassen = aus)" Padding="6" Margin="0,6,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <TextBlock Text="Teams-Webhook" VerticalAlignment="Center" ToolTip="Adresse eines Teams-Workflows, an die go bei einem Fehler am Gerät einen Bericht schickt." ToolTipService.ShowDuration="30000"/>
+        <DockPanel Grid.Column="1"><Button x:Name="bHookTest" DockPanel.Dock="Right" Content="Testnachricht senden" Padding="8,2" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Schickt eine kurze Testnachricht an die eingetragene Adresse. Das Ergebnis steht im Protokoll." ToolTipService.ShowDuration="30000"/><CheckBox x:Name="cShowHook" ToolTip="Teams-Webhook im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pHook" ToolTip="Teams-Webhook (optional): Bei einem roten Abschluss am Gerät schickt go einen Fehlerbericht in den Teams-Kanal; ohne Internet holt das Setup ihn später vom Stick nach.&#x0a;Die Adresse steht im Klartext auf jedem Stick. Wer sie kennt, kann in den Kanal schreiben: Stick nicht aus der Hand geben.&#x0a;Mehrere Schulen können denselben Kanal nutzen, der Anzeigename steht in jeder Nachricht.&#x0a;So anlegen: in Teams die App Workflows öffnen, die Vorlage &quot;Webhookbenachrichtigungen an einen Kanal&quot; wählen, Team und Kanal angeben und die angezeigte Adresse kopieren. Private Kanäle gehen nicht." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tHook" ToolTip="Teams-Webhook im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
+      </Grid>
+    </GroupBox>
+    <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Vorbereiten" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Einzelschritte zum Vorbereiten der Quelle. Der Knopf &quot;Stick fertig machen&quot; unten erledigt sie in einem Durchgang." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bLoad" ToolTip="config.json aus der Quelle neu laden (der Ordner, aus dem dieses Setup läuft).&#x0a;Ungespeicherte Änderungen gehen dabei verloren (mit Rückfrage)." ToolTipService.ShowDuration="30000" Content="Neu laden" Padding="8,2" Margin="0,0,0,4"/>
       <Button x:Name="bTest" ToolTip="Holt mit App-ID und Secret ein Token und liest die Autopilot-Liste.&#x0a;Zeigt sofort, ob Secret abgelaufen/falsch ist oder die Berechtigung fehlt." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTest" Style="{StaticResource HuLamp}"/><TextBlock Text="1. Verbindung testen"/></StackPanel></Button>
@@ -619,13 +626,13 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: die Kopie aus dem Häkchen &quot;Paketbau mit auf den Stick&quot; (Test), oder Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md." ToolTipService.ShowDuration="60000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
       <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="6,0,0,4" Foreground="{DynamicResource HuMuted}" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut&#x0a;unbekannt = gebaut mit einer älteren Version, neu bauen empfohlen" ToolTipService.ShowDuration="30000"/>
     </WrapPanel>
-    <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
+    <WrapPanel Grid.Row="7" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Stick" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Kopieren auf den Stick, der unten beim grünen Knopf ausgewählt ist." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bCopy" ToolTip="Speichert zuerst, dann kopiert die Quelle 1:1 auf den Ziel-Stick:&#x0a;go.cmd, HUPilot-Setup.cmd, HUPilot\ (go.ps1, config.json, WLAN-Paket, Setup).&#x0a;Nicht kopiert: logs und Ordner, die mit _ beginnen. Danach Kontrolle der kopierten Dateien." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eCopy" Style="{StaticResource HuLamp}"/><TextBlock Text="5. Auf Stick kopieren"/></StackPanel></Button>
       <Button x:Name="bPrep" ToolTip="Nur wenn das Setup vom PC läuft: mehrere USB-Sticks auf einmal oder hintereinander&#x0a;formatieren, benennen und mit HUPilot befüllen. ALLE Daten auf den gewählten Sticks gehen verloren." ToolTipService.ShowDuration="30000" Content="Sticks vorbereiten ..." Padding="8,2" Margin="8,0,0,4"/>
       <CheckBox x:Name="cIcdStick" Content="Paketbau mit auf den Stick" VerticalAlignment="Center" Margin="12,0,0,4" ToolTipService.ShowDuration="60000" ToolTipService.ShowOnDisabled="True" ContextMenuService.ShowOnDisabled="True" ToolTip="Paketbau mit auf den Stick"/>
     </WrapPanel>
-    <WrapPanel Grid.Row="7" Orientation="Horizontal" Margin="0,8,0,0">
+    <WrapPanel Grid.Row="8" Orientation="Horizontal" Margin="0,8,0,0">
       <TextBlock Text="Danach" Width="78" VerticalAlignment="Center" Foreground="{DynamicResource HuMuted}" Margin="0,0,0,4" ToolTip="Nach dem Einsatz der Sticks: Stand in Autopilot ansehen, offline gespeicherte Hashes hochladen." ToolTipService.ShowDuration="30000"/>
       <Button x:Name="bStatus" ToolTip="Zeigt alle Autopilot-Geräte des Tenants mit Tag, Profil und Intune-Registrierung.&#x0a;Filter nach Tag und nach Seriennummern aus protokoll.csv (Quelle und Ziel-Stick).&#x0a;Export als CSV oder Excel, Drucken (auch als PDF)." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="0,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eStatus" Style="{StaticResource HuLamp}"/><TextBlock Text="6. Status"/></StackPanel></Button>
       <Button x:Name="bHash" ToolTip="Hashes, die go.ps1 offline am Stick gespeichert hat (HUPilot\logs\hashes.csv), hochladen.&#x0a;Liest Quelle + Ziel-Stick, weitere CSV-Dateien können hinzugefügt werden. Erledigte Zeilen wandern nach hashes-erledigt.csv." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eHash" Style="{StaticResource HuLamp}"/><TextBlock Text="7. Hashes importieren"/></StackPanel></Button>
@@ -639,7 +646,7 @@ Add-HuTheme $xaml
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 Register-HuWindow $win
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick','bdSecret','bSecNew','tSecBanner','bReadySec','spFlags') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick','bdSecret','bSecNew','tSecBanner','bReadySec','spFlags','pHook','tHook','cShowHook','bHookTest') { $ui[$n] = $win.FindName($n) }
 
 # Fenster an den Bildschirm anpassen: nie groesser als der Arbeitsbereich (ohne Taskleiste) und ganz sichtbar.
 # Auf kleinen Notebooks (z. B. 1366x768 oder hohe Skalierung) ragte das Fenster sonst unter die Taskleiste.
@@ -853,6 +860,8 @@ function Split-LogLevel([string]$m) {
 function Hide-LogSecrets([string]$Text, [string[]]$Values) {
     if (-not $Text) { return $Text }
     foreach ($v in @($Values | Where-Object { $_ -and $_.Length -ge 4 } | Sort-Object Length -Descending)) { $Text = $Text.Replace($v, '***') }
+    # Webhook-Adressen (mit Signatur sig=) nie ausgeben, auch wenn sie nicht als Wert bekannt sind
+    $Text = [regex]::Replace($Text, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
     return [regex]::Replace($Text, '\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-([A-Za-z0-9]{5})\b', '*****-*****-*****-*****-$1')
 }
 # Technische Meldung lesbar machen (Tooltip, Doppelklick, Details kopieren): JSON-Fehler von Graph und vom Anmeldedienst
@@ -906,7 +915,7 @@ function Get-DetailCopyText([string]$Text, [string]$Detail, $Secrets = $null) {
     return ((Hide-LogSecrets $Text $s) + "`r`n`r`n" + (Hide-LogSecrets (Format-TechDetail (Hide-LogSecrets $Detail $s)) $s))
 }
 function Get-LogSecretValues {
-    try { return @((Get-Secret), (Get-Masked 'Key'), (Get-Masked 'AdmPw'), (Get-Masked 'Adm2Pw'), (Get-EdKey)) } catch { return @() }
+    try { return @((Get-Secret), (Get-Masked 'Key'), (Get-Masked 'AdmPw'), (Get-Masked 'Adm2Pw'), (Get-EdKey), ([string](Get-Masked 'Hook')).Trim()) } catch { return @() }
 }
 function Write-LogFile([string]$Line) {
     if ($SmokeTest -or $script:LogFileFailed) { return }
@@ -942,18 +951,26 @@ function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '',
         # Rechtsklick: gegliederte Meldung (wie im Tooltip) ohne Secrets in die Zwischenablage, z. B. fuer eine Mail an den Admin
         $cm = New-Object System.Windows.Controls.ContextMenu
         $mi = New-Object System.Windows.Controls.MenuItem
-        $mi.Header = 'Details kopieren'
+        $mi.Header = 'Details kopieren'; $mi.Uid = 'copy'
         $mi.ToolTip = 'Diese Zeile mit der gegliederten Meldung von Microsoft in die Zwischenablage kopieren (ohne Kennwörter und Schlüssel).'
         $mi.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail }
         $mi.Add_Click({ try { [System.Windows.Clipboard]::SetText((Get-DetailCopyText $this.Tag.Text $this.Tag.Detail)); $this.Header = 'Details kopiert' } catch { $this.Header = 'Kopieren fehlgeschlagen' } })
         [void]$cm.Items.Add($mi)
-        # beim naechsten Oeffnen wieder der urspruengliche Text
-        $cm.Add_Opened({ foreach ($x in @($this.Items)) { try { $x.Header = 'Details kopieren' } catch { } } })
         $it.ContextMenu = $cm
         $it.Add_MouseDoubleClick({ $d = $this.Content.Children[1]; $d.Visibility = $(if ([string]$d.Visibility -eq 'Visible') { 'Collapsed' } else { 'Visible' }) })
     }
+    # Rechtsklick "An Admin senden" auf jeder Zeile (sichtbar nur mit eingetragenem Teams-Webhook, nichts wird von selbst gesendet)
+    if (-not $it.ContextMenu) { $it.ContextMenu = New-Object System.Windows.Controls.ContextMenu }
+    $ms = New-Object System.Windows.Controls.MenuItem
+    $ms.Header = 'An Admin senden'; $ms.Uid = 'send'; $ms.Tag = $it
+    $ms.ToolTip = 'Diese Zeile mit ihren Details, den letzten Protokollzeilen und den Angaben zu Version und Windows in den Teams-Kanal des Admins schicken (ohne Kennwörter und Schlüssel).'
+    $ms.Add_Click({ Send-LogItemToAdmin $this.Tag })
+    [void]$it.ContextMenu.Items.Add($ms)
+    # beim Oeffnen: "Details kopieren" wieder mit urspruenglichem Text, "An Admin senden" nur mit Webhook, ohne sichtbaren Eintrag kein Menue
+    $it.ContextMenu.Add_Opened({ foreach ($x in @($this.Items)) { try { if ($x.Uid -eq 'copy') { $x.Header = 'Details kopieren' } } catch { } } })
+    $it.Add_ContextMenuOpening({ param($s, $e) try { $any = $false; foreach ($x in @($s.ContextMenu.Items)) { if ($x.Uid -eq 'send') { $x.Visibility = $(if (Get-TeamsWebhook) { 'Visible' } else { 'Collapsed' }) }; if ([string]$x.Visibility -eq 'Visible') { $any = $true } }; if (-not $any) { $e.Handled = $true } } catch { } })
     $it.Content = $sp; $it.Padding = '4,1'
-    $it.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail }
+    $it.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail; Level = $Level }
     if ($Top) { $List.Items.Insert(0, $it) } else { [void]$List.Items.Add($it) }
     try { $List.ScrollIntoView($it) } catch { }
 }
@@ -1143,6 +1160,211 @@ function Get-ReadyHintKey([string]$Drive) {
     if (-not $x) { return $Drive }
     return ($x.Letter + '|' + $x.Size + '|' + $x.Serial)
 }
+# ---------- Fehlerberichte per Teams (Workflow-Webhook) ----------
+#   Vertrag mit go.ps1: Feld TeamsWebhook in config.json (leer = aus, nur https, keine alte webhook.office.com-Adresse).
+#   Nicht gesendete Berichte von go am Stick: HUPilot\logs\outbox\<yyyyMMdd-HHmmss>_<Seriennummer>.json, UTF-8 ohne BOM,
+#   { v = 1, created (UTC), source, level, title, lines, log }, schon bereinigt. Nach dem Senden geloescht, aelter als
+#   30 Tage oder ueber 50 Dateien hinaus verworfen (aelteste zuerst), unbekanntes v oder kaputt: liegen lassen, ein Hinweis.
+#   Karte: Adaptive Card 1.4 (Vorlage _Werkzeuge\Handover_TeamsNotify.md), Titel mit dem Anzeigenamen (ein Kanal fuer
+#   mehrere Schulen), Log als ein Textblock in Festbreite, Fusszeile "Anzeigename | Datum Zeit | HUPilot <Quelle> <Version>",
+#   unter 24 KB (Log von vorne gekuerzt). Die Adresse ist ein Geheimnis: nie im Protokoll, in der Datei oder in einer Karte.
+#   Gesendet wird im Setup nur auf Klick (Testnachricht, An Admin senden) und beim Nachsenden der Berichte vom Stick.
+$script:TeamsMaxBytes = 24000
+$script:OutboxMaxDays = 30; $script:OutboxMaxFiles = 50; $script:OutboxPerRun = 10
+# Host der abgeschalteten Office-365-Connectors (Muster an einer Stelle, Tests setzen es auf einen erfundenen Host)
+$script:HuOldHookHostRx = '(?i)(^|\.)webhook\.office\.com$'
+# '' = in Ordnung, sonst Grund
+function Test-HuWebhookUrl([string]$Url) {
+    $u = ([string]$Url).Trim()
+    if (-not $u) { return 'leer' }
+    $x = $null
+    if (-not [uri]::TryCreate($u, [UriKind]::Absolute, [ref]$x) -or $x.Scheme -ne 'https') { return 'keine https-Adresse' }
+    if ($x.Host -match $script:HuOldHookHostRx) { return 'alte Office-365-Adresse, diese Connectors sind abgeschaltet. Bitte in Teams einen Workflow anlegen' }
+    return ''
+}
+# nur Hinweis: Host stammt erkennbar aus Teams-Workflows bzw. Power Automate
+function Test-HuWebhookHostKnown([string]$Url) {
+    $x = $null
+    if (-not [uri]::TryCreate(([string]$Url).Trim(), [UriKind]::Absolute, [ref]$x)) { return $false }
+    return ($x.Host -match '(?i)(\.logic\.azure\.com|\.powerplatform\.com|\.powerautomate\.com|\.azure-apim\.net)$')
+}
+function Get-TeamsWebhook { try { return ([string](Get-Masked 'Hook')).Trim() } catch { return '' } }
+# Text fuer eine Karte bereinigen: Secret, Kennwoerter, MAK (bis auf 5 Zeichen), Webhook-Adresse, Tokens, https-Adressen
+# mit sig=, Tenant-ID und App-ID. $Secrets/$Ids nur fuer Tests, sonst aus den Feldern.
+function Protect-TeamsText([string]$Text, $Secrets = $null, $Ids = $null) {
+    if (-not $Text) { return '' }
+    if ($null -eq $Secrets) { $Secrets = @(Get-LogSecretValues) }
+    if ($null -eq $Ids) { $Ids = @(); try { $c = Get-Cfg; $Ids = @([string]$c.TenantId, [string]$c.ClientId) } catch { } }
+    $t = Hide-LogSecrets $Text @($Secrets)
+    $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*', '***')
+    $t = [regex]::Replace($t, '(?i)https://\S*?[?&]sig=[^\s"''<>]*', '(Webhook)')
+    foreach ($i in @($Ids | Where-Object { $_ -and ([string]$_).Length -ge 8 })) { $t = [regex]::Replace($t, [regex]::Escape([string]$i), '(Kennung)', 'IgnoreCase') }
+    return $t
+}
+# Titel: Anzeigename vorne (mehrere Schulen in einem Kanal), leer = "HUPilot"
+function Get-TeamsTitle([string]$What, $Name = $null) {
+    if ($null -eq $Name) { try { $Name = [string](Get-Cfg).Tenant } catch { $Name = '' } }
+    $n = ([string]$Name).Trim()
+    return ($(if ($n) { $n } else { 'HUPilot' }) + ': ' + $What)
+}
+function Get-TeamsFooter([string]$Source = 'Setup', $When = $null, $Name = $null, [string]$Version = $SetupVer) {
+    if ($null -eq $Name) { try { $Name = [string](Get-Cfg).Tenant } catch { $Name = '' } }
+    if ($null -eq $When) { $When = Get-Date }
+    $p = @(); if (([string]$Name).Trim()) { $p += ([string]$Name).Trim() }
+    $p += ([datetime]$When).ToString('dd.MM.yyyy HH:mm')
+    $p += ('HUPilot ' + $Source + $(if ($Version) { ' ' + $Version } else { '' }))
+    return ($p -join '  |  ')
+}
+# Adaptive Card 1.4 als JSON (UTF-8 unter 24 KB): Titel farbig je Stufe, Zeilen, Log in Festbreite, Fusszeile
+function New-TeamsCard([string]$Title, [string[]]$Lines = @(), [string[]]$Log = @(), [string]$Level = 'Info', [string]$Footer = '') {
+    $color = switch ($Level) { 'Error' { 'Attention' } 'Warning' { 'Warning' } 'OK' { 'Good' } default { 'Accent' } }
+    $lines2 = @($Lines | Where-Object { ([string]$_).Trim() } | ForEach-Object { $s = [string]$_; if ($s.Length -gt 1500) { $s.Substring(0, 1500) + ' (gekürzt)' } else { $s } })
+    $log2 = @($Log | ForEach-Object { [string]$_ })
+    $cut = $false
+    while ($true) {
+        $body = New-Object System.Collections.Generic.List[object]
+        $body.Add([ordered]@{ type = 'TextBlock'; text = [string]$Title; weight = 'Bolder'; size = 'Medium'; wrap = $true; color = $color })
+        foreach ($l in $lines2) { $body.Add([ordered]@{ type = 'TextBlock'; text = $l; wrap = $true; spacing = 'Small' }) }
+        if ($log2.Count) { $body.Add([ordered]@{ type = 'TextBlock'; text = ((@($(if ($cut) { '(gekürzt)' })) + $log2 | Where-Object { $null -ne $_ }) -join "`n"); fontType = 'Monospace'; size = 'Small'; wrap = $true; spacing = 'Medium' }) }
+        if ($Footer) { $body.Add([ordered]@{ type = 'TextBlock'; text = $Footer; isSubtle = $true; size = 'Small'; wrap = $true; spacing = 'Medium' }) }
+        $card = [ordered]@{ '$schema' = 'http://adaptivecards.io/schemas/adaptive-card.json'; type = 'AdaptiveCard'; version = '1.4'; body = $body.ToArray() }
+        $msg = [ordered]@{ type = 'message'; attachments = @([ordered]@{ contentType = 'application/vnd.microsoft.card.adaptive'; contentUrl = $null; content = $card }) }
+        $json = $msg | ConvertTo-Json -Depth 10 -Compress
+        if ([System.Text.Encoding]::UTF8.GetByteCount($json) -le $script:TeamsMaxBytes -or -not $log2.Count) { return $json }
+        # Log von vorne kuerzen (das Neueste bleibt), in Schritten von etwa einem Zehntel
+        $n = [math]::Max(1, [int]($log2.Count / 10)); $log2 = @($log2 | Select-Object -Skip $n); $cut = $true
+    }
+}
+# Eigentlicher Aufruf an einer Stelle (Tests ersetzen ihn, beim Entwickeln wird nie an einen echten Webhook gesendet)
+function Invoke-HuWebPost([string]$Url, [byte[]]$Body, [int]$TimeoutSec) {
+    $null = Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $Url -Method Post -Body $Body -ContentType 'application/json; charset=utf-8' -UseBasicParsing -TimeoutSec $TimeoutSec -ErrorAction Stop
+}
+# '' = gesendet, sonst Grund. Wirft nie, die Adresse erscheint nie im Grund.
+function Send-TeamsCard([string]$Url, [string]$Json, [int]$TimeoutSec = 20) {
+    try {
+        $u = ([string]$Url).Trim()
+        if (-not $u) { return 'kein Teams-Webhook eingetragen' }
+        $why = Test-HuWebhookUrl $u
+        if ($why) { return ('Adresse ungültig: ' + $why) }
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+        Invoke-HuWebPost $u ([System.Text.Encoding]::UTF8.GetBytes([string]$Json)) $TimeoutSec
+        return ''
+    } catch {
+        $m = ''; try { $m = [string]$_.Exception.Message } catch { }
+        return ('Senden fehlgeschlagen: ' + ($m -replace 'https://\S+', '(Webhook)'))
+    }
+}
+# Knopf "Testnachricht senden"
+function Send-TeamsTest {
+    $u = Get-TeamsWebhook
+    if (-not $u) { Out-Log 'Kein Teams-Webhook eingetragen. Die Adresse aus dem Teams-Workflow bei "Teams-Webhook" einfügen.' 'Hinweis'; return }
+    $why = Test-HuWebhookUrl $u
+    if ($why) { Out-Log ('Teams-Webhook ungültig: ' + $why + '.') 'Fehler'; return }
+    if (-not (Test-HuWebhookHostKnown $u)) { Out-Log 'Die Adresse sieht nicht nach einem Teams-Workflow aus. Gesendet wird trotzdem, bitte im Kanal nachsehen.' 'Hinweis' }
+    Set-UiBusy $true
+    try {
+        Set-ReadyText 'Sende Testnachricht an Teams ...'; Step-Ui
+        $c = Get-Cfg
+        $json = New-TeamsCard (Get-TeamsTitle 'Testnachricht' ([string]$c.Tenant)) @('Testnachricht aus dem HUPilot-Setup.', 'Kommt sie an, funktionieren die Fehlerberichte von den Sticks.') @() 'Info' (Get-TeamsFooter 'Setup' (Get-Date) ([string]$c.Tenant))
+        $r = Send-TeamsCard $u $json 15
+        if ($r) { Out-Log ('Testnachricht nicht gesendet: ' + $r + '. Prüfen: Adresse vollständig kopiert, Workflow in Teams eingeschaltet, Internet da.') 'Fehler' }
+        else { Out-Log 'Testnachricht gesendet, bitte im Teams-Kanal nachsehen.' 'OK' }
+    } finally { Set-UiBusy $false; $script:HintDrive = '?'; try { Update-ReadyHint } catch { } }
+}
+# Alte Berichte verwerfen: aelter als 30 Tage (Zeit aus dem Dateinamen, sonst Aenderungszeit), dann ueber 50 die aeltesten.
+# Rueckgabe: Zahl der verworfenen Dateien
+function Remove-OutboxOld([string]$Dir, [datetime]$NowUtc) {
+    $files = @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+    $gone = 0; $keep = @()
+    foreach ($f in $files) {
+        $t = [datetime]::MinValue
+        $ok = [datetime]::TryParseExact(($f.Name -split '_')[0], 'yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$t)
+        if (-not $ok) { $t = $f.LastWriteTimeUtc }
+        if (($NowUtc - $t).TotalDays -gt $script:OutboxMaxDays) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $gone++ } catch { } }
+        else { $keep += $f }
+    }
+    if ($keep.Count -gt $script:OutboxMaxFiles) {
+        foreach ($f in @($keep | Select-Object -First ($keep.Count - $script:OutboxMaxFiles))) { try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $gone++ } catch { } }
+    }
+    return $gone
+}
+# Berichte aus einem Ablageordner senden (ohne Oberflaeche, fuer Tests): hoechstens $Max, je Bericht $TimeoutSec,
+# Abbruch beim ersten Sendefehler (meist kein Netz). Rueckgabe Sent, Bad, Pruned, Reason, Left
+function Send-OutboxCore([string]$Dir, [string]$Url, [datetime]$NowUtc, [int]$Max = 10, [int]$TimeoutSec = 8, [scriptblock]$Tick = $null) {
+    $res = [pscustomobject]@{ Sent = 0; Bad = 0; Pruned = 0; Reason = ''; Left = 0 }
+    if (-not [System.IO.Directory]::Exists($Dir)) { return $res }
+    $res.Pruned = Remove-OutboxOld $Dir $NowUtc
+    $files = @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+    $n = 0
+    foreach ($f in $files) {
+        if ($n -ge $Max) { break }
+        $o = $null
+        try { $o = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop } catch { $res.Bad++; continue }
+        if ($null -eq $o -or [string]$o.v -ne '1') { $res.Bad++; continue }
+        $n++
+        $when = $null; try { $w = ConvertTo-UtcDate $o.created; if ($w) { $when = $w.ToLocalTime() } } catch { }
+        $title = Protect-TeamsText ([string]$o.title)
+        if (-not $title) { $title = 'Bericht vom Stick' }
+        $json = New-TeamsCard $title @($o.lines | ForEach-Object { Protect-TeamsText ([string]$_) }) @($o.log | ForEach-Object { Protect-TeamsText ([string]$_) }) ([string]$o.level) (Get-TeamsFooter ($(if ($o.source) { [string]$o.source } else { 'go' }) + ', nachgesendet vom Setup') $when)
+        $r = Send-TeamsCard $Url $json $TimeoutSec
+        if ($r) { $res.Reason = $r; break }
+        try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { }
+        $res.Sent++
+        if ($Tick) { & $Tick }
+    }
+    $res.Left = @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -ErrorAction SilentlyContinue).Count
+    return $res
+}
+# Nachsenden vom gewaehlten Stick: beim Waehlen oder Erkennen eines Sticks (je Stick einmal je Sitzung), beim Start und am
+# Ende von "Stick fertig machen" (-Force). Nie waehrend eines laufenden Vorgangs, nie vor dem Anzeigen des Fensters.
+$script:OutboxTried = @{}; $script:OutboxRunning = $false
+function Invoke-OutboxSend([string]$Drive, [switch]$Force) {
+    if (-not $Drive -or $script:OutboxRunning -or $script:Busy) { return }
+    try { if (-not $win.IsVisible) { return } } catch { return }
+    $u = Get-TeamsWebhook
+    if (-not $u -or (Test-HuWebhookUrl $u)) { return }
+    $dir = $Drive.TrimEnd('\') + '\HUPilot\logs\outbox'
+    $key = Get-ReadyHintKey $Drive
+    if (-not $Force -and $script:OutboxTried.ContainsKey($key)) { return }
+    $script:OutboxTried[$key] = $true
+    try { if (-not [System.IO.Directory]::Exists($dir) -or -not @([System.IO.Directory]::GetFiles($dir, '*.json')).Count) { return } } catch { return }
+    $script:OutboxRunning = $true
+    Set-UiBusy $true
+    try {
+        Set-ReadyText ('Sende Berichte vom Stick ' + $Drive + ' an den Admin ...'); Step-Ui
+        $r = Send-OutboxCore $dir $u ([datetime]::UtcNow) $script:OutboxPerRun 8 { Step-Ui }
+        if ($r.Pruned) { Out-Log ('' + $r.Pruned + ' alte Berichte am Stick ' + $Drive + ' verworfen (älter als 30 Tage oder mehr als 50).') 'Hinweis' }
+        if ($r.Sent) { Out-Log ('' + $r.Sent + ' Bericht' + $(if ($r.Sent -ne 1) { 'e' } else { '' }) + ' vom Stick an den Admin gesendet.') 'OK' }
+        if ($r.Reason) { Out-Log ('Berichte vom Stick ' + $Drive + ' nicht gesendet: ' + $r.Reason + '. Sie bleiben am Stick und werden später nachgesendet.') 'Hinweis' }
+        if ($r.Bad) { Out-Log ('' + $r.Bad + ' Bericht' + $(if ($r.Bad -ne 1) { 'e' } else { '' }) + ' am Stick ' + $Drive + ' nicht lesbar oder aus einer neueren Version, nicht gesendet. Sie bleiben liegen.') 'Hinweis' }
+    } catch { try { Out-Log 'Berichte vom Stick konnten nicht nachgesendet werden.' 'Hinweis' $_.Exception.Message } catch { } }
+    finally { $script:OutboxRunning = $false; Set-UiBusy $false; $script:HintDrive = '?'; try { Update-ReadyHint } catch { } }
+}
+# Rechtsklick "An Admin senden" auf einer Protokollzeile (Hauptfenster und Unterfenster)
+function Get-TeamsLevel([string]$LogLevel) { switch ($LogLevel) { 'Fehler' { return 'Error' } 'Hinweis' { return 'Warning' } 'OK' { return 'OK' } }; return 'Info' }
+function Get-TeamsLogTitle([string]$LogLevel) { switch ($LogLevel) { 'Fehler' { return 'Fehler im Setup' } 'Hinweis' { return 'Hinweis aus dem Setup' } }; return 'Meldung aus dem Setup' }
+function Send-LogItemToAdmin($Item) {
+    try {
+        $u = Get-TeamsWebhook
+        if (-not $u) { Out-Log 'Kein Teams-Webhook eingetragen, nichts gesendet.' 'Hinweis'; return }
+        $tag = $Item.Tag
+        $list = [System.Windows.Controls.ItemsControl]::ItemsControlFromItemContainer($Item)
+        $all = @(); if ($list) { $all = @($list.Items | ForEach-Object { [string]$_.Tag.Text }) }
+        # neueste oben im Hauptfenster: fuer die Karte in zeitliche Reihenfolge bringen, die letzten rund 40 Zeilen
+        if ($list -eq $ui.lLog -and $script:LogTop) { [array]::Reverse($all) }
+        $log = @($all | Select-Object -Last 40)
+        $iv = @{}; try { $iv = Get-InfoValues } catch { }
+        $lines = @([string]$tag.Text)
+        if ($tag.Detail) { $lines += @((Format-TechDetail ([string]$tag.Detail)) -split "`r?`n") }
+        $lines += ('HUPilot-Setup ' + $SetupVer + '  |  Quelle ' + $srcStick + '  |  ' + [string]$iv.Windows + '  |  PowerShell ' + [string]$PSVersionTable.PSVersion)
+        $c = Get-Cfg
+        $json = New-TeamsCard (Get-TeamsTitle (Get-TeamsLogTitle ([string]$tag.Level)) ([string]$c.Tenant)) @($lines | ForEach-Object { Protect-TeamsText $_ }) @($log | ForEach-Object { Protect-TeamsText $_ }) (Get-TeamsLevel ([string]$tag.Level)) (Get-TeamsFooter 'Setup' (Get-Date) ([string]$c.Tenant))
+        Set-UiBusy $true
+        try { Step-Ui; $r = Send-TeamsCard $u $json 10 } finally { Set-UiBusy $false }
+        if ($r) { Out-Log ('Nicht an den Admin gesendet: ' + $r + '. Internet und Teams-Webhook prüfen.') 'Hinweis' } else { Out-Log 'An den Admin gesendet (Teams).' 'OK' }
+    } catch { try { Out-Log 'Senden an den Admin fehlgeschlagen.' 'Hinweis' $_.Exception.Message } catch { } }
+}
+
 # ---------- Merker zum gewaehlten Stick (direkt hinter dem Statustext), z. B. "MAK am Stick" ----------
 #   Gelesen wird nur, ob EditionKey in HUPilot\config.json am Stick gefuellt ist, und die letzten 5 Zeichen. Der ganze
 #   Schluessel verlaesst Get-StickMakInfo nie (nicht in Oberflaeche, Protokoll oder Protokolldatei).
@@ -1188,6 +1410,7 @@ function Update-StickFlags([switch]$Force) {
         $info = $null
         if ($d -and @($script:DriveList | Where-Object { $_.Letter -eq $d }).Count) { $info = Get-StickMakInfo $d }
         $ui.spFlags.Children.Clear()
+        $sendDrive = $(if ($d -and @($script:DriveList | Where-Object { $_.Letter -eq $d }).Count) { $d } else { '' })
         foreach ($fl in @(Get-StickFlags $info)) {
             $bd = New-Object System.Windows.Controls.Border
             $bd.CornerRadius = New-Object System.Windows.CornerRadius(3); $bd.Padding = New-Object System.Windows.Thickness(6, 1, 6, 1); $bd.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
@@ -1200,6 +1423,8 @@ function Update-StickFlags([switch]$Force) {
             [void]$ui.spFlags.Children.Add($bd)
         }
     } catch { }
+    # Stick gewaehlt oder neu erkannt: Berichte vom Stick nachsenden (je Stick einmal je Sitzung, nie waehrend eines Vorgangs)
+    if ($sendDrive) { try { Invoke-OutboxSend $sendDrive } catch { } }
 }
 function Update-ReadyHint {
     Update-StickFlags
@@ -1243,7 +1468,7 @@ function Get-Cfg {
         WlanSsid = $ui.tSsid.Text.Trim(); WlanKey = (Get-Masked 'Key'); WlanPackage = 'HUPilot-WLAN.ppkg'
         AdminName = $ui.tAdmName.Text.Trim(); AdminPassword = (Get-Masked 'AdmPw')
         Admin2Name = $ui.tAdm2Name.Text.Trim(); Admin2Password = (Get-Masked 'Adm2Pw'); AskUser = [bool]$ui.cAskUser.IsChecked; RemoveOtherPackages = [bool]$ui.cRmPkg.IsChecked
-        EditionKey = (Get-EdKey)
+        EditionKey = (Get-EdKey); TeamsWebhook = ([string](Get-Masked 'Hook')).Trim()
     }
     foreach ($k in $script:Extra.Keys) { if (-not $o.Contains($k) -or $k -eq 'WlanPackage') { $o[$k] = $script:Extra[$k] } }
     return $o
@@ -1308,7 +1533,7 @@ function Set-EdKey([string]$v) { $ui.pEdKey.Password = $v; $ui.tEdKey.Text = $v 
 $ui.cShowEd.Add_Checked({ $ui.tEdKey.Text = $ui.pEdKey.Password; $ui.pEdKey.Visibility = 'Collapsed'; $ui.tEdKey.Visibility = 'Visible' })
 $ui.cShowEd.Add_Unchecked({ $ui.pEdKey.Password = $ui.tEdKey.Text; $ui.tEdKey.Visibility = 'Collapsed'; $ui.pEdKey.Visibility = 'Visible' })
 # WLAN-Kennwort und Admin-Kennwoerter: gleiches Muster wie Secret und MAK (Kennwortfeld + Klartextfeld + "anzeigen"), Wert ungekuerzt
-$script:Masked = @{ Key = 'cShowKey'; AdmPw = 'cShowAdm'; Adm2Pw = 'cShowAdm2' }
+$script:Masked = @{ Key = 'cShowKey'; AdmPw = 'cShowAdm'; Adm2Pw = 'cShowAdm2'; Hook = 'cShowHook' }
 function Get-Masked([string]$Id) { if ($ui[$script:Masked[$Id]].IsChecked) { return [string]$ui['t' + $Id].Text } return [string]$ui['p' + $Id].Password }
 function Set-Masked([string]$Id, [string]$v) { $ui['p' + $Id].Password = $v; $ui['t' + $Id].Text = $v }
 foreach ($mk in @($script:Masked.Keys)) {
@@ -1847,6 +2072,7 @@ function Get-InfoLines([hashtable]$I) {
     $l += ('Quelle: ' + $I.Source)
     $l += ('PowerShell ' + $I.PS + ', ' + $I.Windows)
     $l += ('Paketbau: ' + $I.Adk + '; Kopie: ' + $I.IcdCopy)
+    if ($I.ContainsKey('Teams')) { $l += ('Teams-Webhook: ' + $I.Teams) }
     $l += ('Protokolldatei: ' + $(if ($I.Log) { $I.Log } else { 'noch keine' }))
     $l += ('Repo: ' + $script:RepoUrl)
     return $l
@@ -1873,9 +2099,11 @@ function Get-InfoValues {
         Source = $srcStick; PS = [string]$PSVersionTable.PSVersion; Windows = $win10
         Adk = $(if ($instRaw) { 'Windows ADK am PC, Version ' + $instRaw } else { 'kein Windows ADK am PC' })
         IcdCopy = (Get-IcdStateText $cp); Log = [string]$script:LogFile
+        # nur ob eingetragen, nie die Adresse
+        Teams = $(if (([string](Get-Masked 'Hook')).Trim()) { 'eingetragen' } else { 'nicht eingetragen' })
     }
 }
-function Open-InfoLink([string]$Target) { try { Start-Process -FilePath $Target } catch { Out-Log 'Link konnte nicht geöffnet werden.' 'Hinweis' ($Target + ': ' + $_.Exception.Message) } }
+function Open-InfoLink([string]$Url) { try { Start-Process -FilePath $Url } catch { Out-Log 'Link konnte nicht geöffnet werden.' 'Hinweis' ($Url + ': ' + $_.Exception.Message) } }
 $script:InfoOpen = $false
 function Show-Info {
     # nicht waehrend eines Vorgangs, nie ein zweites Info-Fenster
@@ -1917,7 +2145,7 @@ function Show-InfoCore {
     $v = Get-InfoValues
     $lines = @(Get-InfoLines $v)
     $g.tVer.Text = $lines[0] + "`n" + $lines[1]
-    $g.tDet.Text = ($lines[2..5] -join "`n")
+    $g.tDet.Text = ($lines[2..($lines.Count - 2)] -join "`n")
     $g.lRepo.Text = $script:RepoUrl -replace '^https://', ''
     $g.lRepo.Add_MouseLeftButtonUp({ Open-InfoLink $script:RepoUrl })
     $g.lHelp.Add_MouseLeftButtonUp({ & $ShowHelp })
@@ -1979,12 +2207,12 @@ $ui.bLoad.Add_Click({
         $ui.tSsid.Text = [string]$c.WlanSsid; Set-Masked 'Key' ([string]$c.WlanKey)
         $ui.tAdmName.Text = [string]$c.AdminName; Set-Masked 'AdmPw' ([string]$c.AdminPassword); $ui.cAskUser.IsChecked = ($c.AskUser -eq $true)
         $ui.tAdm2Name.Text = [string]$c.Admin2Name; Set-Masked 'Adm2Pw' ([string]$c.Admin2Password); $ui.cRmPkg.IsChecked = ($c.RemoveOtherPackages -eq $true)
-        Set-EdKey ([string]$c.EditionKey)
+        Set-EdKey ([string]$c.EditionKey); Set-Masked 'Hook' ([string]$c.TeamsWebhook)
         # Ablaufdatum des Secrets gilt nur fuer genau dieses Secret (bei geaendertem Secret: unbekannt).
         # Immer ins Vertragsformat bringen: PS 7 liefert aus ConvertFrom-Json ein DateTime, [string] davon waere ein anderes Format.
         $script:SecretExpLoaded = Format-UtcText (ConvertTo-UtcDate $c.SecretExpires); $script:SecretExpLoadedFor = Get-StrHash ([string]$c.ClientSecret).Trim()
         $script:Extra = @{}
-        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages','EditionKey','SecretExpires') { $script:Extra[$pr.Name] = $pr.Value } }
+        foreach ($pr in $c.PSObject.Properties) { if ($pr.Name -notin 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','TagChoices','WlanSsid','WlanKey','AdminName','AdminPassword','Admin2Name','Admin2Password','AskUser','RemoveOtherPackages','TeamsWebhook','EditionKey','SecretExpires') { $script:Extra[$pr.Name] = $pr.Value } }
         Out-Log 'Einstellungen geladen (config.json)' 'OK' $p
     } catch { Out-Log 'Einstellungen konnten nicht übernommen werden. Felder prüfen, neu ausfüllen und speichern.' 'Fehler' ($p + ': ' + $_.Exception.GetType().Name) }
     finally { $script:Loading = $false }
@@ -2020,8 +2248,8 @@ function Update-Dirty {
     $win.Title = 'HUPilot-Setup v' + $SetupVer + $(if ($d) { '  * (ungespeichert)' } else { '' })
     [void](Update-PkgState)
 }
-foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','tEdKey','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw') { $ui[$n].Add_TextChanged({ Update-Dirty }) }
-foreach ($n in 'pSecret','pEdKey','pKey','pAdmPw','pAdm2Pw') { $ui[$n].Add_PasswordChanged({ Update-Dirty }) }
+foreach ($n in 'tTenant','tTenantId','tClientId','tSecret','tEdKey','tTag','tTagChoices','tSsid','tKey','tAdmName','tAdmPw','tAdm2Name','tAdm2Pw','tHook') { $ui[$n].Add_TextChanged({ Update-Dirty }) }
+foreach ($n in 'pSecret','pEdKey','pKey','pAdmPw','pAdm2Pw','pHook') { $ui[$n].Add_PasswordChanged({ Update-Dirty }) }
 foreach ($n in 'cAskUser','cRmPkg') { $ui[$n].Add_Click({ Update-Dirty }) }
 
 # ---------- Hilfen: SHA256, Datum in UTC ----------
@@ -2613,6 +2841,7 @@ function Open-SecretPortal {
     } catch { }
 }
 $ui.bSecNew.Add_Click({ Open-SecretPortal })
+$ui.bHookTest.Add_Click({ if (-not $script:Busy) { Send-TeamsTest } })
 $ui.bReadySec.Add_Click({ Open-SecretPortal })
 
 # Pruefung nach dem Einfuegen: nur im Ablauf "Secret erneuern", nur fuer einen neuen, vollstaendig wirkenden Wert,
@@ -2677,6 +2906,9 @@ function Test-SecretDateExpired {
 
 function Save-Cfg {
     if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey') -Admin)) { Set-Step 'Write' 'err' $script:FieldErr; return $false }
+    # Teams-Webhook nur beim Speichern (und bei der Testnachricht) pruefen, nicht in Test-Fields fuer alle Aufrufer
+    $hookV = Get-TeamsWebhook
+    if ($hookV) { $why = Test-HuWebhookUrl $hookV; if ($why) { [void](Stop-Field ('Teams-Webhook ungültig: ' + $why + '. Adresse aus dem Teams-Workflow vollständig einfügen oder das Feld leeren.')); Set-Step 'Write' 'err' $script:FieldErr; return $false } }
     try {
         $o = Get-Cfg
         $expUtc = ConvertTo-UtcDate (Get-SecretExpiresValue ([string]$o.ClientSecret))
@@ -2788,7 +3020,7 @@ function Copy-ToStick([string]$dr, [bool]$WithMak = $true) {
         # auch nicht kurz und auch nicht, wenn das Kopieren danach abbricht (eine alte config.json wird sofort ersetzt)
         $cfgBytes = $(if ($WithMak) { [System.IO.File]::ReadAllBytes($srcCfg) } else { Get-CfgBytesNoMak $srcCfg })
         [System.IO.File]::WriteAllBytes((Join-Path $dst 'config.json'), $cfgBytes)
-        if (-not $WithMak) { Out-Log ('Stick ' + $dr + ' ohne MAK') }
+        # "ohne MAK" steht schon einmal im Protokoll (Entscheidung in Confirm-CopyPrereqs), hier nicht noch einmal
         foreach ($it in @(Get-ChildItem -Path $srcHU -Force | Where-Object { -not (Test-SkipForStick $_.Name) })) {
             Copy-Item -Path $it.FullName -Destination $dst -Recurse -Force -ErrorAction Stop
         }
@@ -4524,6 +4756,8 @@ $win.Add_ContentRendered({
     Show-SecretExpiry -Token $tok
     Set-Step 'Test' 'ok' 'Secret gültig (Start)'
 })
+# Beim Start: Berichte vom gewaehlten Stick nachsenden, sobald das Fenster steht (nach der Secret-Pruefung)
+$win.Add_ContentRendered({ try { Invoke-OutboxSend (Get-Drive) } catch { } })
 
 # ---------- Gemeinsam: Autopilot-Liste, Tag-Regeln ----------
 function Get-ApAll($h) {
@@ -4963,6 +5197,8 @@ function Invoke-StickReady {
     try { Invoke-StickReadyCore }
     catch { Stop-Ready '' ('Unerwarteter Fehler: ' + $_.Exception.Message) }
     finally { Set-UiBusy $false; Update-StickFlags -Force }
+    # Berichte vom Stick nachsenden (nach dem Durchgang, nie waehrenddessen)
+    try { Invoke-OutboxSend (Get-Drive) -Force } catch { }
 }
 $ui.bReady.Add_Click({ Invoke-StickReady })
 
