@@ -544,6 +544,13 @@ Describe 'go 2.7.19: Einbau des Berichts' {
         $script:GoText | Should -Match ([regex]::Escape("Save-Offline 'Kein Internet nach 2 Min (WLAN-Reichweite/Kennwort/Firewall prüfen)'`r`n"))
         $script:GoText | Should -Match ([regex]::Escape("Save-Offline 'Anmeldung am Tenant fehlgeschlagen (Details im Log). Am PC im Setup `"Verbindung testen`"' }"))
     }
+    It 'Fenster wird beim Start maximiert, nach der Schrift, Fehler halten nichts auf' {
+        $script:GoText | Should -Match ([regex]::Escape('ShowWindow(w, 3);'))
+        $i = $script:GoText.IndexOf('[HuFont]::AtLeast(20)')
+        $j = $script:GoText.IndexOf('try { $WinInfo = [HuFont]::Maximize()')
+        $j | Should -BeGreaterThan $i
+        $script:GoText.Substring($j, 400) | Should -Match 'catch \{ \$WinInfo = \$_\.Exception\.Message \}'
+    }
     It 'Internet OK setzt ReportNetOk, danach Nachsenden; eindeutiger Name; alle Bericht-Funktionen vor Fail definiert' {
         $i = $script:GoText.IndexOf("Say 'Internet OK' 'Green'")
         $script:GoText.IndexOf('$script:ReportNetOk = $true') | Should -BeGreaterThan $i

@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 ## v2.7.19 - 2026-11-14
 ### 📊 Status
@@ -41,6 +41,7 @@
 - **Tooltips lesbar:** Alle Tooltips haben eine feste Höchstbreite und brechen um, nichts läuft mehr aus dem Bild.
   - Antworten von Microsoft stehen gegliedert da: Fehlercode, Beschreibung, Zeitpunkt und Kennungen je in einer Zeile.
 - **Behoben: falsche Verweise in Tooltips:** Der Tooltip von "4. WLAN-Paket bauen" verwies auf die falsche Stelle. Er nennt jetzt selbst, welche ICD.exe benutzt wird. Alle Verweise in Tooltips wurden geprüft.
+- **Am Gerät immer im großen Fenster:** go öffnet sein Fenster jetzt von selbst so groß wie der Bildschirm.
 
 ### 📝 Protokoll
 - **Details kopieren:** Rechtsklick auf eine Protokollzeile legt die gegliederte Meldung in die Zwischenablage, ohne Secret, Kennwörter und Schlüssel. Praktisch für Rückfragen beim Admin.
@@ -63,7 +64,7 @@
 - **Adresse im Entra-Portal:** Microsoft kann sie ohne Ankündigung ändern. Dann die App-Registrierung von Hand öffnen.
 
 ### ✅ Qualität
-- 335 automatische Tests.
+- 336 automatische Tests.
 
 ## v2.7.18 - 2026-11-13
 ### 🚀 Stick fertig machen

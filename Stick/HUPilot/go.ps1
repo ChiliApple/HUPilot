@@ -783,11 +783,22 @@ public static class HuFont {
         if (!SetCurrentConsoleFontEx(h, false, ref f)) return "set " + Marshal.GetLastWin32Error();
         return f.Face + " " + old + " -> " + f.Y;
     }
+    [DllImport("kernel32.dll")] static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr w, int cmd);
+    public static string Maximize() {
+        IntPtr w = GetConsoleWindow();
+        if (w == IntPtr.Zero) return "kein Konsolenfenster";
+        ShowWindow(w, 3);   // SW_MAXIMIZE
+        return "maximiert";
+    }
 }
 '@
     $FontInfo = [HuFont]::AtLeast(20)   # Standard ist meist 16 - mind. 20 (wiederholter Start vergroessert nicht weiter)
 } catch { $FontInfo = $_.Exception.Message }
 Log ('Schrift: ' + $FontInfo)
+# Fenster immer so gross wie der Bildschirm (nach der Schrift, damit die Groesse stimmt) - Fehler egal
+try { $WinInfo = [HuFont]::Maximize(); Start-Sleep -Milliseconds 200; $WinInfo += ', ' + [Console]::WindowWidth + ' x ' + [Console]::WindowHeight + ' Zeichen' } catch { $WinInfo = $_.Exception.Message }
+Log ('Fenster: ' + $WinInfo)
 # Farben zuruecksetzen (nach einem frueheren Lauf im selben Fenster bleibt sonst gruen/gelb/rot stehen)
 try { $Host.UI.RawUI.BackgroundColor = 'Black'; $Host.UI.RawUI.ForegroundColor = 'Gray' } catch { }
 Clear-Host
