@@ -508,7 +508,9 @@ function New-GoReport {
     # Titel, Klartextzeilen und letzte Logzeilen eines Endzustands, alles bereinigt
     param([hashtable]$End, [string]$Level = 'Error', [string]$SerialNo = '', $Cfg = $null, [string[]]$LogTail = @(), [hashtable]$Dev = @{}, [int]$Step = 0, [string]$StepText = '', [string[]]$Secrets = @())
     $sn = $(if (([string]$SerialNo).Trim()) { ([string]$SerialNo).Trim() } else { '(Seriennummer unbekannt)' })
-    $title = $(switch ($Level) { 'Warning' { 'HUPilot: Hinweis am Gerät ' } 'OK' { 'HUPilot: Gerät fertig ' } default { 'HUPilot: Fehler am Gerät ' } }) + $sn
+    # Ein Kanal fuer mehrere Schulen: Anzeigename vorne im Titel, sonst "HUPilot"
+    $who = 'HUPilot'; if ($Cfg -and ([string]$Cfg.Tenant).Trim()) { $who = ([string]$Cfg.Tenant).Trim() }
+    $title = $who + $(switch ($Level) { 'Warning' { ': Hinweis am Gerät ' } 'OK' { ': Gerät fertig ' } default { ': Fehler am Gerät ' } }) + $sn
     $l = New-Object System.Collections.Generic.List[string]
     if ($Cfg -and ([string]$Cfg.Tenant).Trim()) { $l.Add('Anzeigename: ' + ([string]$Cfg.Tenant).Trim()) }
     if ($Dev.Hw) { $l.Add('Gerät: ' + $Dev.Hw) }

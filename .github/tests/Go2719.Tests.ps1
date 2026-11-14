@@ -128,7 +128,8 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         $script:ReportTimeoutSec = 8; $script:ReportMaxBytes = 24000; $script:ReportLogLines = 50; $script:ReportLogSep = "`n`n"
         $script:OutboxKeepDays = 30; $script:OutboxMaxFiles = 50; $script:OutboxSendMax = 5
         $script:OldHook = 'https://firma.' + 'webhook' + '.office.com/webhookb2/x'   # alte Connector-Adresse, kuenstlich, zur Laufzeit zusammengesetzt
-        $script:Url = 'https://example.invalid/workflows/abc/triggers/manual/paths/invoke?api-version=1&sp=x&sig=KUENSTLICHESIGNATUR0123456789'
+        # kuenstliche Adresse, zur Laufzeit zusammengesetzt (keine vollstaendige Webhook-Adresse als Literal im Repo)
+        $script:Url = 'https://example.invalid/workflows/abc/triggers/manual/paths/invoke?api-version=1&sp=x&' + 'sig' + '=KUENSTLICHESIGNATUR0123456789'
         $script:Mak = 'ABCDE-FGHIJ-KLMNO-PQRST-UVW12'
         function New-TestCfg([string]$Hook) {
             [pscustomobject]@{ Tenant = 'Testschule'; TenantId = '11111111-2222-3333-4444-555555555555'; ClientId = '66666666-7777-8888-9999-000000000000'
@@ -171,7 +172,7 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         foreach ($s in $script:SecretValues) { $t | Should -Not -Match ([regex]::Escape($s)) }
         $t | Should -Match ([regex]::Escape('*****-UVW12'))
         $t | Should -Match 'letzte Zeile'
-        Protect-ReportText 'https://irgendwo.example/x?a=1&sig=abcdef123' @() | Should -Be '(Adresse entfernt)'
+        Protect-ReportText ('https://irgendwo.example/x?a=1&' + 'sig' + '=abcdef123') @() | Should -Be '(Adresse entfernt)'
         Protect-ReportText 'Authorization: Bearer abc.def.ghi' @() | Should -Not -Match 'abc\.def'
         Protect-ReportText 'Seriennummer PF3T9PAN ok' $sec | Should -Be 'Seriennummer PF3T9PAN ok'
     }
@@ -300,7 +301,7 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         Send-GoReport $e 'Error' | Should -BeNullOrEmpty
         Should -Invoke Invoke-WebRequest -Times 1 -Exactly
         $c = ($script:Bodies[0] | ConvertFrom-Json).attachments[0].content
-        $c.body[0].text | Should -Be 'HUPilot: Fehler am Gerät SN/123 45'
+        $c.body[0].text | Should -Be 'Testschule: Fehler am Gerät SN/123 45'
         $t = @($c.body | ForEach-Object { $_.text })
         $t | Should -Contain 'Anzeigename: Testschule'
         $t | Should -Contain 'Gerät: Testhersteller Testmodell'
@@ -319,6 +320,21 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         @(Get-ChildItem (Join-Path $script:CfgDir 'logs') -Recurse -Filter *.json).Count | Should -Be 0
         ($script:LogLines -join ' ') | Should -Not -Match 'KUENSTLICHESIGNATUR|example\.invalid'
     }
+    It 'Titel: Anzeigename vorne (ein Kanal fuer mehrere Schulen), leer = HUPilot; Zeile mit Anzeigename bleibt' {
+        $e = Get-EndText 'Fehler' 'G.' 'T.'
+        $r = New-GoReport -End $e -SerialNo 'ABC123' -Cfg (New-TestCfg '')
+        $r.Title | Should -Be 'Testschule: Fehler am Gerät ABC123'
+        $r.Lines | Should -Contain 'Anzeigename: Testschule'
+        $c = New-TestCfg ''; $c.Tenant = '   '
+        $r = New-GoReport -End $e -SerialNo 'ABC123' -Cfg $c
+        $r.Title | Should -Be 'HUPilot: Fehler am Gerät ABC123'
+        @($r.Lines | Where-Object { $_ -like 'Anzeigename:*' }).Count | Should -Be 0
+        (New-GoReport -End $e -SerialNo '' -Cfg $null).Title | Should -Be 'HUPilot: Fehler am Gerät (Seriennummer unbekannt)'
+        $script:NetOk = $false
+        [void](Send-GoReport $e 'Error')
+        $f = @(Get-ChildItem (Join-Path $script:CfgDir 'logs\outbox') -Filter *.json)
+        ([IO.File]::ReadAllText($f[0].FullName) | ConvertFrom-Json).title | Should -Be 'Testschule: Fehler am Gerät SN/123 45'
+    }
     It 'Fehler, Senden scheitert: Datei am Stick, bereinigt, Zeile "gespeichert", wirft nicht' {
         Mock Invoke-WebRequest { throw ('Zeitlimit bei ' + $Uri) }
         { $script:r1 = Send-GoReport (Get-EndText 'Fehler' 'Grund.' 'Tun.') 'Error' } | Should -Not -Throw
@@ -327,7 +343,7 @@ Describe 'go 2.7.19: Bericht an den Admin' {
         $f.Count | Should -Be 1
         $raw = [IO.File]::ReadAllText($f[0].FullName)
         foreach ($s in $script:SecretValues) { $raw | Should -Not -Match ([regex]::Escape($s)) }
-        ($raw | ConvertFrom-Json).title | Should -Be 'HUPilot: Fehler am Gerät SN/123 45'
+        ($raw | ConvertFrom-Json).title | Should -Be 'Testschule: Fehler am Gerät SN/123 45'
         ($script:LogLines -join ' ') | Should -Not -Match 'KUENSTLICHESIGNATUR|example\.invalid'
     }
     It 'Fehler ohne Internet: kein Sendeversuch, Datei am Stick' {
