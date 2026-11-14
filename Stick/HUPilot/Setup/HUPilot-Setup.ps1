@@ -530,7 +530,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <TextBlock x:Name="tLogFile" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource HuMuted}" FontSize="11" ToolTip="Jede Sitzung wird zusätzlich als Datei gespeichert (ohne Kennwörter und Schlüssel). Die letzten 20 Dateien bleiben." ToolTipService.ShowDuration="30000"/>
       <TextBlock Text="Protokoll" FontWeight="SemiBold" VerticalAlignment="Center" ToolTip="Was das Setup in dieser Sitzung gemacht hat: OK (grün), Hinweis (gelb), Fehler (rot)." ToolTipService.ShowDuration="30000"/>
     </DockPanel>
-    <ListBox x:Name="lLog" Height="120" SelectionMode="Extended" FontFamily="Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ToolTip="Protokoll dieser Sitzung. Zeilen mit technischen Details: Maus darüber zeigt das Original, Doppelklick klappt es auf." ToolTipService.ShowDuration="30000"/>
+    <ListBox x:Name="lLog" Height="120" SelectionMode="Extended" FontFamily="Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ToolTip="Protokoll dieser Sitzung. Zeilen mit technischen Details: Maus darüber zeigt die Meldung gegliedert, Doppelklick klappt sie auf, Rechtsklick: Details kopieren." ToolTipService.ShowDuration="30000"/>
   </DockPanel>
   <!-- Hauptknopf: alles in einem Durchgang -->
   <Border x:Name="bdReady" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource HuAccent}" Background="{DynamicResource HuPanel2}">
@@ -611,7 +611,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Button x:Name="bTags" ToolTip="Zeigt je Group Tag: Anzahl Geräte in Autopilot, passende dynamische Gruppe und zugewiesenes Autopilot-Profil.&#x0a;So sieht man VOR dem Einsatz, ob für einen Tag ein Profil fehlt. Gruppen lesen: optional Group.Read.All." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eTags" Style="{StaticResource HuLamp}"/><TextBlock Text="2. Tags prüfen"/></StackPanel></Button>
       <Button x:Name="bWrite" ToolTip="Speichert alle Felder als config.json in die Quelle.&#x0a;Zusätzliche Felder (TagPattern, Reset, ...) bleiben erhalten." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="eWrite" Style="{StaticResource HuLamp}"/><TextBlock Text="3. Speichern"/></StackPanel></Button>
       <TextBlock x:Name="tDirty" Text="* ungespeichert" Foreground="{DynamicResource HuWarn}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,0,4" Visibility="Collapsed" ToolTip="Es gibt Änderungen, die noch nicht in config.json stehen.&#x0a;3. Speichern oder Stick fertig machen speichert sie." ToolTipService.ShowDuration="30000"/>
-      <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: die Kopie aus dem Häkchen &quot;Paketbau mit auf den Stick&quot; (Test), oder Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md.&#x0a;Welche ICD.exe benutzt wird, steht im Tooltip der Ampel." ToolTipService.ShowDuration="30000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
+      <Button x:Name="bPkg" ToolTip="Speichert zuerst, dann baut HUPilot-WLAN.ppkg (WLAN + optional lokaler Admin, kein CleanPC) in die Quelle.&#x0a;VORAUSSETZUNG: Windows ADK mit &quot;Imaging and Configuration Designer&quot; (WCD) auf diesem PC:&#x0a;C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Imaging and Configuration Designer\x86\ICD.exe&#x0a;Die WCD-App aus dem Microsoft Store reicht NICHT (keine Kommandozeile).&#x0a;Ohne ADK: die Kopie aus dem Häkchen &quot;Paketbau mit auf den Stick&quot; (Test), oder Tools\New-WcdProjekt.ps1 + WCD-Oberfläche, siehe INSTALL.md." ToolTipService.ShowDuration="60000" Padding="10,4" Margin="8,0,0,4"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ePkg" Style="{StaticResource HuLamp}"/><TextBlock Text="4. WLAN-Paket bauen"/></StackPanel></Button>
       <TextBlock x:Name="tPkg" VerticalAlignment="Center" Margin="6,0,0,4" Foreground="{DynamicResource HuMuted}" ToolTip="Stand des WLAN-Pakets in der Quelle:&#x0a;aktuell = passt zu WLAN und lokalen Admins&#x0a;veraltet = WLAN oder Admins wurden seit dem Bau geändert, neu bauen&#x0a;fehlt = noch kein Paket gebaut&#x0a;unbekannt = gebaut mit einer älteren Version, neu bauen empfohlen" ToolTipService.ShowDuration="30000"/>
     </WrapPanel>
     <WrapPanel Grid.Row="6" Orientation="Horizontal" Margin="0,8,0,0">
@@ -2598,9 +2598,12 @@ function Update-PkgState {
     # Ist der letzte Bau gescheitert, bleibt die Ampel rot mit dem Grund, bis wieder gebaut wird
     [void](Test-IcdHere)
     if ($script:PkgBuildErr) { Set-Step 'Pkg' 'err' ($script:PkgBuildErr + '; ' + (Get-IcdText $script:Icd)) } else { Set-Step 'Pkg' $t[2] (Get-IcdText $script:Icd) }
+    # Tooltip des Knopfs nennt die ICD.exe, die gerade benutzt wuerde, direkt (statt eines Verweises auf die kleine Ampel)
+    try { if ($null -eq $script:PkgTipBase) { $script:PkgTipBase = [string]$ui.bPkg.ToolTip }; $ui.bPkg.ToolTip = $script:PkgTipBase + "`n" + 'Benutzt wird: ' + (Get-IcdText $script:Icd) + '.' } catch { }
     return $s
 }
 $script:PkgBuildErr = ''
+$script:PkgTipBase = $null
 
 # Kopierte Dateien kontrollieren: SHA256 von go.cmd, go.ps1, config.json, WLAN-Paket. Rueckgabe: Liste der Abweichungen
 function Test-StickCopy([string]$dr, [byte[]]$CfgBytes, [string]$PkgName) {
@@ -2901,7 +2904,7 @@ function Update-IcdUi([switch]$Report) {
         $(if ($script:IcdSelf) { 'Dieser Stick: ' } else { 'In der Quelle: ' }) + (Get-IcdStateText $src) +
         $(if ($dst) { $nl + 'Am gewählten Stick ' + $dr + ': ' + (Get-IcdStateText $dst) + ' (ungeprüft, geprüft wird beim Kopieren)' } else { '' }) + $nl + $nl +
         $(if (-not $script:IcdCanUse) { 'Kein Windows ADK an diesem PC und keine Kopie vorhanden.' + $nl } else { '' }) +
-        'Rechtsklick: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Test: geprüft mit ICD 10.0.28000.1 unter Windows 11.'
+        'Rechtsklick: Zustand anzeigen, Kopie aktualisieren, Kopie entfernen. Diese Möglichkeit ist noch im Test.'
     $ui.cIcdStick.ToolTip = $tip
     if ($Report) {
         if ($instRaw -and -not $pc) { Out-Log ('Am PC ist ICD.exe ' + $instRaw + ' installiert. Diese Version kennt das Setup noch nicht, der Paketbau wird daraus nicht mitgenommen.') 'Hinweis' $icdInst }
@@ -4442,7 +4445,7 @@ function Show-HashImport {
       <Button x:Name="bImp" Content="Importieren" FontWeight="SemiBold" Padding="10,4" Margin="8,0,0,0" ToolTip="Offene Zeilen nach Autopilot hochladen (dauert bis zu 15 Minuten). Schließen während des Imports bricht nach Rückfrage sauber ab."/>
       <Button x:Name="bClose" Content="Schließen" Padding="10,4" Margin="8,0,0,0" ToolTip="Fenster schließen. Während eines Imports: Abbrechen mit Rückfrage."/>
     </StackPanel>
-    <ListBox x:Name="tHLog" ToolTip="Protokoll des Imports: OK (grün), Hinweis (gelb), Fehler (rot). Technische Details per Doppelklick, steht auch in der Protokolldatei." DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" SelectionMode="Extended" ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontFamily="Consolas"/>
+    <ListBox x:Name="tHLog" ToolTip="Protokoll des Imports: OK (grün), Hinweis (gelb), Fehler (rot). Technische Details per Doppelklick oder Rechtsklick (Details kopieren), stehen auch in der Protokolldatei." DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0" SelectionMode="Extended" ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontFamily="Consolas"/>
     <DataGrid x:Name="dGrid" ToolTip="Gefundene Hashes mit Stand des Imports." AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Seriennr" Binding="{Binding Seriennr}"/>

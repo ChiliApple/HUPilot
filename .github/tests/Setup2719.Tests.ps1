@@ -109,6 +109,65 @@ Describe 'v2.7.19 Paket 1: Tooltips lesbar' {
     }
 }
 
+Describe 'v2.7.19 Punkt 8: Verweise in Tooltips zeigen auf vorhandene Stellen' {
+    BeforeAll {
+        $dec = { param($s) [System.Net.WebUtility]::HtmlDecode(($s -replace '&#x0a;', "`n")) }
+        # Alle Tooltips: XAML-Attribute aller Fenster, im Code gesetzte Texte (.ToolTip = '...') und der Text des Haekchens Paketbau
+        $script:Tips = New-Object System.Collections.Generic.List[object]
+        foreach ($b in $script:XamlBlocks) { foreach ($m in [regex]::Matches($b.Xaml, 'ToolTip="([^"]*)"')) { $script:Tips.Add([pscustomobject]@{ Where = $b.Name; Text = (& $dec $m.Groups[1].Value) }) } }
+        foreach ($m in [regex]::Matches($script:SetupText, "\.ToolTip = '((?:[^']|'')*)'")) { $script:Tips.Add([pscustomobject]@{ Where = 'Code'; Text = $m.Groups[1].Value.Replace("''", "'") }) }
+        $icd = [regex]::Match($script:SetupText, '(?s)\$tip = (.*?)\r?\n\s*\$ui\.cIcdStick\.ToolTip = \$tip').Groups[1].Value
+        $script:Tips.Add([pscustomobject]@{ Where = 'Haekchen Paketbau'; Text = ((@([regex]::Matches($icd, "'((?:[^']|'')*)'") | ForEach-Object { $_.Groups[1].Value })) -join ' ') })
+        # Alle Beschriftungen: Knoepfe, Felder, Haekchen, Ueberschriften, Kacheln, Menues, Spalten, Staende
+        $lab = New-Object System.Collections.Generic.HashSet[string]
+        foreach ($b in $script:XamlBlocks) { foreach ($m in [regex]::Matches($b.Xaml, '(?:Content|Text|Header|Title)="([^"{]+)"')) { [void]$lab.Add((& $dec $m.Groups[1].Value).Trim()) } }
+        foreach ($m in [regex]::Matches($script:SetupText, "& \`$add[UI] '([^']+)'")) { [void]$lab.Add($m.Groups[1].Value) }
+        foreach ($m in [regex]::Matches($script:SetupText, "\.(?:Content|Header) = '([^']+)'")) { [void]$lab.Add($m.Groups[1].Value) }
+        foreach ($m in [regex]::Matches($script:SetupText, "Header = '([^']+)'")) { [void]$lab.Add($m.Groups[1].Value) }
+        foreach ($m in [regex]::Matches([regex]::Match($script:SetupText, '(?m)^\$script:StandClass = (@\{.*\})\r?$').Groups[1].Value, "'([^']+)' = ")) { [void]$lab.Add($m.Groups[1].Value) }
+        $script:Labels = $lab
+        # Namen ausserhalb des Setups, die ein Tooltip in Anfuehrung nennen darf (Microsoft-Oberflaechen, Werkzeuge)
+        $script:External = @('Imaging and Configuration Designer', 'Zertifikate und Geheimnisse', 'Neuer geheimer Clientschlüssel', 'Hinzufügen')
+    }
+    It 'es werden Tooltips aus allen Fenstern und aus dem Code gefunden' {
+        $script:Tips.Count | Should -BeGreaterThan 100
+        @($script:Tips | Where-Object { $_.Where -eq 'Code' }).Count | Should -BeGreaterThan 1
+        @($script:Tips | Where-Object { $_.Where -eq 'Haekchen Paketbau' })[0].Text | Should -Match 'Rechtsklick'
+    }
+    It 'jeder in Anfuehrung genannte Name existiert als Beschriftung (oder steht auf der Liste der fremden Namen)' {
+        $bad = @()
+        foreach ($t in $script:Tips) {
+            foreach ($m in [regex]::Matches($t.Text, '"([^"\n]{2,60})"')) {
+                $n = $m.Groups[1].Value.Trim()
+                if (-not $script:Labels.Contains($n) -and $script:External -notcontains $n) { $bad += ($t.Where + ': "' + $n + '"') }
+            }
+        }
+        $bad | Should -BeNullOrEmpty
+    }
+    It 'jeder nummerierte Schritt (z. B. "5. Auf Stick kopieren") heisst so wie der Knopf' {
+        $steps = @{}; foreach ($l in $script:Labels) { if ($l -match '^([1-7])\. (.+)$') { $steps[$Matches[1]] = $Matches[2] } }
+        $steps.Count | Should -Be 7
+        $bad = @()
+        foreach ($t in $script:Tips) {
+            foreach ($m in [regex]::Matches($t.Text, '(?<![\d.])([1-7])\. (?=[A-ZÄÖÜ])')) {
+                $rest = $t.Text.Substring($m.Index + $m.Length)
+                if (-not $rest.StartsWith($steps[$m.Groups[1].Value])) { $bad += ($t.Where + ': ' + $m.Value + $rest.Substring(0, [math]::Min(30, $rest.Length))) }
+            }
+        }
+        $bad | Should -BeNullOrEmpty
+    }
+    It 'kein Verweis der Form "Tooltip der/des ..." ohne Ziel, keine internen Testangaben fuer Kustoden' {
+        foreach ($t in $script:Tips) {
+            $t.Text | Should -Not -Match 'Tooltip (der|des|von|im) ' -Because $t.Where
+            $t.Text | Should -Not -Match 'geprüft mit ICD \d' -Because $t.Where
+        }
+    }
+    It 'Knopf "4. WLAN-Paket bauen" nennt die benutzte ICD.exe selbst' {
+        $script:SetupText | Should -Match "\`$ui\.bPkg\.ToolTip = \`$script:PkgTipBase \+ ""``n"" \+ 'Benutzt wird: ' \+ \(Get-IcdText \`$script:Icd\)"
+        $script:SetupText | Should -Not -Match 'steht im Tooltip der Ampel'
+    }
+}
+
 Describe 'v2.7.19 Zusatz: Details kopieren per Rechtsklick' {
     BeforeAll { . ([scriptblock]::Create($script:FnByName['Get-DetailCopyText'])) }
     It 'Zeile plus gegliederte Meldung, ohne Secrets' {
