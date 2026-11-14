@@ -356,6 +356,35 @@ function Get-ErrText {
     if ($Err.ErrorDetails -and $Err.ErrorDetails.Message) { $m = $Err.ErrorDetails.Message }
     return $m
 }
+function Get-ImportErrorText {
+    # Klartext fuer bekannte Importfehler von Windows Autopilot, Quelle Microsoft Learn
+    # "Error 806 or 808 when you import Windows Autopilot device CSV files in Intune":
+    #   806 ZtdDeviceAlreadyAssigned       = Geraet ist schon im eigenen Tenant registriert
+    #   808 ZtdDeviceAssignedToOtherTenant = Geraet ist einem anderen Tenant zugeordnet
+    # Laut Microsoft kann bei beiden auch ein alter Datensatz im eigenen Tenant/Intune die Ursache sein.
+    # Rueckgabe @{ Nr; Was; Tun; Log } oder $null (andere Fehler bleiben wie bisher). Der rohe Code bleibt im Text.
+    param([string]$Code, [string]$Name)
+    $Code = ([string]$Code).Trim(); $Name = ([string]$Name).Trim()
+    $roh = (@($Name, $Code) | Where-Object { $_ -and $_ -ne '0' }) -join ' '
+    if (-not $roh) { return $null }
+    if ($Code -eq '808' -or $Name -match 'AssignedToOtherTenant') {
+        return @{
+            Nr  = '808'
+            Was = ('Das Gerät ist bei Microsoft noch einer anderen Organisation zugeordnet, zum Beispiel dem Vorbesitzer (Fehler ' + $roh + ').')
+            Tun = 'Das kannst du nicht selbst lösen. Foto von diesem Bild an den Admin, der Händler oder Vorbesitzer muss das Gerät freigeben.'
+            Log = ('Import-Fehler 808 (anderer Tenant): Code ' + $Code + ', Name ' + $Name + '. Admin: alten Eintrag im eigenen Tenant/Intune prüfen, sonst Freigabe durch Händler/Vorbesitzer bzw. Microsoft Support.')
+        }
+    }
+    if ($Code -eq '806' -or $Name -match 'AlreadyAssigned') {
+        return @{
+            Nr  = '806'
+            Was = ('Das Gerät steht schon in Autopilot, unter einem alten Eintrag (Fehler ' + $roh + ').')
+            Tun = 'Am PC im Setup unter "Status" den alten Eintrag mit "Autopilot-Eintrag löschen" entfernen, einige Minuten warten, dann Stick rein, Shift+F10, D:\go. Kein Eintrag zu finden: Foto an den Admin.'
+            Log = ('Import-Fehler 806 (schon im eigenen Tenant): Code ' + $Code + ', Name ' + $Name + '. Eintrag unter dieser Seriennummer nicht gefunden: alter Eintrag mit anderer Seriennummer, Löschung läuft noch oder Rest-Datensatz in Intune.')
+        }
+    }
+    return $null
+}
 function Test-Net {
     param([string]$TenantId)
     try {
@@ -1300,8 +1329,9 @@ else {
     if ($state -eq 'error') {
         $en = [string]$st.state.deviceErrorName; $ec = [string]$st.state.deviceErrorCode
         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities/' + $imp.id) -Headers $h | Out-Null } catch { }
-        # MS Doku (Error 806 or 808 when you import ...): auch ein Rest-Datensatz im EIGENEN Tenant/Intune kann 806/808 ausloesen
-        if ($ec -eq '808' -or $en -match 'OtherTenant') { Fail ('Das Gerät ist in einem ANDEREN Tenant registriert oder es gibt noch einen alten Datensatz im eigenen Tenant/Intune (' + $en + ' ' + $ec + '). Foto an den Admin, der Eintrag muss dort gelöscht werden.') }
+        # 806/808 in Klartext mit naechstem Schritt (Get-ImportErrorText), andere Codes wie bisher
+        $ie = Get-ImportErrorText $ec $en
+        if ($ie) { Log $ie.Log; Fail $ie.Was -Tun $ie.Tun }
         Fail ('Microsoft meldet einen Import-Fehler: ' + $en + ' (' + $ec + '). Nochmal D:\go, sonst Foto an den Admin.')
     }
     if ($state -ne 'complete') { Fail ('Der Import ist nach 10 Minuten nicht fertig (Status: ' + $state + '). Nochmal D:\go, ein inzwischen fertiger Import wird erkannt.') }
