@@ -511,6 +511,13 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <TextBlock x:Name="tSub" Text="Stick vorbereiten - Windows Autopilot per USB" Foreground="{DynamicResource HuMuted}"/>
     </StackPanel>
   </DockPanel>
+  <!-- Secret abgelaufen: deutlicher Hinweis mit Knopf zur richtigen Seite im Entra-Portal (nur sichtbar, wenn noetig) -->
+  <Border x:Name="bdSecret" DockPanel.Dock="Top" Margin="0,0,0,10" Padding="10,6" CornerRadius="4" BorderThickness="2" BorderBrush="{DynamicResource HuErr}" Background="{DynamicResource HuPanel2}" Visibility="Collapsed">
+    <DockPanel>
+      <Button x:Name="bSecNew" DockPanel.Dock="Right" Content="Neues Secret anlegen" Padding="10,4" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Öffnet im Browser die Seite &quot;Zertifikate und Geheimnisse&quot; der App-Registrierung (App-ID oben).&#x0a;Dort ein neues Geheimnis anlegen und den WERT kopieren, nicht die Geheimnis-ID.&#x0a;Danach steht der Cursor im Feld &quot;Secret (Wert)&quot;: einfügen, das Setup prüft von selbst." ToolTipService.ShowDuration="60000"/>
+      <TextBlock x:Name="tSecBanner" TextWrapping="Wrap" VerticalAlignment="Center" FontWeight="SemiBold" ToolTip="Stand des Secrets (geheimer Clientschlüssel) und was jetzt zu tun ist." ToolTipService.ShowDuration="30000"/>
+    </DockPanel>
+  </Border>
   <!-- Protokoll fest unten (nicht im Scrollbereich), Hoehe per Ziehgriff, gemerkt in HUPilot\Config\ui.json -->
   <DockPanel x:Name="pLog" DockPanel.Dock="Bottom" Margin="0,4,0,0">
     <Thumb x:Name="thLog" DockPanel.Dock="Top" Height="10" Cursor="SizeNS" ToolTip="Höhe des Protokolls anpassen (ziehen) - wird gemerkt." ToolTipService.ShowDuration="30000">
@@ -536,6 +543,7 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
       <Button x:Name="bReady" DockPanel.Dock="Left" Style="{StaticResource HuMain}" Padding="18,8" FontSize="15" FontWeight="Bold" ToolTip="Macht den gewählten Stick in einem Durchgang fertig:&#x0a;Felder prüfen, Verbindung und Secret prüfen, Tags prüfen (nur Warnung), speichern,&#x0a;WLAN-Paket bauen, wenn es fehlt oder veraltet ist, auf den Stick kopieren und die kopierten Dateien kontrollieren.&#x0a;Bricht beim ersten echten Fehler ab und sagt, was zu tun ist." ToolTipService.ShowDuration="60000">
         <StackPanel Orientation="Horizontal"><Ellipse x:Name="eReady" Style="{StaticResource HuLamp}" Width="13" Height="13" Margin="0,0,8,0" Stroke="White" StrokeThickness="1.5"/><TextBlock x:Name="tReadyBtn" Text="Stick fertig machen"/></StackPanel>
       </Button>
+      <Button x:Name="bReadySec" DockPanel.Dock="Left" Content="Neues Secret anlegen" Padding="10,6" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" Foreground="{DynamicResource HuErr}" ToolTip="Das Secret ist abgelaufen oder falsch, damit lädt kein Stick Geräte hoch.&#x0a;Öffnet die Seite &quot;Zertifikate und Geheimnisse&quot; der App-Registrierung im Browser (wie der Knopf oben)." ToolTipService.ShowDuration="30000"/>
       <TextBlock x:Name="tReady" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="" ToolTip="Stand für den gewählten Stick: bereit, aktueller Schritt oder Ergebnis des letzten Durchgangs.&#x0a;Einzelschritte 1 bis 7 gibt es weiterhin, jeder mit eigener Ampel." ToolTipService.ShowDuration="30000"/>
     </DockPanel>
   </Border>
@@ -626,7 +634,7 @@ Add-HuTheme $xaml
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 Register-HuWindow $win
 $ui = @{}
-foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick') { $ui[$n] = $win.FindName($n) }
+foreach ($n in 'iLogo','tSub','tTenant','tTenantId','tClientId','tSecret','pSecret','cShow','tEdKey','pEdKey','cShowEd','tTag','tTagChoices','tSsid','tKey','pKey','cShowKey','tAdmName','tAdmPw','pAdmPw','cShowAdm','tAdm2Name','tAdm2Pw','pAdm2Pw','cShowAdm2','cAskUser','cRmPkg','bTags','bHash','cDrive','bReload','bPrep','bLoad','bTest','bWrite','bPkg','bCopy','bStatus','bHelp','bTheme','bUpd','bLnk','lLog','bLogCopy','tLogFile','svMain','thLog','bLogRev','bLogClear','bReady','tReadyBtn','tReady','eReady','eTest','eTags','eWrite','ePkg','eCopy','eStatus','eHash','tDirty','tPkg','cIcdStick','bdSecret','bSecNew','tSecBanner','bReadySec') { $ui[$n] = $win.FindName($n) }
 
 # Fenster an den Bildschirm anpassen: nie groesser als der Arbeitsbereich (ohne Taskleiste) und ganz sichtbar.
 # Auf kleinen Notebooks (z. B. 1366x768 oder hohe Skalierung) ragte das Fenster sonst unter die Taskleiste.
@@ -976,7 +984,7 @@ $script:Busy = $false; $script:BusyDepth = 0
 function Set-UiBusy([bool]$On) {
     if ($On) { $script:BusyDepth++ } else { $script:BusyDepth = [math]::Max(0, $script:BusyDepth - 1) }
     $script:Busy = ($script:BusyDepth -gt 0)
-    foreach ($n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd', 'bStatus', 'bHash', 'bReload', 'cDrive', 'bLnk') { try { $ui[$n].IsEnabled = -not $script:Busy } catch { } }
+    foreach ($n in 'bReady', 'bTest', 'bTags', 'bWrite', 'bPkg', 'bCopy', 'bPrep', 'bLoad', 'bUpd', 'bStatus', 'bHash', 'bReload', 'cDrive', 'bLnk', 'bSecNew', 'bReadySec') { try { $ui[$n].IsEnabled = -not $script:Busy } catch { } }
     # Haekchen Paketbau: grau auch ohne Herkunft (kein ADK, keine Kopie)
     try { $ui.cIcdStick.IsEnabled = (-not $script:Busy) -and $script:IcdCanUse } catch { }
 }
@@ -1861,6 +1869,8 @@ $ui.bLoad.Add_Click({
     finally { $script:Loading = $false }
     $script:SavedSnap = Get-CfgSnap
     Update-Dirty
+    # Hinweis zum Secret gilt fuer das geladene Secret neu (abgelaufen laut gespeichertem Datum, sonst kein Hinweis)
+    try { $script:SecAwait = $false; $script:SecCheckedFor = Get-StrHash (Get-Secret); Set-SecretMode ''; Test-SecretDateExpired } catch { }
 })
 
 # config.json lesen. Rueckgabe @{ Cfg; Error; Detail }. Bei kaputtem JSON nie die Meldung des Parsers weitergeben:
@@ -2283,6 +2293,50 @@ function Get-SecretExpiresValue([string]$Secret) {
     return ''
 }
 
+# ---------- Secret abgelaufen: gefuehrt erneuern (Hinweis im Kopf, Knopf zum Entra-Portal, Pruefung nach dem Einfuegen) ----------
+#   Modus fuer das eingetragene Secret: '' (kein Hinweis), expired, awaiting (Seite geoeffnet, wartet auf den neuen Wert),
+#   checking, net (keine Verbindung: nicht geprueft, nie "ungueltig"), wrong, fail, ok, okNoEnd (Ablauf unbekannt), saved.
+#   Nach "abgelaufen" oder einem Klick auf "Neues Secret anlegen" prueft das Setup jede Aenderung im Feld von selbst
+#   (1,5 s nach dem letzten Tastendruck bzw. Einfuegen). Keine Vorwarnung vor dem Ablauf (nicht gewaehlt).
+$script:SecMode = ''; $script:SecEndText = ''; $script:SecAwait = $false; $script:SecChecking = $false; $script:SecCheckedFor = ''
+# Text, Farbe und Knopf je Modus (ohne Oberflaeche, fuer Tests)
+function Get-SecretBanner([string]$Mode, [string]$EndText = '') {
+    $save = 'Jetzt speichern ("3. Speichern" oder "Stick fertig machen") und danach jeden Stick neu bespielen: Stick anstecken, "Stick fertig machen". Alte Sticks laden keine Geräte mehr hoch.'
+    switch ($Mode) {
+        'expired'  { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das Secret ist abgelaufen' + $(if ($EndText) { ' (seit ' + $EndText + ')' } else { '' }) + '. Damit lädt kein Stick Geräte hoch. Klick auf "Neues Secret anlegen" und den neuen Wert bei "Secret (Wert)" einfügen.' } }
+        'awaiting' { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Im Browser: "Neuer geheimer Clientschlüssel", Ablauf wählen (z. B. 14 Tage), "Hinzufügen". Dann den WERT kopieren (nicht die Geheimnis-ID) und hier bei "Secret (Wert)" einfügen. Das Setup prüft dann von selbst.' } }
+        'checking' { return @{ Show = $true; Color = 'HuRun'; Button = $false; Text = 'Prüfe das neue Secret ...' } }
+        'net'      { return @{ Show = $true; Color = 'HuWarn'; Button = $true; Text = 'Keine Verbindung zu Microsoft. Das neue Secret ist noch nicht geprüft, ungültig ist es deshalb nicht. Internet prüfen, dann "1. Verbindung testen".' } }
+        'wrong'    { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Das eingefügte Secret ist falsch. Oft ist die Geheimnis-ID statt des Werts kopiert. In Entra den WERT kopieren und bei "Secret (Wert)" einfügen.' } }
+        'fail'     { return @{ Show = $true; Color = 'HuErr'; Button = $true; Text = 'Microsoft lehnt die Anmeldung ab. Tenant-ID und App-ID (Client) prüfen, Details im Protokoll.' } }
+        'ok'       { return @{ Show = $true; Color = 'HuOk'; Button = $false; Text = 'Neues Secret gültig bis ' + $EndText + '. ' + $save } }
+        'okNoEnd'  { return @{ Show = $true; Color = 'HuOk'; Button = $false; Text = 'Neues Secret gültig, Ablauf unbekannt. ' + $save } }
+        'saved'    { return @{ Show = $true; Color = 'HuOk'; Button = $false; Text = 'Neues Secret gespeichert. Jetzt jeden Stick neu bespielen: Stick anstecken, "Stick fertig machen". Alte Sticks laden keine Geräte mehr hoch.' } }
+    }
+    return @{ Show = $false; Color = 'HuMuted'; Button = $false; Text = '' }
+}
+# Seite "Zertifikate und Geheimnisse" der App-Registrierung im Entra Admin Center (ohne gueltige App-ID: Liste der App-Registrierungen)
+function Get-SecretPortalUrl([string]$ClientId) {
+    if ($ClientId -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') { return ('https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/' + $ClientId.ToLower()) }
+    return 'https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade'
+}
+function Update-SecretBanner {
+    try {
+        $b = Get-SecretBanner $script:SecMode $script:SecEndText
+        $ui.bdSecret.Visibility = $(if ($b.Show) { 'Visible' } else { 'Collapsed' })
+        $ui.tSecBanner.Text = $b.Text
+        $ui.tSecBanner.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, $b.Color)
+        $ui.bdSecret.SetResourceReference([System.Windows.Controls.Border]::BorderBrushProperty, $b.Color)
+        $ui.bSecNew.Visibility = $(if ($b.Button) { 'Visible' } else { 'Collapsed' })
+        $ui.bReadySec.Visibility = $(if ($b.Button) { 'Visible' } else { 'Collapsed' })
+    } catch { }
+}
+function Set-SecretMode([string]$Mode, [string]$EndText = '') {
+    $script:SecMode = $Mode; $script:SecEndText = $EndText
+    if ($Mode -in 'expired', 'awaiting', 'wrong', 'net', 'fail') { $script:SecAwait = $true }
+    Update-SecretBanner
+}
+
 # ---------- Anmeldung: Fehlerart unterscheiden (kein Netz / Secret abgelaufen / Secret falsch / sonst) ----------
 function Get-TokenErrorKind([string]$Message, [bool]$HasResponse) {
     if ($Message -match 'AADSTS7000222') { return 'expired' }
@@ -2310,6 +2364,8 @@ function Get-ApiToken {
         $hasResp = $false; try { $hasResp = ($null -ne $_.Exception.Response) } catch { }
         $kind = Get-TokenErrorKind $m $hasResp
         $script:TokenErr = $kind
+        # abgelaufen: deutlicher Hinweis mit Knopf "Neues Secret anlegen" (ohne Netz nie, dann ist nichts geprueft)
+        if ($kind -eq 'expired') { Set-SecretMode 'expired' }
         $txt = 'Anmeldung bei Microsoft fehlgeschlagen. Später nochmal versuchen, Details im Protokoll.'
         if ($kind -eq 'expired') { $txt = 'Das Secret ist abgelaufen. In Entra bei der App-Registrierung ein neues Geheimnis anlegen und den Wert bei "Secret (Wert)" eintragen.' }
         elseif ($kind -eq 'wrong') { $txt = 'Das Secret ist falsch, oft ist die Geheimnis-ID statt des Werts kopiert. Den Wert bei "Secret (Wert)" eintragen.' }
@@ -2362,6 +2418,7 @@ function Show-SecretExpiry([string]$Token) {
         if ($mine.Count -and $null -ne $minDays) {
             $script:SecretEnd = $minUtc; $script:SecretEndFor = Get-StrHash $c.ClientSecret
             Set-SubSecret ('Secret gültig bis ' + $minEnd.ToString('dd.MM.yyyy HH:mm') + ' (' + (Format-Rest ($minEnd - (Get-Date))) + ')') ($minDays -lt 1)
+            if ($minDays -lt 0) { Set-SecretMode 'expired' $minEnd.ToString('dd.MM.yyyy HH:mm') }
         }
     } catch {
         Out-Log 'Ablaufdatum des Secrets nicht lesbar. Optional: der App die Berechtigung Application.Read.All geben.' 'Hinweis' $_.Exception.Message
@@ -2390,6 +2447,81 @@ $ui.bTest.Add_Click({
     if ($apErr) { Set-Step 'Test' 'err' 'kein Zugriff auf Autopilot' } else { Set-Step 'Test' 'ok' }
 })
 
+# Knopf "Neues Secret anlegen" (Kopf und neben dem Hauptknopf): Entra-Portal oeffnen, Cursor ins Feld "Secret (Wert)"
+function Open-SecretPortal {
+    $c = Get-Cfg
+    $script:SecAwait = $true
+    if ($c.ClientId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+        Out-Log 'App-ID (Client) fehlt oder ist unvollständig, deshalb öffnet sich die Liste der App-Registrierungen. Dort die App öffnen, die Anwendungs-ID bei "App-ID (Client)" eintragen und nochmal "Neues Secret anlegen" klicken.' 'Hinweis'
+        Open-InfoLink (Get-SecretPortalUrl '')
+        try { $ui.tClientId.Focus() | Out-Null } catch { }
+        return
+    }
+    Open-InfoLink (Get-SecretPortalUrl $c.ClientId)
+    Out-Log 'Seite "Zertifikate und Geheimnisse" der App-Registrierung im Browser geöffnet. Neues Geheimnis anlegen, den WERT kopieren und bei "Secret (Wert)" einfügen.' 'Hinweis'
+    Set-SecretMode 'awaiting'
+    # Cursor ins Feld, alter Wert markiert: Einfuegen ersetzt ihn
+    try {
+        $script:SecCheckedFor = Get-StrHash (Get-Secret)
+        if ($ui.cShow.IsChecked) { [void]$ui.tSecret.Focus(); $ui.tSecret.SelectAll() } else { [void]$ui.pSecret.Focus(); $ui.pSecret.SelectAll() }
+    } catch { }
+}
+$ui.bSecNew.Add_Click({ Open-SecretPortal })
+$ui.bReadySec.Add_Click({ Open-SecretPortal })
+
+# Pruefung nach dem Einfuegen: nur im Ablauf "Secret erneuern", nur fuer einen neuen, vollstaendig wirkenden Wert,
+# nie parallel zu einer laufenden Pruefung oder zu "Stick fertig machen" (dann spaeter nochmal)
+function Invoke-SecretAutoCheck {
+    $sec = Get-Secret
+    $hh = Get-StrHash $sec
+    if ($hh -eq $script:SecCheckedFor) { return }
+    if ($sec.Length -lt 20 -or $sec.StartsWith('<')) { return }
+    if ($script:Busy -or $script:SecChecking) { $script:SecTimer.Stop(); $script:SecTimer.Start(); return }
+    $c = Get-Cfg
+    $script:SecCheckedFor = $hh
+    if ($c.TenantId -notmatch '^[0-9a-fA-F-]{36}$' -or $c.ClientId -notmatch '^[0-9a-fA-F-]{36}$') { Out-Log 'Neues Secret eingetragen. Zum Prüfen fehlen Tenant-ID oder App-ID (Client), bitte oben eintragen. Danach "1. Verbindung testen".' 'Hinweis'; return }
+    $script:SecChecking = $true
+    Set-UiBusy $true
+    try {
+        Set-SecretMode 'checking'; Set-Step 'Test' 'run'; Step-Ui
+        Out-Log 'Prüfe das neue Secret ...'
+        $tok = Get-ApiToken
+        if (-not $tok) {
+            switch ($script:TokenErr) {
+                'net'     { Set-SecretMode 'net'; Set-Step 'Test' 'warn' 'keine Verbindung, Secret nicht geprüft' }
+                'expired' { Set-SecretMode 'expired'; Set-Step 'Test' 'err' $script:TokenMsg }
+                'wrong'   { Set-SecretMode 'wrong'; Set-Step 'Test' 'err' $script:TokenMsg }
+                default   { Set-SecretMode 'fail'; Set-Step 'Test' 'err' $script:TokenMsg }
+            }
+            return
+        }
+        Out-Log 'Anmeldung mit dem neuen Secret OK' 'OK'
+        Show-SecretExpiry -Token $tok
+        if ($script:SecretEnd -and $script:SecretEndFor -eq $hh) {
+            $endL = $script:SecretEnd.ToLocalTime()
+            if ($script:SecretEnd -le [datetime]::UtcNow) { Set-SecretMode 'expired' $endL.ToString('dd.MM.yyyy HH:mm'); Set-Step 'Test' 'err' 'Secret abgelaufen'; return }
+            Set-SecretMode 'ok' $endL.ToString('dd.MM.yyyy HH:mm')
+            Out-Log ('Secret gültig bis ' + $endL.ToString('dd.MM.yyyy HH:mm') + '. Jetzt speichern und jeden Stick neu bespielen ("Stick fertig machen").') 'Hinweis'
+        } else {
+            Set-SubSecret 'Secret gültig, Ablauf unbekannt' $false
+            Set-SecretMode 'okNoEnd'
+            Out-Log 'Secret gültig, Ablauf unbekannt. Jetzt speichern und jeden Stick neu bespielen ("Stick fertig machen").' 'Hinweis'
+        }
+        Set-Step 'Test' 'ok' 'neues Secret gültig'
+    } finally { $script:SecChecking = $false; Set-UiBusy $false }
+}
+$script:SecTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:SecTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
+$script:SecTimer.Add_Tick({ param($s, $e) try { $s.Stop(); Invoke-SecretAutoCheck } catch { try { $script:SecChecking = $false } catch { } } })
+$reqSecCheck = { if ($script:Loading -or -not $script:SecAwait) { return }; $script:SecTimer.Stop(); $script:SecTimer.Start() }
+$ui.pSecret.Add_PasswordChanged($reqSecCheck)
+$ui.tSecret.Add_TextChanged($reqSecCheck)
+# Abgelaufen laut gespeichertem Ablaufdatum (gilt nur fuer genau dieses Secret, kein Netz noetig)
+function Test-SecretDateExpired {
+    $end = ConvertTo-UtcDate (Get-SecretExpiresValue (Get-Secret))
+    if ($end -and $end -le [datetime]::UtcNow) { Set-SecretMode 'expired' $end.ToLocalTime().ToString('dd.MM.yyyy HH:mm') }
+}
+
 function Save-Cfg {
     if (-not (Test-Fields @('Tenant', 'TenantId', 'ClientId', 'ClientSecret', 'GroupTag', 'WlanSsid', 'WlanKey') -Admin)) { Set-Step 'Write' 'err' $script:FieldErr; return $false }
     try {
@@ -2402,6 +2534,8 @@ function Save-Cfg {
         $script:SavedSnap = Get-CfgSnap
         Update-Dirty
         Set-Step 'Write' 'ok'
+        # neues Secret gespeichert: Erinnerung, die Sticks neu zu bespielen
+        if ($script:SecMode -in 'ok', 'okNoEnd') { Set-SecretMode 'saved'; Out-Log 'Neues Secret gespeichert. Jetzt jeden Stick neu bespielen: Stick anstecken, "Stick fertig machen".' 'Hinweis' }
         return $true
     } catch { $script:FieldErr = 'Speichern fehlgeschlagen. Ist die Quelle schreibgeschützt oder der Stick voll?'; Out-Log $script:FieldErr 'Fehler' ($srcCfg + ': ' + $_.Exception.Message); Set-Step 'Write' 'err' $_.Exception.Message; return $false }
 }
