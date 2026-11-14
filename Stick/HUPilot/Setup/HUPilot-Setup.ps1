@@ -855,6 +855,12 @@ function Format-TechDetail([string]$Text) {
     if ($pre) { $lines.Insert(0, 'Meldung: ' + $pre.TrimEnd(':').Trim()) }
     return ($lines -join "`r`n")
 }
+# Text fuer "Details kopieren": Protokollzeile, Leerzeile, gegliederte Meldung. Secrets werden (nochmal) ausgeblendet.
+function Get-DetailCopyText([string]$Text, [string]$Detail, $Secrets = $null) {
+    if ($null -eq $Secrets) { $Secrets = Get-LogSecretValues }
+    $s = @($Secrets)
+    return ((Hide-LogSecrets $Text $s) + "`r`n`r`n" + (Format-TechDetail (Hide-LogSecrets $Detail $s)))
+}
 function Get-LogSecretValues {
     try { return @((Get-Secret), (Get-Masked 'Key'), (Get-Masked 'AdmPw'), (Get-Masked 'Adm2Pw'), (Get-EdKey)) } catch { return @() }
 }
@@ -888,6 +894,15 @@ function Add-LogItem($List, [string]$Level, [string]$Text, [string]$Detail = '',
         [void]$sp.Children.Add($dt)
         $it.ToolTip = $fmt
         [System.Windows.Controls.ToolTipService]::SetShowDuration($it, 60000)
+        # Rechtsklick: gegliederte Meldung (wie im Tooltip) ohne Secrets in die Zwischenablage, z. B. fuer eine Mail an den Admin
+        $cm = New-Object System.Windows.Controls.ContextMenu
+        $mi = New-Object System.Windows.Controls.MenuItem
+        $mi.Header = 'Details kopieren'
+        $mi.ToolTip = 'Diese Zeile mit der gegliederten Meldung von Microsoft in die Zwischenablage kopieren (ohne Kennwörter und Schlüssel).'
+        $mi.Tag = [pscustomobject]@{ Text = $Text; Detail = $Detail }
+        $mi.Add_Click({ try { [System.Windows.Clipboard]::SetText((Get-DetailCopyText $this.Tag.Text $this.Tag.Detail)); $this.Header = 'Details kopiert' } catch { $this.Header = 'Kopieren fehlgeschlagen' } })
+        [void]$cm.Items.Add($mi)
+        $it.ContextMenu = $cm
         $it.Add_MouseDoubleClick({ $d = $this.Content.Children[1]; $d.Visibility = $(if ([string]$d.Visibility -eq 'Visible') { 'Collapsed' } else { 'Visible' }) })
     }
     $it.Content = $sp; $it.Padding = '4,1'

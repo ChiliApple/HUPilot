@@ -109,6 +109,44 @@ Describe 'v2.7.19 Paket 1: Tooltips lesbar' {
     }
 }
 
+Describe 'v2.7.19 Zusatz: Details kopieren per Rechtsklick' {
+    BeforeAll { . ([scriptblock]::Create($script:FnByName['Get-DetailCopyText'])) }
+    It 'Zeile plus gegliederte Meldung, ohne Secrets' {
+        $det = '{"error":"invalid_client","error_description":"AADSTS7000215: Invalid client secret provided: Geheim~0123456789abcdef. Trace ID: x"}'
+        $t = Get-DetailCopyText '10:00:00  Fehler: Das Secret ist falsch.' $det @('Geheim~0123456789abcdef')
+        $l = @($t -split "`r`n")
+        $l[0] | Should -Be '10:00:00  Fehler: Das Secret ist falsch.'
+        $l[1] | Should -Be ''
+        $l[2] | Should -Be 'Fehlercode: invalid_client (AADSTS7000215)'
+        $t | Should -Not -Match 'Geheim~'
+        $t | Should -Match 'Invalid client secret provided: \*\*\*'
+    }
+    It 'Protokollzeilen mit Details bekommen das Kontextmenue, auch in den Unterfenstern (gleiche Funktion)' {
+        $script:SetupText | Should -Match "\`$mi\.Header = 'Details kopieren'"
+        $script:SetupText | Should -Match '\[System\.Windows\.Clipboard\]::SetText\(\(Get-DetailCopyText \$this\.Tag\.Text \$this\.Tag\.Detail\)\)'
+        $script:SetupText | Should -Match '\$it\.ContextMenu = \$cm'
+        # Unterfenster schreiben ueber Out-SubLog in dieselbe Add-LogItem
+        $script:SetupText | Should -Match 'Add-LogItem \$List \$Level \(\$time \+ ''  '' \+ \$text\) \$Detail \$false'
+    }
+    It 'Kontextmenue laedt im Theme (STA), hell und dunkel' {
+        $res = Invoke-Sta {
+            param($theme, $dark, $light)
+            Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+            foreach ($col in @($dark, $light)) {
+                $rd = New-Object System.Windows.ResourceDictionary
+                $rd.MergedDictionaries.Add([System.Windows.Markup.XamlReader]::Parse($col)); $rd.MergedDictionaries.Add([System.Windows.Markup.XamlReader]::Parse($theme))
+                $cm = New-Object System.Windows.Controls.ContextMenu; $cm.Resources = $rd; $cm.Style = $rd[[System.Windows.Controls.ContextMenu]]
+                $mi = New-Object System.Windows.Controls.MenuItem; $mi.Header = 'Details kopieren'; [void]$cm.Items.Add($mi)
+                $cm.Measure((New-Object System.Windows.Size([double]::PositiveInfinity, [double]::PositiveInfinity)))
+                '' + ($cm.DesiredSize.Width -gt 0) + '|' + [string]$cm.Background
+            }
+        } @($script:ThemeXaml, $script:DarkXaml, $script:LightXaml)
+        $res.Count | Should -Be 2
+        foreach ($r in $res) { $r | Should -Match '^True\|#' }
+        $res[0] | Should -Not -Be $res[1]
+    }
+}
+
 Describe 'v2.7.19 Paket 2: Secret abgelaufen, gefuehrt erneuern' {
     BeforeAll {
         . ([scriptblock]::Create((@('Get-SecretBanner', 'Get-SecretPortalUrl', 'Update-SecretBanner', 'Set-SecretMode', 'Invoke-SecretAutoCheck', 'Open-SecretPortal', 'Test-SecretDateExpired', 'Get-SecretExpiresValue') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
