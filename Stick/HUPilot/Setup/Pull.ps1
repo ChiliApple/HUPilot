@@ -357,8 +357,16 @@ Write-Host "Prüfung:   $verified" -ForegroundColor Gray
 # --- 3. Dateiliste
 try { $tree = Invoke-RestMethod "https://api.github.com/repos/$Owner/$Repo/git/trees/${ref}?recursive=1" -Headers (New-GHHeaders 'application/vnd.github.v3+json') -UseBasicParsing }
 catch { Stop-HMPull "Dateiliste nicht lesbar: $($_.Exception.Message)" }
+# GitHub kuerzt sehr grosse Listen still: dann fehlen Dateien, und das Aufraeumen wuerde sie spaeter loeschen
+if ($tree.truncated) { Stop-HMPull 'Die Dateiliste von GitHub ist unvollständig - es wurde NICHTS verändert, HUPilot bleibt auf der bisherigen Version. Später nochmal versuchen.' }
 $files = @($tree.tree | Where-Object { $_.type -eq 'blob' -and "$($_.path)".StartsWith($SrcPrefix) -and "$($_.path)".Length -gt $SrcPrefix.Length })
 if (-not $files.Count) { Stop-HMPull 'Repo-Inhalt leer' }
+# Jede Datei aus der Pruefsummen-Datei muss auch in der Dateiliste stehen, sonst wuerde sie still fehlen
+if ($manifest) {
+    $inTree = @{}; foreach ($f in $files) { $inTree["$($f.path)"] = $true }
+    $missing = @($manifest.Keys | Where-Object { "$_".StartsWith($SrcPrefix) -and "$_".Length -gt $SrcPrefix.Length -and -not $inTree.ContainsKey("$_") })
+    if ($missing.Count) { Stop-HMPull "$($missing.Count) Datei(en) aus der Prüfsummen-Datei fehlen in der Dateiliste (z. B. $($missing[0])) - es wurde NICHTS verändert, HUPilot bleibt auf der bisherigen Version." }
+}
 Write-Host "$($files.Count) Dateien`n" -ForegroundColor Gray
 
 # --- 4. alles laden und pruefen (noch nichts ersetzen)

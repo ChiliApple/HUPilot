@@ -3,6 +3,7 @@
   "TenantId": "<Tenant-ID>",
   "ClientId": "<App-ID der App-Registrierung>",
   "ClientSecret": "<Geheimer Clientschluessel (Wert)>",
+  "SecretExpires": "",
   "GroupTag": "SN-2026",
   "TagChoices": [
     "SN-2022",
@@ -20,6 +21,8 @@
   "Admin2Name": "",
   "Admin2Password": "",
   "Reset": true,
+  "AskUser": false,
+  "RemoveApps": "McAfee",
   "RemoveOtherPackages": false,
   "EditionKey": "",
   "TeamsWebhook": "",

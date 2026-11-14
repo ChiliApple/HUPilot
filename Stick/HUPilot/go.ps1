@@ -20,8 +20,8 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.7.19'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
-try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
+$Ver        = '2.8.0'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
     Write-Host ''
@@ -62,7 +62,7 @@ if (-not $isAdmin) {
 }
 # Arbeitsverzeichnis weg vom Stick: go wird meist aus D:\ gestartet. Wird der Stick nach "STICK ABZIEHEN" gezogen,
 # ist das Arbeitsverzeichnis ungueltig - jeder spaetere Programmaufruf (schtasks, cmd, provtool) scheitert dann mit
-# "Der Verzeichnisname ist ungueltig" (PF3T9PAN 19.10.2026; vermutlich auch MP24CF66 13.10.2026: schtasks ohne Ausgabe)
+# "Der Verzeichnisname ist ungueltig" (19.10.2026; vermutlich auch 13.10.2026: schtasks ohne Ausgabe)
 try { Set-Location -LiteralPath (Join-Path $env:SystemRoot 'System32'); [Environment]::CurrentDirectory = (Join-Path $env:SystemRoot 'System32') } catch { }
 $MinBattery = 50     # % Akku ohne Netzteil, darunter wird vor dem Zuruecksetzen gewartet
 $Start      = Get-Date
@@ -201,6 +201,9 @@ function Wait-Close {
 
 function Log {
     param([string]$Msg)
+    # Sobald config.json geladen ist: bekannte Geheimnisse (samt Varianten) und Muster schon beim Schreiben ersetzen,
+    # in C:\Windows\Temp\HUPilot.log und im Log am Stick. Der restliche Text bleibt fuer die Fehlersuche lesbar.
+    if ($script:LogSecrets) { try { $Msg = Protect-ReportText $Msg $script:LogSecrets -Cap 0 } catch { } }
     $line = '{0}  [{1,5:N0}s]  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), (Get-Mono), $Msg
     try { Add-Content -Path $LocalLog -Value $line -Encoding UTF8 } catch { }
     if ($StickLog) { try { Add-Content -Path $StickLog -Value $line -Encoding UTF8 } catch { } }
@@ -256,17 +259,20 @@ function Banner {
 }
 function Protokoll {
     param([string]$Result)
-    # protokoll.csv bleibt ASCII (Setup liest sie so) - Umlaute umschreiben
+    # Ergebnis ohne Umlaute (Setup vergleicht Texte); Datei als UTF-8 ohne BOM (Setup liest mit ReadAllLines = UTF-8),
+    # damit Anzeigename oder Tag mit Umlaut nicht zu "?" werden. Reines ASCII bleibt Byte fuer Byte gleich.
     $Result = $Result.Replace([string][char]0xE4, 'ae').Replace([string][char]0xF6, 'oe').Replace([string][char]0xFC, 'ue').Replace([string][char]0xC4, 'Ae').Replace([string][char]0xD6, 'Oe').Replace([string][char]0xDC, 'Ue').Replace([string][char]0xDF, 'ss')
     try {
         $p = Join-Path $CfgDir 'logs\protokoll.csv'
-        if (-not (Test-Path $p)) { Add-Content -Path $p -Value 'Zeit;Seriennr;Tenant;Tag;Ergebnis' -Encoding ASCII }
-        Add-Content -Path $p -Value ('{0};{1};{2};{3};{4}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Serial, $cfg.Tenant, ([string]$cfg.GroupTag -replace ';', ','), $Result) -Encoding ASCII
+        $u8 = New-Object System.Text.UTF8Encoding $false
+        if (-not (Test-Path $p)) { [System.IO.File]::AppendAllText($p, "Zeit;Seriennr;Tenant;Tag;Ergebnis`r`n", $u8) }
+        [System.IO.File]::AppendAllText($p, (('{0};{1};{2};{3};{4}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Serial, $cfg.Tenant, ([string]$cfg.GroupTag -replace ';', ','), $Result) + "`r`n"), $u8)
     } catch { }
 }
 # ---------- Einheitliches Abschlussbild: jeder Endzustand zeigt dieselben drei Saetze ----------
 # "Was ist passiert", "Was passiert jetzt", "Was musst du tun" - kurz umbrochen fuer schmale Konsole mit grosser Schrift.
-# Rot heisst immer: nichts wurde zurueckgesetzt.
+# Rot heisst: nicht zurueckgesetzt. Ausnahme nach dem Start des Zuruecksetzens (ResetNichtGestartet): dort steht ehrlich,
+# dass es noch starten kann; was das SYSTEM-Script schon veraendert hat, steht im Satz "Was passiert jetzt".
 function Split-NextStep {
     # Trennt "Ursache. Naechster Schritt." in @(Ursache, Schritt); ohne erkennbaren Schritt: @(Text, '')
     param([string]$Msg)
@@ -275,20 +281,20 @@ function Split-NextStep {
     return @(([string]$Msg).Trim(), '')
 }
 function Get-EndText {
-    # Drei Saetze je Endzustand; -Was / -Tun ersetzen den Standard (Fehlertext, Grund)
-    param([string]$State, [string]$Was = '', [string]$Tun = '')
+    # Drei Saetze je Endzustand; -Was / -Tun / -Jetzt ersetzen den Standard (Fehlertext, Grund, schon Veraendertes)
+    param([string]$State, [string]$Was = '', [string]$Tun = '', [string]$Jetzt = '')
     $min = 20; if ($ProfileWaitMin) { $min = [int]$ProfileWaitMin }
     $rounds = 4; if ($ProfileRounds) { $rounds = [int]$ProfileRounds }
     $nr = 'Nichts, das Gerät wurde nicht zurückgesetzt.'
     $t = switch ($State) {
         'Fehler'                    { 'Ein Fehler ist aufgetreten.', $nr, 'Nochmal D:\go, klappt es wieder nicht: Foto von diesem Bild an den Admin.' }
         'FehlerReset'               { 'Der Upload ist fertig, aber das Zurücksetzen ist nicht gestartet.', $nr, 'Stick rein, Shift+F10, D:\go (Upload wird übersprungen), klappt es wieder nicht: D:\diag fotografieren und an den Admin.' }
-        'ResetNichtGestartet'       { 'Das Zurücksetzen ist nach 15 Minuten nicht gestartet.', $nr, 'Foto von diesem Bild an den Admin.' }
+        'ResetNichtGestartet'       { 'Windows hat das Zurücksetzen angenommen, es hat aber nach 15 Minuten nicht begonnen.', 'Es kann noch von selbst starten.', 'Gerät nicht benutzen und am Strom lassen, noch 15 Minuten warten. Startet es nicht neu: Foto von diesem Bild an den Admin.' }
         'Offline'                   { 'Der Hash ist nur am Stick gespeichert, nicht hochgeladen.', $nr, 'Stick abziehen und am PC im Setup "Hashes importieren".' }
         'Abbruch'                   { 'Der Vorgang wurde abgebrochen.', $nr, 'Zum Fortsetzen nochmal D:\go starten.' }
         'NeustartAbgebrochen'       { 'Der Neustart wurde mit A abgebrochen.', 'Nichts, das Gerät startet nicht von selbst neu.', 'Stick abziehen und das Gerät von Hand neu starten.' }
         'ResetWarten'               { 'Das Gerät ist in Autopilot hochgeladen.', ('Es wartet bis zu ' + ($min * $rounds) + ' Minuten auf das Profil und setzt sich erst dann selbst zurück, ohne Profil nicht.'), 'Stick abziehen und zum nächsten Gerät, dieses Gerät nicht ausschalten.' }
-        'ResetStart'                { 'Upload und Autopilot-Profil sind fertig.', 'Das Gerät setzt sich in wenigen Minuten selbst zurück und startet neu.', 'Nichts, Gerät nicht ausschalten und zum nächsten Gerät.' }
+        'ResetStart'                { 'Upload und Autopilot-Profil sind fertig.', 'Das Gerät setzt sich in wenigen Minuten selbst zurück und startet neu.', 'Nichts, Gerät nicht ausschalten. Erst zum nächsten Gerät, wenn es neu startet (etwa 5 Minuten).' }
         'ResetStartOhneProfil'      { 'Der Upload ist fertig, zurückgesetzt wird ohne Profil (Taste J).', 'Das Gerät setzt sich in wenigen Minuten selbst zurück, danach kommt das normale Windows-Setup.', 'Nichts, Gerät nicht ausschalten.' }
         'KeinProfilEnde'            { 'Es ist noch kein Autopilot-Profil da.', 'Nichts, das Gerät wurde nicht zurückgesetzt und bleibt im Einrichtungsbildschirm.', 'Später Stick rein, Shift+F10, D:\go, kommt das Profil nie: den Admin fragen.' }
         'UploadWarten'              { 'Das Gerät ist in Autopilot hochgeladen, ohne Zurücksetzen.', ('HUPilot wartet bis zu ' + $min + ' Minuten auf das Autopilot-Profil.'), 'Stick abziehen und das Fenster offen lassen.' }
@@ -304,6 +310,7 @@ function Get-EndText {
     $r = @{ Was = [string]$t[0]; Jetzt = [string]$t[1]; Tun = [string]$t[2] }
     if ($Was) { $r.Was = $Was }
     if ($Tun) { $r.Tun = $Tun }
+    if ($Jetzt) { $r.Jetzt = $Jetzt }
     return $r
 }
 $EndStates = @('Fehler', 'FehlerReset', 'ResetNichtGestartet', 'Offline', 'Abbruch', 'NeustartAbgebrochen', 'ResetWarten', 'ResetStart', 'ResetStartOhneProfil', 'KeinProfilEnde', 'UploadWarten', 'UploadStickAbziehen', 'UploadNeustart', 'UploadNeustartVonHand', 'UploadFertig', 'UploadKeinProfil', 'ProUmstellung', 'ProNeustart')
@@ -329,8 +336,8 @@ function Format-EndLines {
     return $out.ToArray()
 }
 function Get-EndLines {
-    param([string]$State, [string]$Was = '', [string]$Tun = '')
-    return (Format-EndLines (Get-EndText $State $Was $Tun))
+    param([string]$State, [string]$Was = '', [string]$Tun = '', [string]$Jetzt = '')
+    return (Format-EndLines (Get-EndText $State $Was $Tun $Jetzt))
 }
 # ---------- Bericht an den Admin (Teams-Workflow-Webhook, config.json "TeamsWebhook", im Setup Feld "Teams-Webhook") ----------
 # Bei roten Abschluessen und zwei gelben, bei denen der Admin handeln muss, geht von selbst eine Adaptive Card an den Admin.
@@ -394,18 +401,37 @@ function Get-ReportSecrets {
         if ($tid.Length -ge 3) { $s.Add($tid) }
     }
     if (([string]$Token).Length -ge 3) { $s.Add([string]$Token) }
+    # Varianten jedes Werts: URL-kodiert (Formular, Adresse) und JSON-escaped (Fehlermeldungen von Graph und Entra)
+    foreach ($v in @($s.ToArray())) {
+        try { $e = [uri]::EscapeDataString($v); if ($e -cne $v) { $s.Add($e) } } catch { }
+        try { $j = (ConvertTo-Json -InputObject $v -Compress); $j = $j.Substring(1, $j.Length - 2); if ($j -cne $v) { $s.Add($j) } } catch { }
+        $j2 = $v.Replace('\', '\\').Replace('"', '\"').Replace('/', '\/'); if ($j2 -cne $v) { $s.Add($j2) }
+    }
     # laengste zuerst (ein Geheimnis kann Teil eines anderen sein); nicht -Unique mit -Property, das wirft gleich lange weg
     return @($s | Select-Object -Unique | Sort-Object -Property Length -Descending)
 }
 function Protect-ReportText {
-    # Bereinigung vor Karte und Datei: Schluessel auf die letzten 5 Zeichen, Geheimnisse und signierte Adressen weg
-    param([string]$Text, [string[]]$Secrets = @())
+    # Bereinigung vor Karte und Datei: Schluessel auf die letzten 5 Zeichen, Geheimnisse und signierte Adressen weg.
+    # -Cap: grobe Grenze VOR den Mustern (lange Zeilen machen sie langsam); das letzte, evtl. angeschnittene Wort und ein am
+    # Ende stehender Anfang eines bekannten Geheimnisses (Geheimnisse mit Leerzeichen) fallen weg, nie ein Teilstueck.
+    # Das Log ruft mit -Cap 0 (volle Zeile bleibt fuer die Fehlersuche).
+    param([string]$Text, [string[]]$Secrets = @(), [int]$Cap = 4000)
     $t = [string]$Text
     if (-not $t) { return '' }
+    if ($Cap -gt 0 -and $t.Length -gt $Cap) {
+        $t = $t.Substring(0, $Cap)
+        $i = $t.LastIndexOfAny([char[]]@(' ', "`t", "`r", "`n"))
+        $t = $(if ($i -ge 0) { $t.Substring(0, $i + 1) } else { '' })
+        foreach ($x in @($Secrets)) { $x = [string]$x; for ($k = [math]::Min($x.Length - 1, $t.Length); $k -ge 3; $k--) { if ($t.EndsWith($x.Substring(0, $k), [StringComparison]::OrdinalIgnoreCase)) { $t = $t.Substring(0, $t.Length - $k); break } } }
+        $t = $t.TrimEnd() + ' ...'
+    }
     $t = [regex]::Replace($t, '[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}', { param($m) '*****-' + $m.Value.Substring($m.Value.Length - 5) })
     foreach ($x in @($Secrets)) { if ([string]$x) { $t = [regex]::Replace($t, [regex]::Escape([string]$x), '***', 'IgnoreCase') } }
     $t = [regex]::Replace($t, '(?i)https://\S*[?&]sig[=]\S*', '(Adresse entfernt)')
     $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*', '***')
+    # JSON-Felder mit Geheimnis: "client_secret": "...", auch escaped (\"client_secret\":\"...\")
+    $t = [regex]::Replace($t, '(?i)((?<!\\)"(?:client_secret|clientsecret|access_token|refresh_token|password|adminpassword|admin2password|wlankey|teamswebhook)"\s*:\s*")((?:[^"\\]|\\.)*)', '$1***')
+    $t = [regex]::Replace($t, '(?i)(\\"(?:client_secret|clientsecret|access_token|refresh_token|password|adminpassword|admin2password|wlankey|teamswebhook)\\"\s*:\s*\\")((?:(?!\\").)*)', '$1***')
     $t = [regex]::Replace($t, '(?i)(Bearer|client_secret[=:]|access_token["'':= ]+)\s*[^\s"''&]+', '$1 ***')
     return $t
 }
@@ -609,11 +635,12 @@ function New-GoReport {
         if ([string]$End.Tun) { $l.Add('Was musst du tun: ' + $End.Tun) }
     }
     if ($Cfg -and ([string]$Cfg.GroupTag).Trim()) { $l.Add('Tag: ' + ([string]$Cfg.GroupTag).Trim()) }
+    # Erst bereinigen, dann kuerzen: sonst bliebe an der Schnittstelle ein Teilstueck eines Geheimnisses stehen
     return @{
         Level = $Level
-        Title = (Protect-ReportText (Get-CutText $title $ReportTitleMax) $Secrets)
-        Lines = @($l | Select-Object -First $ReportLinesMax | ForEach-Object { Protect-ReportText (Get-CutText $_ $ReportLineLen) $Secrets })
-        Log   = @(@($LogTail) | ForEach-Object { Protect-ReportText (Get-CutText ([string]$_) $ReportLogLen) $Secrets })
+        Title = (Get-CutText (Protect-ReportText $title $Secrets) $ReportTitleMax)
+        Lines = @($l | Select-Object -First $ReportLinesMax | ForEach-Object { Get-CutText (Protect-ReportText $_ $Secrets) $ReportLineLen })
+        Log   = @(@($LogTail) | ForEach-Object { Get-CutText (Protect-ReportText ([string]$_) $Secrets) $ReportLogLen })
     }
 }
 function Send-GoReport {
@@ -631,7 +658,7 @@ function Send-GoReport {
         $why = Test-WebhookUrl $url
         if ($why) {
             Log ('Bericht an den Admin: Feld Teams-Webhook in config.json ungültig (' + $why + ') - kein Bericht')
-            return @{ Text = 'Hinweis: Das Feld Teams-Webhook am Stick ist ungültig, es geht kein Bericht an den Admin. Im Setup das Feld Teams-Webhook prüfen und den Stick neu bespielen.'; Color = 'Gray' }
+            return @{ Text = 'Hinweis: Das Feld Teams-Webhook am Stick ist ungültig, es geht kein Bericht an den Admin. Im Setup das Feld Teams-Webhook prüfen und den Stick neu bespielen.'; Color = 'Gray'; Sent = 'ungueltig' }
         }
         $sec = Get-ReportSecrets $cfg ([string]$script:tok)
         $tail = @(); try { $tail = @(Get-ReportLog @(Get-Content -LiteralPath $LocalLog -Tail $ReportLogRead -Encoding UTF8 -ErrorAction Stop) $ReportLogLines) } catch { }
@@ -640,11 +667,11 @@ function Send-GoReport {
             Write-Host '  Sende Bericht an den Admin ...' -ForegroundColor (Get-ReadableColor 'Gray')
             $json = New-ReportCard -Title $rep.Title -Lines $rep.Lines -Log $rep.Log -Level $Level -Footer (Get-ReportFooter ([string]$cfg.Tenant) (Get-Date)) -MaxBytes $ReportMaxBytes
             $r = Send-TeamsCard $url $json $ReportTimeoutSec $sec
-            if (-not $r) { Log ('Bericht an den Admin gesendet (' + $Anlass + ')'); return @{ Text = 'Bericht an den Admin gesendet.'; Color = 'Green' } }
+            if (-not $r) { Log ('Bericht an den Admin gesendet (' + $Anlass + ')'); return @{ Text = 'Bericht an den Admin gesendet.'; Color = 'Green'; Sent = 'gesendet' } }
             Log ('Bericht an den Admin: ' + $r)
         } else { Log 'Bericht an den Admin: in diesem Lauf kein Internet - wird am Stick gespeichert' }
         $p = Save-OutboxReport (Get-OutboxDir) $rep $Serial
-        if ($p) { Log ('Bericht an den Admin am Stick gespeichert: logs\outbox\' + (Split-Path $p -Leaf)); return @{ Text = 'Bericht am Stick gespeichert, wird beim nächsten Mal mit Internet gesendet.'; Color = 'Yellow' } }
+        if ($p) { Log ('Bericht an den Admin am Stick gespeichert: logs\outbox\' + (Split-Path $p -Leaf)); return @{ Text = 'Bericht am Stick gespeichert, wird beim nächsten Mal mit Internet gesendet.'; Color = 'Yellow'; Sent = 'gespeichert' } }
         Log 'Bericht an den Admin: nicht gesendet und am Stick nicht speicherbar (Stick fehlt oder schreibgeschützt) - verworfen'
         return $null
     } catch {
@@ -672,9 +699,9 @@ function Fail {
 }
 function Stop-ByUser {
     # Abbruch durch den Benutzer: gelb, nichts zurueckgesetzt
-    param([string]$Was, [string]$State = 'Abbruch', [int]$Code = 1)
+    param([string]$Was, [string]$State = 'Abbruch', [int]$Code = 1, [string]$Tun = '')
     Log ('Abbruch durch Benutzer: ' + $Was)
-    Banner 'ABGEBROCHEN  -  NICHT ZURÜCKGESETZT' 'DarkYellow' (@('') + (Get-EndLines $State $Was))
+    Banner 'ABGEBROCHEN  -  NICHT ZURÜCKGESETZT' 'DarkYellow' (@('') + (Get-EndLines $State $Was $Tun))
     Wait-Close
     exit $Code
 }
@@ -684,12 +711,33 @@ function Get-ErrText {
     if ($Err.ErrorDetails -and $Err.ErrorDetails.Message) { $m = $Err.ErrorDetails.Message }
     return $m
 }
+function Get-ErrCode {
+    # Kurzform eines Fehlers fuer das Abschlussbild: HTTP-Status und Fehlercode von Graph/Entra, nie der rohe (englische/JSON) Text
+    param($Err)
+    $parts = New-Object System.Collections.Generic.List[string]
+    try { $sc = [int]$Err.Exception.Response.StatusCode; if ($sc -gt 0) { $parts.Add('HTTP ' + $sc) } } catch { }
+    $m = ''; try { $m = [string](Get-ErrText $Err) } catch { }
+    $c = ''
+    try { $j = $m | ConvertFrom-Json -ErrorAction Stop; $c = [string]$j.error.code; if (-not $c) { $c = [string]$j.error } } catch { }
+    if ($c -and $c -notmatch '^[A-Za-z0-9_.]{1,60}$') { $c = '' }
+    if (-not $c -and $m -match '\b(AADSTS\d+)\b') { $c = $Matches[1] }
+    if ($c) { $parts.Add($c) }
+    if (-not $parts.Count) { return 'Fehlercode unbekannt, Details im Log' }
+    return ($parts -join ' ')
+}
+function Get-ErrScreen {
+    # Roher Fehler ins Log, fuer das Bild nur die Kurzform (Get-ErrCode)
+    param($Err, [string]$Ctx)
+    try { Log ($Ctx + ': ' + (Get-ErrText $Err)) } catch { }
+    return (Get-ErrCode $Err)
+}
 function Get-ImportErrorText {
     # Klartext fuer bekannte Importfehler von Windows Autopilot, Quelle Microsoft Learn
     # "Error 806 or 808 when you import Windows Autopilot device CSV files in Intune":
     #   806 ZtdDeviceAlreadyAssigned       = Geraet ist schon im eigenen Tenant registriert
     #   808 ZtdDeviceAssignedToOtherTenant = Geraet ist einem anderen Tenant zugeordnet
-    # Laut Microsoft kann bei beiden auch ein alter Datensatz im eigenen Tenant/Intune die Ursache sein.
+    # Laut Microsoft kann bei beiden auch ein alter Datensatz im eigenen Tenant/Intune die Ursache sein
+    # (learn.microsoft.com/troubleshoot/mem/intune/device-enrollment/import-windows-autopilot-device-csv-files-errors).
     # Rueckgabe @{ Nr; Was; Tun; Log } oder $null (andere Fehler bleiben wie bisher). Der rohe Code bleibt im Text.
     param([string]$Code, [string]$Name)
     $Code = ([string]$Code).Trim(); $Name = ([string]$Name).Trim()
@@ -698,8 +746,8 @@ function Get-ImportErrorText {
     if ($Code -eq '808' -or $Name -match 'AssignedToOtherTenant') {
         return @{
             Nr  = '808'
-            Was = ('Das Gerät ist bei Microsoft noch einer anderen Organisation zugeordnet, zum Beispiel dem Vorbesitzer (Fehler ' + $roh + ').')
-            Tun = 'Das kannst du nicht selbst lösen. Foto von diesem Bild an den Admin, der Händler oder Vorbesitzer muss das Gerät freigeben.'
+            Was = ('Das Gerät ist bei Microsoft schon registriert, meist bei einer anderen Organisation (zum Beispiel dem Vorbesitzer), manchmal unter einem alten Eintrag im eigenen Intune (Fehler ' + $roh + ').')
+            Tun = 'Das kannst du nicht selbst lösen. Foto von diesem Bild an den Admin: er sucht zuerst einen alten Eintrag im eigenen Intune, sonst muss der Händler oder Vorbesitzer das Gerät freigeben.'
             Log = ('Import-Fehler 808 (anderer Tenant): Code ' + $Code + ', Name ' + $Name + '. Admin: alten Eintrag im eigenen Tenant/Intune prüfen, sonst Freigabe durch Händler/Vorbesitzer bzw. Microsoft Support.')
         }
     }
@@ -756,26 +804,58 @@ function Sync-Clock {
     } catch { Log ('Uhrzeit-Prüfung: ' + $_.Exception.Message) }
 }
 
+function Get-AdminHint {
+    # Zusatz zum Schritt bei Secret abgelaufen/falsch, je nachdem, was mit dem Bericht an den Admin wirklich passiert ist
+    param($R)
+    $s = ''; if ($R) { $s = [string]$R.Sent }
+    switch ($s) {
+        'gesendet'    { return ' Ohne Zugang zum Entra-Portal: den Admin fragen, er hat schon eine Nachricht bekommen.' }
+        'gespeichert' { return ' Ohne Zugang zum Entra-Portal: den Admin fragen, er bekommt eine Nachricht, sobald der Stick am PC im Setup steckt.' }
+        default       { return ' Ohne Zugang zum Entra-Portal: den Admin fragen.' }
+    }
+}
+function Read-TextAuto {
+    # Textdatei lesen wie das Setup: BOM, sonst strenges UTF-8, sonst ANSI (Codepage des Systems, z. B. von Excel)
+    param([string]$Path)
+    $b = [System.IO.File]::ReadAllBytes($Path)
+    $enc = $null; $skip = 0
+    if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) { $enc = New-Object System.Text.UTF8Encoding($false); $skip = 3 }
+    elseif ($b.Length -ge 2 -and $b[0] -eq 0xFF -and $b[1] -eq 0xFE) { $enc = New-Object System.Text.UnicodeEncoding($false, $false); $skip = 2 }
+    else {
+        try { [void](New-Object System.Text.UTF8Encoding($false, $true)).GetString($b); $enc = New-Object System.Text.UTF8Encoding($false) }
+        catch { try { $enc = [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage) } catch { $enc = [System.Text.Encoding]::Default } }
+    }
+    return @($enc.GetString($b, $skip, $b.Length - $skip) -split "`r?`n" | Where-Object { $_ -ne '' })
+}
+function Save-HashRow {
+    # Zeile dieses Geraets in hashes.csv ersetzen bzw. anhaengen. Schreibt UTF-8 ohne BOM (reines ASCII bleibt Byte fuer
+    # Byte gleich), Umlaute (z. B. im UPN) bleiben auch in den Zeilen anderer Geraete erhalten. Wirft bei Fehlern.
+    param([string]$File, [string]$Header, [string]$SerialNo, [string]$Row)
+    $rows = @()
+    if ([System.IO.File]::Exists($File)) { $rows = @(Read-TextAuto $File | Where-Object { $_ -and $_ -ne $Header -and -not $_.StartsWith($SerialNo + ',') }) }
+    $rows += $Row
+    [System.IO.File]::WriteAllLines($File, [string[]](@($Header) + $rows), (New-Object System.Text.UTF8Encoding $false))
+}
 $OfflineHdr = 'Device Serial Number,Windows Product ID,Hardware Hash,Group Tag,Assigned User'
 function Save-Offline {
-    # Hash fuer spaeteren Upload am Stick speichern (Format wie Microsoft-CSV, ANSI, ohne Anfuehrungszeichen)
+    # Hash fuer spaeteren Upload am Stick speichern (Format wie Microsoft-CSV, UTF-8 ohne BOM, ohne Anfuehrungszeichen)
     # -Anlass: Bericht an den Admin, wenn er handeln muss (Secret abgelaufen oder falsch); 'kein Internet' sendet nichts
     param([string]$Why, [string]$Anlass = '')
     Log ('OFFLINE: ' + $Why)
     try {
         $f = Join-Path $CfgDir 'logs\hashes.csv'
-        $rows = @()
-        if (Test-Path $f) { $rows = @(Get-Content -Path $f | Where-Object { $_ -and $_ -ne $OfflineHdr -and -not $_.StartsWith($Serial + ',') }) }
-        $rows += ($Serial + ',,' + $hash + ',' + $cfg.GroupTag + ',' + $AssignUpn)
-        Set-Content -Path $f -Value (@($OfflineHdr) + $rows) -Encoding ASCII -ErrorAction Stop
+        Save-HashRow $f $OfflineHdr $Serial ($Serial + ',,' + $hash + ',' + $cfg.GroupTag + ',' + $AssignUpn)
         Protokoll ('OFFLINE: Hash gespeichert (' + $Why + ')')
-    } catch { Fail ('Kein Upload möglich (' + (Split-NextStep $Why)[0] + ') und der Hash ließ sich auch nicht am Stick speichern (' + $_.Exception.Message + ').') 'Stick neu anstecken und nochmal D:\go, klappt es wieder nicht: Foto von diesem Bild an den Admin.' }
+    } catch { Log ('Hash am Stick speichern: ' + $_.Exception.Message); Fail ('Kein Upload möglich (' + (Split-NextStep $Why)[0] + ') und der Hash ließ sich auch nicht am Stick speichern (Details im Log).') 'Stick neu anstecken und nochmal D:\go, klappt es wieder nicht: Foto von diesem Bild an den Admin.' }
     # Grund mit eigenem naechsten Schritt (z. B. Secret erneuern): erst das, dann Hashes importieren
     $sp = Split-NextStep $Why
     $tun = $(if ($sp[1]) { $sp[1].TrimEnd('.') + ', danach am PC "Hashes importieren".' } else { '' })
     $was = 'Der Hash ist nur am Stick gespeichert, nicht hochgeladen: ' + $sp[0]
+    # Bericht zuerst, damit das Bild sagen kann, was der Admin wirklich bekommt (Secret: wer keinen Zugang zum Portal hat, fragt ihn)
+    $rr = $null
+    if ($Anlass) { $rr = Send-GoReport (Get-EndText 'Offline' $was $tun) $Anlass; $tun = $tun + (Get-AdminHint $rr) }
     Banner 'HASH GESPEICHERT  -  SPÄTER HOCHLADEN' 'DarkYellow' (@('') + (Get-EndLines 'Offline' $was $tun) + @('', ('Am Stick: HUPilot\logs\hashes.csv (Tag ' + $cfg.GroupTag + ')')))
-    if ($Anlass) { Write-ReportLine (Send-GoReport (Get-EndText 'Offline' $was $tun) $Anlass) }
+    Write-ReportLine $rr
     Wait-Close
     exit 2
 }
@@ -866,6 +946,46 @@ function ConvertFrom-SecretExpires {
     if ([datetime]::TryParseExact($s, "yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture, $st, [ref]$d)) { return $d }
     return $null
 }
+function Get-HwChangeText {
+    # Anzeige bei einer Hardware-Aenderung in Autopilot (remediationState). ANNAHME (nicht an einem Geraet belegt):
+    #   automaticRemediationRequired = Microsoft gleicht die Aenderung selbst ab -> warten empfehlen, N bleibt moeglich
+    #   manualRemediationRequired    = von Hand loesen -> neu registrieren empfehlen (wie bisher)
+    param([string]$State)
+    if ($State -eq 'automaticRemediationRequired') {
+        return @{
+            Auto  = $true
+            Lines = @(
+                'ACHTUNG: Autopilot meldet eine HARDWARE-ÄNDERUNG (z. B. Mainboardtausch).',
+                'Microsoft gleicht die Änderung selbst ab, das dauert meist bis zu einer Stunde.',
+                'Empfohlen: abbrechen und in einer Stunde nochmal D:\go, oder den Admin fragen.',
+                'Neu registrieren = Intune-Eintrag und Autopilot-Eintrag löschen, neuen Hash hochladen.',
+                '[Enter] abbrechen (empfohlen)   -   [N] trotzdem neu registrieren')
+            Was   = 'Autopilot meldet eine Hardware-Änderung, Microsoft gleicht sie selbst ab.'
+            Tun   = 'In einer Stunde nochmal Stick rein, Shift+F10, D:\go. Kommt die Meldung dann wieder: den Admin fragen.'
+        }
+    }
+    return @{
+        Auto  = $false
+        Lines = @(
+            'ACHTUNG: Autopilot meldet eine HARDWARE-ÄNDERUNG (z. B. Mainboardtausch).',
+            'Der gespeicherte Hash passt nicht mehr - das Autopilot-Profil greift so nicht.',
+            'Neu registrieren = Intune-Eintrag und Autopilot-Eintrag löschen, neuen Hash hochladen.',
+            '[N] neu registrieren (empfohlen)   -   [Enter] abbrechen')
+        Was   = ''
+        Tun   = ''
+    }
+}
+function Test-EdMarkBlocks {
+    # Sperrt die Merkdatei Edition die normale Frage J? Nur fuer dieses Geraet, nur wenn nicht aktiviert und hoechstens
+    # 24 Stunden alt. Aelter oder Aktiviert=true: wieder die normale Frage (je Lauf bleiben es hoechstens 2 Versuche).
+    # Unlesbare Zeit: sperrt weiter (vorsichtig, keine Neustart-Schleife).
+    param($M, [string]$Serial, [datetime]$Now = (Get-Date))
+    if (-not (Test-EdMarkOwner $M $Serial)) { return $false }
+    if ($M.Aktiviert -eq $true) { return $false }
+    $z = [datetime]::MinValue
+    if (-not [datetime]::TryParseExact(([string]$M.Zeit).Trim(), 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$z)) { return $true }
+    return ([math]::Abs(($Now - $z).TotalHours) -le 24)
+}
 function Get-EdMarkBase {
     # Felder der Merkdatei Edition ohne die gemerkten Antworten (zum Neuschreiben)
     param($M)
@@ -900,12 +1020,130 @@ function Get-EdMarkAnswers {
     if ($a.Zuruecksetzen -isnot [bool]) { return $null }
     return @{ Tag = $tag; Benutzer = $u; Reset = [bool]$a.Zuruecksetzen }
 }
+function Get-JsonErrPos {
+    # Nur die Position eines JSON-Fehlers (ohne Inhalt): 5.1 "... (49): <Text>", 7 "... line 1, position 49."
+    param([string]$Msg)
+    $m = [regex]::Match([string]$Msg, 'line (\d+), position (\d+)')
+    if ($m.Success) { return ('Zeile ' + $m.Groups[1].Value + ', Zeichen ' + $m.Groups[2].Value) }
+    $m = [regex]::Match([string]$Msg, '\((\d+)\):')
+    if ($m.Success) { return ('Zeichen ' + $m.Groups[1].Value) }
+    return ''
+}
+function Get-WipeRunLines {
+    # Nur die Zeilen, die das SYSTEM-Script in DIESEM Lauf geschrieben hat: jede Zeile traegt "[<Kennung>]" (die erste
+    # zusaetzlich "LAUF <Kennung>"). Fehlt eine einzelne Zeile, zaehlen die anderen weiter; alte Laeufe zaehlen nie.
+    param([string[]]$Lines = @(), [string]$RunId)
+    if (-not $RunId) { return @() }
+    $rx = '\[' + [regex]::Escape($RunId) + '\]|\bLAUF ' + [regex]::Escape($RunId) + '\b'
+    return @(@($Lines) | Where-Object { [string]$_ -match $rx })
+}
+function Get-WipeResult {
+    # Ergebnis des SYSTEM-Scripts nur mit der Kennung dieses Laufs ("LAUF <Kennung> OK 0"); ohne oder mit fremder
+    # Kennung = noch keine Rueckmeldung (eine alte Datei darf weder "angenommen" noch "Fehler" vortaeuschen)
+    param([string]$Raw, [string]$RunId)
+    if (-not $RunId) { return '' }
+    $m = [regex]::Match(([string]$Raw).Trim(), '^LAUF ' + [regex]::Escape($RunId) + '\s+(\S.*)$', 'Singleline')
+    if ($m.Success) { return $m.Groups[1].Value.Trim() }
+    return ''
+}
+function Invoke-SchtasksEnd {
+    param([string]$Name)
+    $o = cmd.exe /c ('schtasks /End /TN "' + $Name + '" 2>&1')
+    return @{ Ok = ($LASTEXITCODE -eq 0); Out = (($o | Out-String).Trim()); Code = $LASTEXITCODE }
+}
+function Stop-WipeTask {
+    # Aufgabe stoppen. Massgeblich ist danach ihr Zustand, wenn er lesbar ist (Ready = gestoppt, auch wenn die Befehle
+    # scheiterten, weil sie schon fertig war; Running oder Queued = laeuft noch). Sonst zaehlt der Erfolg der Befehle.
+    param([string]$Name, [string]$Why)
+    $cmdOk = $false
+    try { Stop-ScheduledTask -TaskName $Name -ErrorAction Stop; $cmdOk = $true; Log ('Aufgabe gestoppt (' + $Why + ')') }
+    catch {
+        Log ('Stop-ScheduledTask: ' + $_.Exception.Message)
+        $e = Invoke-SchtasksEnd $Name
+        $cmdOk = [bool]$e.Ok
+        Log ('schtasks end (Exitcode ' + $e.Code + '): ' + $e.Out)
+    }
+    Start-Sleep -Seconds 2
+    $state = ''
+    try { $state = [string](Get-ScheduledTask -TaskName $Name -ErrorAction Stop).State } catch { Log ('Zustand der Aufgabe nicht lesbar: ' + $_.Exception.Message) }
+    $ok = $cmdOk
+    if ($state) { $ok = ($state -notin 'Running', 'Queued'); Log ('Zustand der Aufgabe: ' + $state) }
+    if (-not $ok) { Log 'Aufgabe ließ sich nicht stoppen - Zurücksetzen kann noch starten' }
+    return $ok
+}
+function Get-WipeChanges {
+    # Was das SYSTEM-Script laut Log dieses Laufs schon veraendert hat (Klartext, fuer Bild und Log)
+    param([string[]]$RunLines = @())
+    $c = New-Object System.Collections.Generic.List[string]
+    if (@($RunLines | Where-Object { $_ -match 'Paket entfernt \(' }).Count) { $c.Add('alte Bereitstellungspakete entfernt (Sicherung in C:\Recovery\HUPilot-PPKG-Backup)') }
+    if (@($RunLines | Where-Object { $_ -match '(Vorinstallierte )?App entfernt: ' }).Count) { $c.Add('Hersteller-Apps entfernt') }
+    if (@($RunLines | Where-Object { $_ -match 'verschoben: ' }).Count) { $c.Add('Hersteller-Ordner nach C:\Recovery\HUPilot-OEM-Backup verschoben') }
+    return @($c)
+}
+function Get-WipeErrText {
+    # Klartext zur Fehlerzeile des SYSTEM-Scripts (der rohe Text kommt nur ins Log)
+    param([string]$Res)
+    $r = ([string]$Res).Trim()
+    if ($r -like 'ERR WLAN-Paket*') { return 'das WLAN-Paket ließ sich auch als SYSTEM nicht installieren' }
+    if ($r -like 'ERR Pakete sichern*') { return 'die alten Bereitstellungspakete ließen sich nicht sichern' }
+    if ($r -like 'ERR Paket *') { return 'ein altes Bereitstellungspaket ließ sich nicht entfernen' }
+    if ($r -like 'ERR verschieben*') { return 'die Hersteller-Ordner ließen sich nicht ganz verschieben' }
+    if ($r -like 'ERR Wipe*') { return 'Windows hat den Aufruf zum Zurücksetzen abgelehnt' }
+    return 'Fehler im Hilfsprogramm zum Zurücksetzen, Details im Log'
+}
+function Get-WipeOutcome {
+    # Bewertung nach dem Start der geplanten Aufgabe. Kind:
+    #   Ok     = Aufruf mit ReturnValue 0 angenommen
+    #   Unklar = kann noch zuruecksetzen (Aufruf war abgesetzt, ReturnValue nicht 0 oder leer, oder Aufgabe nicht stoppbar):
+    #            nie "nicht zurueckgesetzt" melden. Welche Werte ein erfolgreicher Aufruf liefert, ist nicht belegt
+    #            (Microsoft Learn nennt nur uint32 ohne Tabelle), deshalb ist ungleich 0 nur "unklar", nicht "Fehler".
+    #   Fehler = sicher nicht zurueckgesetzt: kein Aufruf in diesem Lauf UND die Aufgabe laeuft nachweislich nicht mehr
+    #            ($StopOk). Changes nennt schon Veraendertes.
+    param([string]$Res, [string[]]$RunLines = @(), [bool]$StopOk = $true)
+    $r = ([string]$Res).Trim()
+    $called = [bool](@($RunLines | Where-Object { $_ -match 'WIPE-AUFRUF' }).Count)
+    # LogFehlt: kein Eintrag dieses Laufs lesbar -> ob schon etwas veraendert wurde, ist unbekannt (ausser bei Fehlern vor jeder Aenderung)
+    $o = @{ Kind = ''; Why = ''; Rv = ''; Called = $called; Changes = @(Get-WipeChanges $RunLines); Detail = $r; LogFehlt = (-not @($RunLines).Count -and $r -notlike 'ERR WLAN-Paket*' -and $r -notlike 'ERR Pakete sichern*') }
+    if ($r -match '^OK\b') {
+        $o.Rv = $r.Substring(2).Trim()
+        if ($o.Rv -eq '0') { $o.Kind = 'Ok' }
+        else { $o.Kind = 'Unklar'; $o.Why = 'Windows hat den Aufruf zum Zurücksetzen mit einem unklaren Wert beantwortet (' + $(if ($o.Rv) { $o.Rv } else { 'kein Wert' }) + '), nach 15 Minuten hat es nicht begonnen.' }
+    } elseif (-not $r) {
+        if ($called) { $o.Kind = 'Unklar'; $o.Why = 'Das Zurücksetzen wurde aufgerufen, ohne Rückmeldung, und hat nach 20 Minuten nicht begonnen.' }
+        elseif (-not $StopOk) { $o.Kind = 'Unklar'; $o.Why = 'Das Hilfsprogramm zum Zurücksetzen hat sich nicht gemeldet und ließ sich nicht stoppen, nach 20 Minuten hat das Zurücksetzen nicht begonnen.' }
+        else { $o.Kind = 'Fehler'; $o.Why = 'keine Rückmeldung vom Hilfsprogramm nach 5 Minuten, es wurde gestoppt' }
+    } elseif ($called -or ($r -like 'ERR Wipe*' -and -not @($RunLines).Count)) {
+        # Fehler beim Aufruf, oder Log dieses Laufs fehlt: der Fehler kann vor oder nach dem Aufruf entstanden sein
+        $o.Kind = 'Unklar'; $o.Why = 'Windows hat beim Aufruf zum Zurücksetzen einen Fehler gemeldet, nach 15 Minuten hat es nicht begonnen.'
+    } elseif (-not $StopOk) {
+        $o.Kind = 'Unklar'; $o.Why = 'Das Hilfsprogramm zum Zurücksetzen hat einen Fehler gemeldet, läuft aber noch oder ließ sich nicht stoppen, nach 20 Minuten hat das Zurücksetzen nicht begonnen.'
+    } else {
+        $o.Kind = 'Fehler'; $o.Why = Get-WipeErrText $r
+    }
+    return $o
+}
+function Get-WipeJetzt {
+    # Satz "Was passiert jetzt" nach dem Start des Zuruecksetzens: ehrlich mit dem, was schon veraendert wurde
+    param([string]$Kind, [string[]]$Changes = @(), [bool]$LogFehlt = $false)
+    $ch = @($Changes | Where-Object { $_ })
+    if ($Kind -eq 'Fehler') {
+        if ($LogFehlt -and -not $ch.Count) { return 'Das Gerät wurde nicht zurückgesetzt. Ob schon etwas verändert wurde, ist unklar (Wipe-Log fehlt).' }
+        if ($ch.Count) { return ('Das Gerät wurde nicht zurückgesetzt, aber schon verändert: ' + ($ch -join ', ') + '.') }
+        return 'Nichts, das Gerät wurde nicht zurückgesetzt.'
+    }
+    return ('Es kann noch von selbst starten.' + $(if ($ch.Count) { ' Schon verändert: ' + ($ch -join ', ') + '.' } else { '' }))
+}
 
 # ---------- Schritt 1: Pruefen - alles, was ohne Netz geht, VOR den Fragen ----------
 Show-Step 1 'Prüfen'
 $cfg = $null
-try { $cfg = Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Fail ('config.json am Stick ist nicht lesbar (' + $_.Exception.Message + '). Am PC im Setup öffnen und neu speichern.') }
+# Nie die Meldung von ConvertFrom-Json weitergeben: unter 5.1 enthaelt sie den ganzen JSON-Text (Secrets, Kennwoerter)
+$cfgRaw = $null
+try { $cfgRaw = Get-Content (Join-Path $CfgDir 'config.json') -Raw -Encoding UTF8 -ErrorAction Stop } catch { Log ('config.json lesen: Datei nicht lesbar (' + $_.Exception.GetType().Name + ')'); Fail 'config.json am Stick ist nicht lesbar. Stick neu anstecken, sonst am PC im Setup öffnen und neu speichern.' }
+try { $cfg = $cfgRaw | ConvertFrom-Json -ErrorAction Stop } catch { $jp = Get-JsonErrPos $_.Exception.Message; Log ('config.json ist kein gültiges JSON' + $(if ($jp) { ' (' + $jp + ')' } else { '' })); Fail ('config.json am Stick ist kein gültiges JSON' + $(if ($jp) { ' (' + $jp + ')' } else { '' }) + '. Am PC im Setup öffnen und neu speichern.') }
+$cfgRaw = $null
 if (-not $cfg) { Fail 'config.json am Stick ist leer. Am PC im Setup ausfüllen und speichern.' }
+try { $script:LogSecrets = @(Get-ReportSecrets $cfg '') } catch { }
 foreach ($k in 'Tenant','TenantId','ClientId','ClientSecret','GroupTag','WlanSsid','WlanKey') {
     if (-not $cfg.$k) { Fail ('In config.json fehlt das Feld ' + $k + '. Am PC im Setup ausfüllen und speichern.') }
 }
@@ -936,7 +1174,12 @@ try {
 
 function Get-PowerInfo {
     # Win32_Battery.BatteryStatus: 2/3 = Netzteil, 6-9 = laedt; kein Akku = Netzbetrieb
-    try { $b = @(Get-CimInstance Win32_Battery -ErrorAction Stop) } catch { return @{ Ok = $true; Text = 'unbekannt' } }
+    # WMI-Fehler: einmal wiederholen, dann "nicht prüfbar" wie zu wenig Akku (warten bzw. Rueckfrage J), nie still weiter
+    $b = $null
+    for ($try = 1; $try -le 2 -and $null -eq $b; $try++) {
+        try { $b = @(Get-CimInstance Win32_Battery -ErrorAction Stop) }
+        catch { if ($try -lt 2) { Start-Sleep -Seconds 2 } else { return @{ Ok = $false; Text = 'Akku nicht prüfbar'; Unknown = $true } } }
+    }
     if (-not $b.Count) { return @{ Ok = $true; Text = 'kein Akku (Netzbetrieb)' } }
     $ac  = @($b | Where-Object { [int]$_.BatteryStatus -in 2, 3, 6, 7, 8, 9 }).Count -gt 0
     $pct = [int](($b | Measure-Object -Property EstimatedChargeRemaining -Average).Average)
@@ -947,12 +1190,23 @@ function Wait-Power {
     $p = Get-PowerInfo
     Log ('Strom: ' + $p.Text)
     if ($p.Ok) { return }
-    Banner 'NETZTEIL ANSTECKEN' 'DarkYellow' @(
-        '',
-        ('Mindestens ' + $MinBattery + ' % Akku oder Netzteil.'),
-        'Zurücksetzen ohne Strom kann das Gerät unbrauchbar machen.',
-        '',
-        'Wartet, bis das Netzteil steckt.   J = trotzdem weiter')
+    if ($p.Unknown) {
+        Log 'Akku nicht prüfbar - Gerät wartet auf Netzteil und J'
+        Banner 'NETZTEIL ANSTECKEN  -  GERÄT WARTET' 'DarkYellow' @(
+            '',
+            'Der Akku-Stand ist auf diesem Gerät nicht lesbar.',
+            'Zurücksetzen ohne Strom kann das Gerät unbrauchbar machen.',
+            'Das Gerät wartet hier und macht erst weiter, wenn J gedrückt ist.',
+            '',
+            'Netzteil anstecken, dann J drücken.')
+    } else {
+        Banner 'NETZTEIL ANSTECKEN' 'DarkYellow' @(
+            '',
+            ('Mindestens ' + $MinBattery + ' % Akku oder Netzteil.'),
+            'Zurücksetzen ohne Strom kann das Gerät unbrauchbar machen.',
+            '',
+            'Wartet, bis das Netzteil steckt.   J = trotzdem weiter')
+    }
     while (-not $p.Ok) {
         # ohne -Valid: jede Taste kehrt zurueck, damit der Strom weiter alle 5 s geprueft wird
         $t0 = Get-Mono
@@ -960,7 +1214,9 @@ function Wait-Power {
         # kam sofort zurueck (umgeleitete Eingabe): selbst 5 s warten, damit die Schleife nicht ohne Pause dreht
         if (-not $k) { $rest = 5 - ((Get-Mono) - $t0); if ($rest -gt 0.5) { Start-Sleep -Milliseconds ([int]($rest * 1000)) } }
         if ($k -eq 'J' -or $k -eq 'Y') { Log ('Strom-Warnung übergangen: ' + $p.Text); break }
+        $was = [bool]$p.Unknown
         $p = Get-PowerInfo
+        if ($p.Unknown -and -not $was) { Log 'Akku jetzt nicht prüfbar - Gerät wartet auf Netzteil und J' }
     }
     Log ('Strom jetzt: ' + $p.Text)
     try { $Host.UI.RawUI.BackgroundColor = 'Black'; Clear-Host } catch { }
@@ -1058,7 +1314,8 @@ Write-Host ''
 # ---------- Fragen: Windows Home, gemerkte Antworten, Tag, Benutzer, Zuruecksetzen ----------
 $edRetry = $false
 if ($IsHome) {
-    if ($EdMark) {
+    if ($EdMark -and -not (Test-EdMarkBlocks $EdMark $Serial)) { Log ('Merkdatei Edition älter als 24 Stunden oder aktiviert (' + [string]$EdMark.Zeit + ') - normale Frage') }
+    if (Test-EdMarkBlocks $EdMark $Serial) {
         # Frueherer Versuch gescheitert: nie von selbst wiederholen, nur auf ausdruecklichen Tastendruck
         Write-Host ('  Umstellung auf Pro hat beim letzten Mal nicht geklappt (' + [string]$EdMark.Zeit + '), Edition weiter ' + $EdId + '.') -ForegroundColor Yellow
         Write-Host '    [W]      nochmal versuchen' -ForegroundColor White
@@ -1122,7 +1379,7 @@ if (-not $useSaved -and $cfg.AskUser -eq $true) {
         $u = (Read-Line '  UPN').Trim()
         if (-not $u) { break }
         if ($u -match $UpnPattern) { $AssignUpn = $u; break }
-        Write-Host '  Ungültig - Form name@schule.at' -ForegroundColor Yellow
+        Write-Host '  Ungültig - Form name@example.org' -ForegroundColor Yellow
     }
     Write-Host ''
 }
@@ -1549,25 +1806,26 @@ if ($script:ApLookupFailed) { Fail 'Die Abfrage bei Autopilot ist 3-mal fehlgesc
 # zuerst Intune-Eintrag loeschen, dann Autopilot-Eintrag loeschen, dann mit neuem Hash neu registrieren.
 if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', 'manualRemediationRequired')) {
     Log ('Hardware-Änderung erkannt: remediationState=' + $ap.remediationState + ', Tag ' + $ap.groupTag)
+    $hwc = Get-HwChangeText ([string]$ap.remediationState)
     Write-Host ''
-    Write-Host '  ACHTUNG: Autopilot meldet eine HARDWARE-ÄNDERUNG (z. B. Mainboardtausch).' -ForegroundColor Yellow
-    Write-Host '  Der gespeicherte Hash passt nicht mehr - das Autopilot-Profil greift so nicht.' -ForegroundColor Yellow
-    Write-Host '  Neu registrieren = Intune-Eintrag und Autopilot-Eintrag löschen, neuen Hash hochladen.' -ForegroundColor Yellow
-    Write-Host '  [N] neu registrieren (empfohlen)   -   [Enter] abbrechen' -ForegroundColor Yellow
+    foreach ($x in $hwc.Lines) { Write-Host ('  ' + $x) -ForegroundColor Yellow }
     $k = (Read-Line '  Auswahl').Trim().ToUpper()
-    if ($k -ne 'N') { Fail 'Autopilot meldet eine Hardware-Änderung, neu registrieren wurde abgelehnt. Zum Neu-Registrieren nochmal D:\go und N drücken, sonst den Admin fragen.' -NoReport }
+    if ($k -ne 'N') {
+        if ($hwc.Auto) { Stop-ByUser $hwc.Was -Tun $hwc.Tun }
+        Fail 'Autopilot meldet eine Hardware-Änderung, neu registrieren wurde abgelehnt. Zum Neu-Registrieren nochmal D:\go und N drücken, sonst den Admin fragen.' -NoReport
+    }
     # 1. Intune-Eintraege mit dieser Seriennummer loeschen
     $md = @()
     try {
         # OData: einfaches Hochkomma im Wert verdoppeln
         $f = [uri]::EscapeDataString("serialNumber eq '" + $Serial.Replace("'", "''") + "'")
         $md = @((Invoke-GraphGet ($GB + '/deviceManagement/managedDevices?$filter=' + $f + '&$select=id,deviceName,serialNumber')).value | Where-Object { $_.serialNumber -eq $Serial })
-    } catch { Fail ('Intune-Einträge sind nicht lesbar: ' + (Get-ErrText $_) + '. Admin: App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All prüfen, dann nochmal D:\go.') }
+    } catch { Fail ('Intune-Einträge sind nicht lesbar (' + (Get-ErrScreen $_ 'Intune-Einträge lesen') + '). Admin: App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All prüfen, dann nochmal D:\go.') }
     foreach ($d in $md) {
         try {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/managedDevices/' + $d.id) -Headers $h | Out-Null
             Say ('Intune-Eintrag gelöscht: ' + $d.deviceName) 'Yellow'
-        } catch { Fail ('Intune-Eintrag ' + $d.deviceName + ' ist nicht löschbar: ' + (Get-ErrText $_) + '. Admin: im Intune-Portal löschen oder App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All ergänzen, dann nochmal D:\go.') }
+        } catch { Fail ('Intune-Eintrag ' + $d.deviceName + ' ist nicht löschbar (' + (Get-ErrScreen $_ 'Intune-Eintrag löschen') + '). Admin: im Intune-Portal löschen oder App-Berechtigung DeviceManagementManagedDevices.ReadWrite.All ergänzen, dann nochmal D:\go.') }
     }
     if (-not $md.Count) { Log 'Kein Intune-Eintrag mit dieser Seriennummer' }
     # 2. Benutzer-Zuweisung aufheben (sonst laesst sich der Eintrag nicht loeschen)
@@ -1577,7 +1835,7 @@ if ($ap -and ([string]$ap.remediationState -in 'automaticRemediationRequired', '
     }
     # 3. Autopilot-Eintrag loeschen und warten, bis er weg ist
     try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id) -Headers $h | Out-Null }
-    catch { Fail ('Der alte Autopilot-Eintrag ist nicht löschbar: ' + (Get-ErrText $_) + '. Admin: im Intune-Portal löschen, dann nochmal D:\go.') }
+    catch { Fail ('Der alte Autopilot-Eintrag ist nicht löschbar (' + (Get-ErrScreen $_ 'Autopilot-Eintrag löschen') + '). Admin: im Intune-Portal löschen, dann nochmal D:\go.') }
     Say 'Autopilot-Eintrag gelöscht - warte, bis er verschwunden ist (bis 30 Min) ...'
     Invoke-ApSync 'nach Löschen'
     $gone = $false
@@ -1636,7 +1894,7 @@ if ($ap) {
             Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/windowsAutopilotDeviceIdentities/' + $ap.id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = $cfg.GroupTag } | ConvertTo-Json) | Out-Null
             Say ('Tag geändert -> ' + $cfg.GroupTag) 'Green'
             $TagChanged = $true
-        } catch { Fail ('Der Group Tag ließ sich in Autopilot nicht ändern: ' + (Get-ErrText $_) + '. Nochmal D:\go, sonst Foto an den Admin (App-Berechtigung DeviceManagementServiceConfig.ReadWrite.All).') }
+        } catch { Fail ('Der Group Tag ließ sich in Autopilot nicht ändern (' + (Get-ErrScreen $_ 'Tag ändern') + '). Nochmal D:\go, sonst Foto an den Admin (App-Berechtigung DeviceManagementServiceConfig.ReadWrite.All).') }
     }
 }
 else {
@@ -1659,7 +1917,7 @@ else {
         } | ConvertTo-Json -Depth 4
         $imp = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ($GB + '/deviceManagement/importedWindowsAutopilotDeviceIdentities') -Headers $hj -Body $body
         Log ('Import gesendet, id ' + $imp.id)
-    } catch { Fail ('Microsoft hat den Import abgelehnt: ' + (Get-ErrText $_) + '. Nochmal D:\go, sonst Foto an den Admin.') }
+    } catch { Fail ('Microsoft hat den Import abgelehnt (' + (Get-ErrScreen $_ 'Import') + '). Nochmal D:\go, sonst Foto an den Admin.') }
 
     $state = ''
     $t0 = Get-Mono
@@ -1710,7 +1968,7 @@ if ($StickPkg) {
     try {
         Copy-Item -Path $StickPkg -Destination $TmpPkg -Force
         if ((Get-Item $TmpPkg).Length -ne (Get-Item $StickPkg).Length) { throw 'Größe stimmt nicht' }
-    } catch { Fail ('Das WLAN-Paket ließ sich nicht vom Stick kopieren (' + $_.Exception.Message + '). Stick neu anstecken, dann nochmal D:\go.') }
+    } catch { Log ('WLAN-Paket kopieren: ' + $_.Exception.Message); Fail ('Das WLAN-Paket ließ sich nicht vom Stick kopieren (Details im Log). Stick neu anstecken, dann nochmal D:\go.') }
     Log 'WLAN-Paket lokal kopiert'
 }
 Protokoll ($(if ($AlreadyReg) { 'BEREITS REGISTRIERT' } else { 'UPLOAD OK' }) + $(if ($DoReset) { '' } else { ' (ohne Zurücksetzen)' }))
@@ -1993,11 +2251,13 @@ Show-Step 6 'Zurücksetzen'
 Wait-Power
 $ErrorActionPreference = 'Continue'
 function Fail-Reset {
-    param([string]$Msg, [switch]$NoReport)
-    Log ('FEHLER Zurücksetzen: ' + $Msg)
-    Banner 'FEHLER beim Zurücksetzen' 'DarkRed' (@('') + (Get-EndLines 'FehlerReset' ('Der Upload ist fertig, aber das Zurücksetzen ist nicht gestartet (' + $Msg.TrimEnd('.') + ').')) + @('', ('Log: ' + $LocalLog + ' und ' + $WipeLog)))
+    # $Msg = Klartext fuer das Bild, $Detail = roher Text nur ins Log, $Jetzt = schon Veraendertes (sonst "nicht zurueckgesetzt")
+    param([string]$Msg, [string]$Detail = '', [string]$Jetzt = '', [switch]$NoReport)
+    Log ('FEHLER Zurücksetzen: ' + $Msg + $(if ($Detail) { ' | ' + $Detail } else { '' }))
+    $wasR = 'Der Upload ist fertig, aber das Zurücksetzen ist nicht gestartet (' + $Msg.TrimEnd('.') + ').'
+    Banner 'FEHLER beim Zurücksetzen' 'DarkRed' (@('') + (Get-EndLines 'FehlerReset' $wasR '' $Jetzt) + @('', ('Log: ' + $LocalLog + ' und ' + $WipeLog)))
     if ($NoReport) { Log 'Kein Bericht an den Admin: Abbruch auf Wunsch des Benutzers' }
-    else { Write-ReportLine (Send-GoReport (Get-EndText 'FehlerReset' ('Der Upload ist fertig, aber das Zurücksetzen ist nicht gestartet (' + $Msg.TrimEnd('.') + ').')) 'FehlerReset') }
+    else { Write-ReportLine (Send-GoReport (Get-EndText 'FehlerReset' $wasR '' $Jetzt) 'FehlerReset') }
     Wait-Close
     exit 1
 }
@@ -2029,12 +2289,12 @@ if ($StickPkg) {
             'Nach dem Zurücksetzen ist das Konfigurations-WLAN NICHT da:',
             'LAN-Kabel anstecken oder WLAN im Einrichtungsbildschirm von Hand wählen.')
         $a = Read-Line '  J = trotzdem zurücksetzen, Enter = abbrechen'
-        if ($a -notmatch '^[jJyY]') { Fail-Reset 'WLAN-Paket von Intune gesperrt (AllowAddProvisioningPackage=0) - abgebrochen' -NoReport }
+        if ($a -notmatch '^[jJyY]') { Fail-Reset 'WLAN-Paket von Intune gesperrt, abgebrochen' -Detail 'AllowAddProvisioningPackage=0' -NoReport }
         Log 'Trotzdem zurücksetzen (ohne WLAN-Paket) bestätigt'
     }
     else {
         $prov = Join-Path $env:SystemRoot 'System32\provtool.exe'
-        if (-not (Test-Path $prov)) { Fail-Reset 'provtool.exe nicht gefunden' }
+        if (-not (Test-Path $prov)) { Fail-Reset 'das Windows-Programm für das WLAN-Paket fehlt' -Detail ('provtool.exe nicht gefunden: ' + $prov) }
         Log ('provtool.exe ' + $TmpPkg + ' /quiet')
         # Zeitlimit 2 Min wie im Zweig "nur hochladen"; haengt provtool, gilt das wie ein Fehler: neuer Versuch als SYSTEM im Hilfsscript
         $pr = $null
@@ -2056,8 +2316,10 @@ if ($StickPkg) {
 $wipe = @'
 $log = 'C:\Windows\Temp\HUPilot-Wipe.log'
 $res = 'C:\Windows\Temp\HUPilot-Wipe.result'
-function L([string]$m) { try { Add-Content -Path $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  ' + $m) -Encoding ASCII } catch { } }
-L ('Start als ' + [Environment]::UserName)
+# Jede Logzeile und das Ergebnis tragen die Laufkennung: go wertet nur Zeilen und ein Ergebnis dieses Laufs aus
+function L([string]$m) { try { Add-Content -Path $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  [__RUNID__]  ' + $m) -Encoding UTF8 } catch { } }
+function Write-WipeRes([string]$v) { try { Set-Content -Path $res -Value ('LAUF __RUNID__ ' + $v) -Encoding UTF8 } catch { L ('Ergebnis nicht schreibbar: ' + $_.Exception.Message) } }
+L ('LAUF __RUNID__ Start als ' + [Environment]::UserName)
 # 0. WLAN-Paket als SYSTEM installieren (nur wenn es als Benutzer nicht ging)
 $pkg = '__SYSPKG__'
 if ($pkg) {
@@ -2067,7 +2329,7 @@ if ($pkg) {
     L ('provtool als SYSTEM Exitcode: ' + $pr.ExitCode)
     $ok = $false
     if (Test-Path $persist) { try { $ok = ((Get-FileHash -Path $persist -Algorithm SHA256).Hash -eq (Get-FileHash -Path $pkg -Algorithm SHA256).Hash) } catch { } }
-    if (-not $ok) { L 'FEHLER: WLAN-Paket nicht installiert - kein Zuruecksetzen'; Set-Content -Path $res -Value ('ERR WLAN-Paket auch als SYSTEM nicht installiert (provtool ' + $pr.ExitCode + ')') -Encoding ASCII; exit 1 }
+    if (-not $ok) { L 'FEHLER: WLAN-Paket nicht installiert - kein Zuruecksetzen'; Write-WipeRes ('ERR WLAN-Paket auch als SYSTEM nicht installiert (provtool ' + $pr.ExitCode + ')'); exit 1 }
     L 'WLAN-Paket als SYSTEM installiert'
 }
 # 1. Persistierte Pakete aufraeumen - das Zuruecksetzen stellt alles aus ProgramData\Microsoft\Provisioning wieder her (MS Doku RemoteWipe CSP)
@@ -2110,13 +2372,13 @@ if ($cand.Count) {
             if ((Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash -ne $c.Hash) { throw ('Kopie von ' + $c.File.Name + ' fehlerhaft') }
         }
         L ('Pakete gesichert nach ' + $pbak + ': ' + (($cand | ForEach-Object { $_.File.Name }) -join ', '))
-    } catch { L ('FEHLER Pakete sichern: ' + $_.Exception.Message + ' - nichts entfernt'); Set-Content -Path $res -Value ('ERR Pakete sichern: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+    } catch { L ('FEHLER Pakete sichern: ' + $_.Exception.Message + ' - nichts entfernt'); Write-WipeRes ('ERR Pakete sichern: ' + $_.Exception.Message); exit 1 }
     # Schritt 2: entfernen (offiziell), sonst Datei loeschen - die Sicherung ist geprueft
     foreach ($c in $cand) {
         if ($prov) { try { Remove-ProvisioningPackage -Path $c.File.FullName -ErrorAction Stop | Out-Null } catch { L ('Remove-ProvisioningPackage ' + $c.File.Name + ': ' + $_.Exception.Message) } }
         if (Test-Path -LiteralPath $c.File.FullName) {
             try { Remove-Item -LiteralPath $c.File.FullName -Force -ErrorAction Stop; L ('Paket entfernt (' + $c.Why + ', Datei, Sicherung vorhanden): ' + $c.File.Name) }
-            catch { L ('FEHLER Paket entfernen ' + $c.File.Name + ': ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR Paket ' + $c.File.Name + ' nicht entfernbar: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+            catch { L ('FEHLER Paket entfernen ' + $c.File.Name + ': ' + $_.Exception.Message); Write-WipeRes ('ERR Paket ' + $c.File.Name + ' nicht entfernbar: ' + $_.Exception.Message); exit 1 }
         } else { L ('Paket entfernt (' + $c.Why + '): ' + $c.File.Name) }
     }
 }
@@ -2148,7 +2410,7 @@ try {
             foreach ($f in @(Get-ChildItem -Path $src -Force)) { Move-Item -LiteralPath $f.FullName -Destination $dst -Force -ErrorAction Stop; L ('verschoben: ' + $f.FullName) }
         }
     }
-} catch { L ('FEHLER verschieben: ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR verschieben: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+} catch { L ('FEHLER verschieben: ' + $_.Exception.Message); Write-WipeRes ('ERR verschieben: ' + $_.Exception.Message); exit 1 }
 # 3. Zuruecksetzen ("Alles entfernen"), Provisioning-Pakete bleiben erhalten
 try {
     $ns = 'root\cimv2\mdm\dmmap'
@@ -2161,8 +2423,8 @@ try {
     $r = $session.InvokeMethod($ns, $inst, 'doWipePersistProvisionedDataMethod', $params)
     $rv = [string]$r.ReturnValue.Value
     L ('doWipePersistProvisionedDataMethod ReturnValue: ' + $rv)
-    Set-Content -Path $res -Value ('OK ' + $rv) -Encoding ASCII
-} catch { L ('FEHLER Wipe: ' + $_.Exception.Message); Set-Content -Path $res -Value ('ERR Wipe: ' + $_.Exception.Message) -Encoding ASCII; exit 1 }
+    Write-WipeRes ('OK ' + $rv)
+} catch { L ('FEHLER Wipe: ' + $_.Exception.Message); Write-WipeRes ('ERR Wipe: ' + $_.Exception.Message); exit 1 }
 '@
 # Optionen fuer das SYSTEM-Script - VOR dem Ersetzen der Platzhalter bestimmen
 $RmOther = ($cfg.RemoveOtherPackages -eq $true)
@@ -2172,10 +2434,16 @@ if ($null -ne $cfg.RemoveApps) { $RmApps = [string]$cfg.RemoveApps }
 try { [void][regex]::new($RmApps) } catch { Log ('RemoveApps ist kein gültiger Ausdruck - aus: ' + $RmApps); $RmApps = '' }
 $KeepHash = ''
 if (Test-Path -LiteralPath $TmpPkg) { try { $KeepHash = (Get-FileHash -LiteralPath $TmpPkg -Algorithm SHA256).Hash } catch { } }
+# Laufkennung fuer das Wipe-Log; altes Log und Ergebnis vorher wegraeumen (gelingt das nicht, zaehlt trotzdem nur dieser Lauf)
+$WipeRun = [guid]::NewGuid().ToString('N').Substring(0, 12)
 try {
-    Remove-Item -Path $WipeResult -Force -ErrorAction SilentlyContinue
-    Set-Content -Path $WipePs1 -Value ($wipe.Replace('__SYSPKG__', $SysPkg).Replace('__RMOTHER__', $(if ($RmOther) { '$true' } else { '$false' })).Replace('__KEEPPKG__', ([string]$WlanPkgName).Replace("'", "''")).Replace('__KEEPHASH__', $KeepHash).Replace('__RMAPPS__', $RmApps.Replace("'", "''"))) -Encoding ASCII -ErrorAction Stop
-} catch { Fail-Reset ('Hilfsscript schreiben: ' + $_.Exception.Message) }
+    if (Test-Path -LiteralPath $WipeResult) { try { Remove-Item -LiteralPath $WipeResult -Force -ErrorAction Stop } catch { Log ('Alte Ergebnisdatei nicht entfernt (zählt nicht, nur Ergebnisse mit der Kennung dieses Laufs): ' + $_.Exception.Message) } }
+    if (Test-Path -LiteralPath $WipeLog) { try { Remove-Item -LiteralPath $WipeLog -Force -ErrorAction Stop } catch { Log ('Altes Wipe-Log nicht entfernt: ' + $_.Exception.Message) } }
+    # UTF-8 mit BOM: Namen mit Umlauten (WLAN-Paket, RemoveApps) kommen unveraendert an; ASCII-Inhalt bleibt gleich (nur BOM davor)
+    $wipeText = $wipe.Replace('__SYSPKG__', $SysPkg).Replace('__RMOTHER__', $(if ($RmOther) { '$true' } else { '$false' })).Replace('__KEEPPKG__', ([string]$WlanPkgName).Replace("'", "''")).Replace('__KEEPHASH__', $KeepHash).Replace('__RMAPPS__', $RmApps.Replace("'", "''")).Replace('__RUNID__', $WipeRun)
+    [System.IO.File]::WriteAllText($WipePs1, $wipeText, (New-Object System.Text.UTF8Encoding $true))
+    Log ('Hilfsscript geschrieben, Lauf ' + $WipeRun)
+} catch { Fail-Reset 'das Hilfsprogramm zum Zurücksetzen ließ sich nicht anlegen' -Detail ('Hilfsscript schreiben: ' + $_.Exception.Message) }
 
 # Fremde Bereitstellungspakete anzeigen (werden im SYSTEM-Script entfernt)
 $other = @(Get-ChildItem -Path (Join-Path $env:ProgramData 'Microsoft\Provisioning') -Filter *.ppkg -ErrorAction SilentlyContinue | Where-Object { $_.Name -ine $WlanPkgName -and $_.Name -notlike 'HUPilot*' } | ForEach-Object { $_.Name })
@@ -2213,7 +2481,7 @@ $taskXml = @'
 </Task>
 '@
 $taskFile = Join-Path $env:SystemRoot 'Temp\HUPilot-Wipe.xml'
-try { [System.IO.File]::WriteAllText($taskFile, $taskXml.Replace('__PS1__', $WipePs1), [System.Text.Encoding]::Unicode) } catch { Fail-Reset ('Aufgaben-XML schreiben: ' + $_.Exception.Message) }
+try { [System.IO.File]::WriteAllText($taskFile, $taskXml.Replace('__PS1__', $WipePs1), [System.Text.Encoding]::Unicode) } catch { Fail-Reset 'die geplante Aufgabe ließ sich nicht anlegen' -Detail ('Aufgaben-XML schreiben: ' + $_.Exception.Message) }
 try { Unregister-ScheduledTask -TaskName $tn -Confirm:$false -ErrorAction Stop } catch { try { & schtasks.exe /Delete /TN $tn /F 2>&1 | Out-Null } catch { } }
 $regOk = $false
 # 1. Weg: ScheduledTasks-Modul (XML inkl. Akkubetrieb erlaubt)
@@ -2233,7 +2501,7 @@ try { if (Get-ScheduledTask -TaskName $tn -ErrorAction Stop) { $taskOk = $true; 
 if (-not $taskOk) {
     $q = (cmd.exe /c ('schtasks /Query /TN "' + $tn + '" 2>&1') | Out-String).Trim()
     if ($q -match [regex]::Escape($tn)) { $taskOk = $true; Log 'Aufgabe vorhanden (schtasks)' }
-    else { Fail-Reset ('Geplante Aufgabe nicht angelegt: ' + $(if ($q) { $q } else { '(schtasks ohne Ausgabe)' })) }
+    else { Fail-Reset 'die geplante Aufgabe ließ sich nicht anlegen' -Detail ('Geplante Aufgabe nicht angelegt: ' + $(if ($q) { $q } else { '(schtasks ohne Ausgabe)' })) }
 }
 $started = $false
 try { Start-ScheduledTask -TaskName $tn -ErrorAction Stop; $started = $true; Log 'Aufgabe gestartet (Start-ScheduledTask)' } catch { Log ('Start-ScheduledTask: ' + $_.Exception.Message) }
@@ -2242,36 +2510,48 @@ if (-not $started) {
     Log ('schtasks run: ' + (($o | Out-String).Trim()))
 }
 $res = ''
+$foreignRes = $false
 $t0 = Get-Mono
 for ($i = 0; $i -lt 100; $i++) {          # 100 x 3 s = 5 Min (Hersteller-Apps entfernen kann dauern)
     Wait-Live 3 'Zurücksetzen wird vorbereitet' $t0 300 ''
-    if (Test-Path $WipeResult) { $res = ([string](Get-Content -Path $WipeResult -Raw)).Trim(); break }
+    if (Test-Path $WipeResult) {
+        $raw = ''; try { $raw = [string](Get-Content -Path $WipeResult -Raw -Encoding UTF8 -ErrorAction Stop) } catch { }
+        $res = Get-WipeResult $raw $WipeRun
+        if ($res) { break }
+        if ($raw.Trim() -and -not $foreignRes -and $raw.Trim() -notmatch ('^LAUF ' + [regex]::Escape($WipeRun) + '\b')) { $foreignRes = $true; Log 'Ergebnisdatei ohne die Kennung dieses Laufs - zählt nicht' }
+    }
 }
 Complete-Live
-$wipeCalled = $false
+$stopOk = $true
 if (-not $res) {
     # Keine Rueckmeldung: Aufgabe stoppen, sonst setzt das SYSTEM-Script nach dem roten Banner doch noch zurueck
-    try { Stop-ScheduledTask -TaskName $tn -ErrorAction Stop; Log 'Aufgabe gestoppt (keine Rückmeldung nach 5 Min)' }
-    catch {
-        Log ('Stop-ScheduledTask: ' + $_.Exception.Message)
-        $o = cmd.exe /c ('schtasks /End /TN "' + $tn + '" 2>&1')
-        Log ('schtasks end: ' + (($o | Out-String).Trim()))
-    }
-    Start-Sleep -Seconds 2
-    if (Test-Path $WipeResult) { $res = ([string](Get-Content -Path $WipeResult -Raw)).Trim() }
-    # Wurde der Wipe-Aufruf schon abgesetzt, ist das Zuruecksetzen evtl. unterwegs - dann NICHT rot melden
-    try { $wipeCalled = [bool](Select-String -Path $WipeLog -Pattern 'WIPE-AUFRUF' -SimpleMatch -Quiet -ErrorAction Stop) } catch { }
+    $stopOk = Stop-WipeTask $tn 'keine Rückmeldung nach 5 Min'
+    if (Test-Path $WipeResult) { try { $res = Get-WipeResult ([string](Get-Content -Path $WipeResult -Raw -Encoding UTF8 -ErrorAction Stop)) $WipeRun } catch { } }
 }
-try { Get-Content -Path $WipeLog -ErrorAction Stop | ForEach-Object { Log ('[SYSTEM] ' + $_) } } catch { }
-if (-not $res -and $wipeCalled) { Log 'Keine Rückmeldung, aber Wipe-Aufruf war schon abgesetzt - Zurücksetzen evtl. gestartet'; $res = 'OK (ohne Rückmeldung)' }
-if (-not $res) { Fail-Reset 'keine Rückmeldung vom SYSTEM-Script (5 Min) - Aufgabe gestoppt' }
-if ($res -notlike 'OK*') { Fail-Reset $res }
-Log ('Zurücksetzen angenommen: ' + $res)
+# Nur Zeilen dieses Laufs zaehlen (Kennung in jeder Zeile)
+function Read-WipeRunLines { try { return @(Get-WipeRunLines @(Get-Content -LiteralPath $WipeLog -Encoding UTF8 -ErrorAction Stop) $WipeRun) } catch { return @() } }
+$wipeLines = @(Read-WipeRunLines)
+$wo = Get-WipeOutcome $res $wipeLines $stopOk
+if ($wo.Kind -eq 'Fehler' -and $res) {
+    # Fehler gemeldet: "nicht zurueckgesetzt" nur, wenn die Aufgabe nachweislich nicht mehr laeuft
+    $stopOk = Stop-WipeTask $tn 'Fehler gemeldet'
+    $wipeLines = @(Read-WipeRunLines)
+    $wo = Get-WipeOutcome $res $wipeLines $stopOk
+}
+if (-not $wipeLines.Count) { Log ('Wipe-Log ohne Einträge dieses Laufs (' + $WipeRun + ')') }
+foreach ($x in $wipeLines) { Log ('[SYSTEM] ' + $x) }
+Log ('Auswertung Zurücksetzen: ' + $wo.Kind + ', Rückmeldung "' + $res + '", Aufruf ' + $(if ($wo.Called) { 'abgesetzt' } else { 'nicht abgesetzt' }) + ', Aufgabe ' + $(if ($stopOk) { 'läuft nicht mehr' } else { 'läuft evtl. noch' }) + $(if ($wo.Rv -and $wo.Rv -ne '0') { ', ACHTUNG ReturnValue ' + $wo.Rv + ' (erwartet 0, Bedeutung nicht belegt)' } elseif ($wo.Kind -eq 'Unklar' -and $res -match '^OK') { ', ACHTUNG ReturnValue leer' } else { '' }))
+if (@($wo.Changes).Count) { Log ('Schon verändert: ' + (@($wo.Changes) -join ', ')) }
+if ($wo.Kind -eq 'Fehler') { Fail-Reset $wo.Why -Detail $res -Jetzt (Get-WipeJetzt 'Fehler' $wo.Changes $wo.LogFehlt) }
 Write-Host ''
-Write-Host '  Zurücksetzen angenommen - Neustart folgt in Kürze.' -ForegroundColor White
+if ($wo.Kind -eq 'Ok') { Log ('Zurücksetzen angenommen: ' + $res); Write-Host '  Zurücksetzen angenommen - Neustart folgt in Kürze (etwa 5 Minuten).' -ForegroundColor White }
+else { Write-Host '  Zurücksetzen aufgerufen, die Antwort von Windows ist unklar - warte auf den Neustart.' -ForegroundColor White }
 Wait-Live 900 'Warte auf Neustart' -1 0 ''
-Log 'Nach 15 Min kein Neustart - Zuruecksetzen hat nicht begonnen'
+Log 'Nach 15 Min kein Neustart - Zuruecksetzen hat (noch) nicht begonnen'
 Protokoll 'FEHLER: Zuruecksetzen nach 15 Min nicht begonnen'
-Banner 'ZURÜCKSETZEN NICHT GESTARTET' 'DarkRed' (@('') + (Get-EndLines 'ResetNichtGestartet') + @('', ('Log: ' + $LocalLog + ' und ' + $WipeLog)))
-Write-ReportLine (Send-GoReport (Get-EndText 'ResetNichtGestartet') 'ResetNichtGestartet')
+# Nie "nicht zurueckgesetzt": der Aufruf ist abgesetzt bzw. nicht sicher gestoppt, es kann noch starten
+$wasN = $(if ($wo.Kind -eq 'Unklar') { $wo.Why } else { '' })
+$jetztN = Get-WipeJetzt $wo.Kind $wo.Changes
+Banner 'ZURÜCKSETZEN NOCH NICHT BEGONNEN' 'DarkRed' (@('') + (Get-EndLines 'ResetNichtGestartet' $wasN '' $jetztN) + @('', ('Log: ' + $LocalLog + ' und ' + $WipeLog)))
+Write-ReportLine (Send-GoReport (Get-EndText 'ResetNichtGestartet' $wasN '' $jetztN) 'ResetNichtGestartet')
 Wait-Close
