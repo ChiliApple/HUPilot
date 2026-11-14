@@ -4374,6 +4374,24 @@ $ui.bTags.Add_Click({
 })
 
 # ---------- 7. Offline-Hashes importieren ----------
+# Importfehler 806 und 808 in Klartext mit dem naechsten Schritt (Texte abgestimmt mit go.ps1). Quelle: Microsoft Learn,
+# "Error 806 or 808 when you import Windows Autopilot device CSV files in Intune": 806 ZtdDeviceAlreadyAssigned
+# (schon im eigenen Tenant registriert), 808 ZtdDeviceAssignedToOtherTenant (anderer Tenant). Bei beiden kann laut
+# Microsoft auch ein alter Datensatz im eigenen Tenant oder in Intune die Ursache sein. Andere Codes: $null.
+function Get-ImportErrorText([string]$Code, [string]$Name) {
+    $Code = ([string]$Code).Trim(); $Name = ([string]$Name).Trim()
+    $roh = (@($Code, $Name) | Where-Object { $_ -and $_ -ne '0' }) -join ' '
+    if (-not $roh) { return $null }
+    if ($Code -eq '808' -or $Name -match 'AssignedToOtherTenant') {
+        return @{ Nr = '808'; Was = ('Das Gerät ist bei Microsoft noch einer anderen Organisation zugeordnet, zum Beispiel dem Vorbesitzer (Fehler ' + $roh + ').')
+            Tun = 'Zuerst unter "6. Status" nach einem alten Eintrag mit dieser Seriennummer suchen und ihn löschen. Gibt es keinen: Der Händler oder Vorbesitzer muss das Gerät freigeben, den Admin fragen.' }
+    }
+    if ($Code -eq '806' -or $Name -match 'AlreadyAssigned') {
+        return @{ Nr = '806'; Was = ('Das Gerät steht schon in Autopilot, unter einem alten Eintrag (Fehler ' + $roh + ').')
+            Tun = 'Unter "6. Status" den alten Eintrag mit "Autopilot-Eintrag löschen" entfernen, einige Minuten warten, dann nochmal importieren. Kein Eintrag zu finden: den Admin fragen.' }
+    }
+    return $null
+}
 function Read-HashCsv([string]$File) {
     $out = @()
     $lines = @(); try { $lines = @([System.IO.File]::ReadAllLines($File)) } catch { }
@@ -4519,7 +4537,11 @@ function Show-HashImport {
                     $st = Microsoft.PowerShell.Utility\Invoke-RestMethod -Method GET -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities/' + $r.ImpId) -Headers $h
                     $s2 = [string]$st.state.deviceImportStatus
                     if ($s2 -eq 'complete') { $r.Status = 'OK - importiert'; $r.Done = $true }
-                    elseif ($s2 -eq 'error') { $r.Status = 'Fehler: Import abgelehnt (' + [string]$st.state.deviceErrorName + ')'; $r.Detail = [string]$st.state.deviceErrorName + ' (' + [string]$st.state.deviceErrorCode + ')' }
+                    elseif ($s2 -eq 'error') {
+                        $ie = Get-ImportErrorText ([string]$st.state.deviceErrorCode) ([string]$st.state.deviceErrorName)
+                        $r.Status = $(if ($ie) { 'Fehler: ' + $ie.Was + ' ' + $ie.Tun } else { 'Fehler: Import abgelehnt (' + [string]$st.state.deviceErrorName + ')' })
+                        $r.Detail = [string]$st.state.deviceErrorName + ' (' + [string]$st.state.deviceErrorCode + ')'
+                    }
                     if ($s2 -in 'complete', 'error') {
                         try { Microsoft.PowerShell.Utility\Invoke-RestMethod -Method DELETE -Uri ($GB + '/importedWindowsAutopilotDeviceIdentities/' + $r.ImpId) -Headers $h | Out-Null } catch { }
                         & $hrow $r

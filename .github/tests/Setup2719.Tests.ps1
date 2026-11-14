@@ -147,6 +147,33 @@ Describe 'v2.7.19 Zusatz: Details kopieren per Rechtsklick' {
     }
 }
 
+Describe 'v2.7.19 Zusatz: Importfehler 806 und 808 in Klartext' {
+    BeforeAll { . ([scriptblock]::Create($script:FnByName['Get-ImportErrorText'])) }
+    It '806: alter Eintrag im eigenen Tenant, naechster Schritt im Status' {
+        $e = Get-ImportErrorText '806' 'ZtdDeviceAlreadyAssigned'
+        $e.Nr | Should -Be '806'
+        $e.Was | Should -Match 'schon in Autopilot, unter einem alten Eintrag \(Fehler 806 ZtdDeviceAlreadyAssigned\)'
+        $e.Tun | Should -Match 'Autopilot-Eintrag löschen.*nochmal importieren'
+        (Get-ImportErrorText '' 'ZtdDeviceAlreadyAssigned').Nr | Should -Be '806'
+    }
+    It '808: anderer Tenant, zuerst eigenen alten Eintrag pruefen, sonst Freigabe' {
+        $e = Get-ImportErrorText '808' 'ZtdDeviceAssignedToOtherTenant'
+        $e.Nr | Should -Be '808'
+        $e.Was | Should -Match 'anderen Organisation'
+        $e.Tun | Should -Match 'alten Eintrag.*Händler oder Vorbesitzer'
+        (Get-ImportErrorText '0' 'ZtdDeviceAssignedToOtherTenant').Nr | Should -Be '808'
+    }
+    It 'andere Codes und leer: kein Klartext, die bisherige Meldung bleibt' {
+        Get-ImportErrorText '801' 'ZtdDeviceDuplicated' | Should -BeNullOrEmpty
+        Get-ImportErrorText '' '' | Should -BeNullOrEmpty
+        Get-ImportErrorText '0' '' | Should -BeNullOrEmpty
+        $script:SetupText | Should -Match '\$ie = Get-ImportErrorText \(\[string\]\$st\.state\.deviceErrorCode\) \(\[string\]\$st\.state\.deviceErrorName\)'
+    }
+    It 'Texte ohne typografische Zeichen' {
+        foreach ($c in '806', '808') { $e = Get-ImportErrorText $c ''; ($e.Was + $e.Tun) | Should -Not -Match '[–—→„“…]' }
+    }
+}
+
 Describe 'v2.7.19 Paket 2: Secret abgelaufen, gefuehrt erneuern' {
     BeforeAll {
         . ([scriptblock]::Create((@('Get-SecretBanner', 'Get-SecretPortalUrl', 'Update-SecretBanner', 'Set-SecretMode', 'Invoke-SecretAutoCheck', 'Open-SecretPortal', 'Test-SecretDateExpired', 'Get-SecretExpiresValue') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
