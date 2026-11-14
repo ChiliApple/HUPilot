@@ -240,3 +240,98 @@ Describe 'v2.7.19 Paket 2: Secret abgelaufen, gefuehrt erneuern' {
         foreach ($n in 'bdSecret', 'bSecNew', 'tSecBanner', 'bReadySec') { $x.SelectSingleNode("//*[@x:Name='$n']", $ns) | Should -Not -BeNullOrEmpty -Because $n }
     }
 }
+
+Describe 'v2.7.19 Pakete 3 und 4: Hardware geaendert und doppelte Seriennummern' {
+    BeforeAll {
+        . ([scriptblock]::Create((@('Get-DeviceStand', 'Get-DeviceTodo', 'Get-DuplicateMarks', 'Get-DuplicateTodo', 'Get-PendingTodo') | ForEach-Object { $script:FnByName[$_] }) -join "`n"))
+        # Staende und Kacheln wie im Setup
+        $cls = [regex]::Match($script:SetupText, '(?m)^\$script:StandClass = (@\{.*\})\r?$').Groups[1].Value
+        $til = [regex]::Match($script:SetupText, '(?m)^\$script:StandTile = (@\{.*\})\r?$').Groups[1].Value
+        $script:StandClass = Invoke-Expression $cls
+        $script:StandTile = Invoke-Expression $til
+    }
+    It 'Hardware geaendert bei automatic- und manualRemediationRequired, vor Fertig' {
+        Get-DeviceStand 'assignedInSync' 'enrolled' $true 'automaticRemediationRequired' | Should -Be 'Hardware geändert'
+        Get-DeviceStand 'assignedInSync' 'notContacted' $true 'manualRemediationRequired' | Should -Be 'Hardware geändert'
+        Get-DeviceStand 'assignedInSync' 'enrolled' $true 'noRemediationRequired' | Should -Be 'Fertig'
+        Get-DeviceStand 'assignedInSync' 'enrolled' $true 'unknown' | Should -Be 'Fertig'
+        Get-DeviceStand 'assignedInSync' 'enrolled' $true | Should -Be 'Fertig'
+    }
+    It 'Was tun bei Hardware geaendert: ein Satz, bereinigen und neu registrieren' {
+        $t = Get-DeviceTodo 'Hardware geändert' '' ''
+        $t | Should -Match 'bereinigen'
+        $t | Should -Match 'mit dem Stick neu registrieren\.$'
+        @([regex]::Matches($t, '\.(\s|$)')).Count | Should -Be 1
+    }
+    It 'neue Staende haben Farbe und Kachel, rot fuer Hardware und Doppelt (Filter nur Probleme)' {
+        foreach ($s in 'Hardware geändert', 'Doppelt', 'Wird gelöscht') { $script:StandClass.ContainsKey($s) | Should -BeTrue; $script:StandTile.ContainsKey($s) | Should -BeTrue }
+        $script:StandClass['Hardware geändert'] | Should -Be 'err'
+        $script:StandClass['Doppelt'] | Should -Be 'err'
+        $script:StandClass['Wird gelöscht'] | Should -Be 'warn'
+        $script:StandTile['Hardware geändert'] | Should -Be 'hw'
+        $script:StandTile['Doppelt'] | Should -Be 'dup'
+    }
+    It 'doppelt: juengste Spur ist der neuere Eintrag, die anderen sind aelter' {
+        $recs = @(
+            [pscustomobject]@{ id = 'a1'; serialNumber = 'SN100'; lastContactedDateTime = '2026-01-10T08:00:00Z'; deploymentProfileAssignedDateTime = '2025-09-01T08:00:00Z' },
+            [pscustomobject]@{ id = 'a2'; serialNumber = 'sn100 '; lastContactedDateTime = '0001-01-01T00:00:00Z'; deploymentProfileAssignedDateTime = '2026-11-13T08:00:00Z' },
+            [pscustomobject]@{ id = 'b1'; serialNumber = 'SN200'; lastContactedDateTime = '2026-11-13T08:00:00Z' }
+        )
+        $m = Get-DuplicateMarks $recs
+        $m.Count | Should -Be 2
+        $m['a2'].Rank | Should -Be 'neuer'
+        $m['a1'].Rank | Should -Be 'älter'
+        $m['a1'].Count | Should -Be 2
+        $m.ContainsKey('b1') | Should -BeFalse
+    }
+    It 'doppelt: gleich alt oder ohne Spur ist unklar, leere Seriennummern nie doppelt' {
+        $recs = @(
+            [pscustomobject]@{ id = 'c1'; serialNumber = 'SN300' },
+            [pscustomobject]@{ id = 'c2'; serialNumber = 'SN300' },
+            [pscustomobject]@{ id = 'd1'; serialNumber = 'SN400'; lastContactedDateTime = '2026-11-13T08:00:00Z' },
+            [pscustomobject]@{ id = 'd2'; serialNumber = 'SN400'; lastContactedDateTime = '2026-11-13T08:00:00Z' },
+            [pscustomobject]@{ id = 'e1'; serialNumber = '' },
+            [pscustomobject]@{ id = 'e2'; serialNumber = '  ' },
+            [pscustomobject]@{ id = 'e3'; serialNumber = $null }
+        )
+        $m = Get-DuplicateMarks $recs
+        $m['c1'].Rank | Should -Be 'unklar'
+        $m['c2'].Rank | Should -Be 'unklar'
+        $m['d1'].Rank | Should -Be 'unklar'
+        foreach ($i in 'e1', 'e2', 'e3') { $m.ContainsKey($i) | Should -BeFalse }
+    }
+    It 'doppelt: PowerShell 7 liefert DateTime statt Text, gleiches Ergebnis' {
+        $recs = @(
+            [pscustomobject]@{ id = 'f1'; serialNumber = 'SN500'; lastContactedDateTime = [datetime]::SpecifyKind([datetime]'2026-03-01T08:00:00', 'Utc') },
+            [pscustomobject]@{ id = 'f2'; serialNumber = 'SN500'; lastContactedDateTime = [datetime]::SpecifyKind([datetime]'2026-10-01T08:00:00', 'Utc') }
+        )
+        $m = Get-DuplicateMarks $recs
+        $m['f2'].Rank | Should -Be 'neuer'
+        $m['f1'].Rank | Should -Be 'älter'
+    }
+    It 'Was tun bei doppelt: aelterer loeschen, neuester behalten, unklar vergleichen' {
+        Get-DuplicateTodo 2 'älter' | Should -Match '^Älterer von 2 Einträgen .*diesen löschen'
+        Get-DuplicateTodo 2 'neuer' | Should -Match 'diesen behalten, den älteren löschen'
+        Get-DuplicateTodo 3 'unklar' | Should -Match '^3 Einträge .*nicht sicher.*Details vergleichen'
+    }
+    It 'Wird geloescht: bis 30 Minuten nichts tun, danach Hinweis' {
+        $t0 = Get-Date '2026-11-14 10:00'
+        Get-PendingTodo $t0 $t0.AddMinutes(5) | Should -Match '^Nichts tun\..*bis zu 30 Minuten'
+        Get-PendingTodo $t0 $t0.AddMinutes(31) | Should -Match 'über 30 Minuten'
+    }
+    It 'Status: Rangfolge Wird geloescht vor Doppelt vor den uebrigen, geloeschte zaehlen nicht als doppelt' {
+        $script:SetupText | Should -Match '\$dup = Get-DuplicateMarks @\(\$all \| Where-Object \{ -not \$pend\.ContainsKey\(\[string\]\$_\.id\) \}\)'
+        $script:SetupText | Should -Match "if \(\`$pend\.ContainsKey\(\`$id\)\) \{ \`$stand = 'Wird gelöscht'"
+        $script:SetupText | Should -Match "elseif \(\`$dm\) \{ \`$stand = 'Doppelt'"
+        $script:SetupText | Should -Match '\$stand = Get-DeviceStand \$ps \$es \$hasDate \$rem'
+    }
+    It 'Status: Kacheln, Druck und Details kennen die neuen Staende, Aktionen nutzen die Kennung der Zeile' {
+        $sx = @($script:XamlBlocks | Where-Object { $_.Name -eq 'sx' })[0].Xaml
+        foreach ($n in 'kHw', 'kDup', 'kDel', 'nHw', 'nDup', 'nDel') { $sx | Should -Match ('x:Name="' + $n + '"') }
+        $script:SetupText | Should -Match "hw = 'Hardware geändert'; dup = 'Doppelt'; del = 'Wird gelöscht'"
+        $script:SetupText | Should -Match "\('Hardware:          ' \+"
+        $script:SetupText | Should -Match "\('Doppelt:           ' \+"
+        $script:SetupText | Should -Match '\$id = \$\(if \(\$r\.Id\) \{ \[string\]\$r\.Id \} else \{ \$script:ApIds\[\[string\]\$r\.Seriennr\] \}\)'
+        $script:SetupText | Should -Match '\$id = \$\(if \(\$Row\.Id\) \{ \[string\]\$Row\.Id \} else \{ \$script:ApIds\[\[string\]\$Row\.Seriennr\] \}\)'
+    }
+}

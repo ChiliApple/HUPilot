@@ -2979,8 +2979,15 @@ function Read-Protokoll {
 }
 
 # ---------- Status: Stand und naechster Schritt in Klartext (aus Profilstatus und Intune-Status) ----------
-#   ProfileStatus = deploymentProfileAssignmentStatus, EnrollState = enrollmentState (Graph, Autopilot-Geraet)
-function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate) {
+#   ProfileStatus = deploymentProfileAssignmentStatus, EnrollState = enrollmentState, Remediation = remediationState (Graph beta)
+#   Rangfolge der Staende (der erste passende gilt):
+#     1. Wird gelöscht (in diesem Fenster geloescht, Microsoft hat den Eintrag noch nicht entfernt)
+#     2. Doppelt (mehrere Autopilot-Eintraege mit derselben Seriennummer)
+#     3. Hardware geändert (remediationState automatic- oder manualRemediationRequired: Hash passt nicht mehr)
+#     4. Fertig, 5. Fehler, 6. Kein Profil für diesen Tag, 7. Profil da, Gerät noch nicht angemeldet, 8. Wartet auf Profil
+#   1 und 2 setzt Get-StatusData (brauchen alle Eintraege bzw. die Sitzung), 3 bis 8 diese Funktion.
+function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate, [string]$Remediation = '') {
+    if ($Remediation -in 'automaticRemediationRequired', 'manualRemediationRequired') { return 'Hardware geändert' }
     if ($EnrollState -eq 'enrolled') { return 'Fertig' }
     if ($EnrollState -in 'failed', 'blocked' -or $ProfileStatus -eq 'failed') { return 'Fehler' }
     if ($ProfileStatus -eq 'notAssigned') { return 'Kein Profil für diesen Tag' }
@@ -2994,12 +3001,62 @@ function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollS
         'Profil da, Gerät noch nicht angemeldet' { return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
         'Kein Profil für diesen Tag' { return 'Tag prüfen: kein Profil zugewiesen ("2. Tags prüfen"), oder mit "Tag ändern" einen Tag mit Profil wählen.' }
         'Fehler' { if ($EnrollState -eq 'blocked') { return 'Gerät ist in Intune blockiert. Admin fragen.' } return 'Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen.' }
+        'Hardware geändert' { return 'Eintrag bereinigen ("Autopilot-Eintrag löschen"), dann das Gerät mit dem Stick neu registrieren.' }
     }
     return ''
 }
+# Doppelte Seriennummern: welcher Eintrag ist der aeltere? Graph hat kein Anlagedatum (Microsoft Learn, Ressource
+# windowsAutopilotDeviceIdentity). Genommen wird die juengste Spur je Eintrag: letzter Kontakt mit Intune
+# (lastContactedDateTime) oder Zuweisung des Profils (deploymentProfileAssignedDateTime, kommt kurz nach dem Import).
+# Der Eintrag mit der juengsten Spur gilt als der neuere, alle anderen als aelter. Gleich alt oder ohne jede Spur = unklar.
+# Leere Seriennummern sind nie doppelt. Rueckgabe: Hashtabelle id -> @{ Count; Rank = 'älter' | 'neuer' | 'unklar'; Seen }
+function Get-DuplicateMarks($Records) {
+    $res = @{}
+    $groups = @{}
+    foreach ($d in @($Records)) {
+        $sn = ([string]$d.serialNumber).Trim()
+        if (-not $sn -or -not $d.id) { continue }
+        $k = $sn.ToUpperInvariant()
+        if (-not $groups.ContainsKey($k)) { $groups[$k] = New-Object System.Collections.ArrayList }
+        [void]$groups[$k].Add($d)
+    }
+    foreach ($k in $groups.Keys) {
+        $g = @($groups[$k])
+        if ($g.Count -lt 2) { continue }
+        $seen = @{}
+        foreach ($d in $g) {
+            $best = $null
+            foreach ($p in 'lastContactedDateTime', 'deploymentProfileAssignedDateTime') {
+                try { $t = ConvertTo-UtcDate $d.$p; if ($t -and $t.Year -gt 2000 -and (-not $best -or $t -gt $best)) { $best = $t } } catch { }
+            }
+            $seen[[string]$d.id] = $best
+        }
+        $sorted = @($g | Sort-Object { $v = $seen[[string]$_.id]; if ($v) { $v.Ticks } else { 0 } } -Descending)
+        $top = $seen[[string]$sorted[0].id]; $second = $seen[[string]$sorted[1].id]
+        $clear = ($top -and (-not $second -or $top -gt $second))
+        foreach ($d in $g) {
+            $id = [string]$d.id
+            $rank = $(if (-not $clear) { 'unklar' } elseif ($id -eq [string]$sorted[0].id) { 'neuer' } else { 'älter' })
+            $res[$id] = @{ Count = $g.Count; Rank = $rank; Seen = $seen[$id] }
+        }
+    }
+    return $res
+}
+function Get-DuplicateTodo([int]$Count, [string]$Rank) {
+    switch ($Rank) {
+        'älter' { return ('Älterer von ' + $Count + ' Einträgen mit dieser Seriennummer: diesen löschen ("Autopilot-Eintrag löschen"), der neuere bleibt.') }
+        'neuer' { return ('Neuester von ' + $Count + ' Einträgen mit dieser Seriennummer: diesen behalten, den älteren löschen.') }
+    }
+    return ('' + $Count + ' Einträge mit dieser Seriennummer, welcher älter ist, ist nicht sicher: in den Details vergleichen, den falschen löschen.')
+}
+# Geloeschte Eintraege (laufende Sitzung des Status-Fensters): Microsoft entfernt sie nach einiger Zeit, bis zu 30 Minuten
+function Get-PendingTodo([datetime]$Since, [datetime]$Now) {
+    if (($Now - $Since).TotalMinutes -le 30) { return 'Nichts tun. Microsoft entfernt den Eintrag, das dauert bis zu 30 Minuten.' }
+    return 'Löschen dauert schon über 30 Minuten. Später "Aktualisieren", bleibt der Eintrag stehen, den Admin fragen.'
+}
 # Farbe und Kachel je Stand: ok (gruen) / warn (gelb) / err (rot)
-$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err' }
-$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob' }
+$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err'; 'Hardware geändert' = 'err'; 'Doppelt' = 'err'; 'Wird gelöscht' = 'warn' }
+$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob'; 'Hardware geändert' = 'hw'; 'Doppelt' = 'dup'; 'Wird gelöscht' = 'del' }
 
 # Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Fenster, CSV, Excel und Druck
 $script:StatusCols = @(
@@ -3304,7 +3361,8 @@ function Show-DeviceDetail($Row, $Owner) {
     $dw.Title = 'HUPilot - Gerät ' + $Row.Seriennr
     # Profil live nachladen (optional)
     $prof = ''; $profAt = ''
-    $id = $script:ApIds[[string]$Row.Seriennr]
+    # Kennung der Zeile selbst (bei doppelten Seriennummern waere die Zuordnung ueber die Seriennummer mehrdeutig)
+    $id = $(if ($Row.Id) { [string]$Row.Id } else { $script:ApIds[[string]$Row.Seriennr] })
     if ($id) {
         $tok = Get-ApiToken
         if ($tok) {
@@ -3331,6 +3389,9 @@ function Show-DeviceDetail($Row, $Owner) {
         ('Benutzer:          ' + $(if ($Row.Benutzer) { $Row.Benutzer } else { '-' })),
         ('Gerätename:        ' + $(if ($Row.Name) { $Row.Name } else { '-' })),
         ('Modell:            ' + $Row.Modell),
+        ('Hardware:          ' + $(switch ([string]$Row.Remediation) { 'automaticRemediationRequired' { 'geändert, Microsoft meldet: weitere Bereinigung nötig' } 'manualRemediationRequired' { 'geändert, Microsoft meldet: nicht von selbst lösbar' } 'noRemediationRequired' { 'keine Änderung erkannt' } default { '-' } })),
+        ('Doppelt:           ' + $(if ([int]$Row.DupCount -gt 1) { '' + $Row.DupCount + ' Einträge mit dieser Seriennummer, dieser ist ' + $(switch ([string]$Row.DupRank) { 'älter' { 'der ältere' } 'neuer' { 'der neueste' } default { 'nicht sicher einzuordnen' } }) + ' (jüngste Spur: ' + $(if ($Row.DupSeen) { $Row.DupSeen } else { 'keine' }) + ', aus letztem Kontakt und Profil-Zuweisung)' } else { 'nein' })),
+        ('Autopilot-ID:      ' + $(if ($Row.Id) { $Row.Id } else { '-' })),
         '',
         'Verlauf am Stick (protokoll.csv):'
     )
@@ -3393,13 +3454,16 @@ function Show-Status {
       <Button x:Name="kWait" Style="{StaticResource HuTile}" Tag="wait" ToolTip="Hochgeladen, Microsoft weist das Profil noch zu (meist 5 bis 15 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nWait" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wartet auf Profil"/></StackPanel></Button>
       <Button x:Name="kReady" Style="{StaticResource HuTile}" Tag="ready" ToolTip="Profil ist da, das Gerät hat sich aber noch nicht angemeldet. Klick filtert."><StackPanel><TextBlock x:Name="nReady" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Profil da, noch nicht angemeldet"/></StackPanel></Button>
       <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Problem"/></StackPanel></Button>
+      <Button x:Name="kHw" Style="{StaticResource HuTile}" Tag="hw" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung (z. B. Mainboardtausch), der gespeicherte Hash passt nicht mehr.&#x0a;Eintrag bereinigen, dann das Gerät mit dem Stick neu registrieren. Klick filtert."><StackPanel><TextBlock x:Name="nHw" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Hardware geändert"/></StackPanel></Button>
+      <Button x:Name="kDup" Style="{StaticResource HuTile}" Tag="dup" Visibility="Collapsed" ToolTip="Mehrere Autopilot-Einträge mit derselben Seriennummer. &quot;Was tun&quot; sagt, welcher der ältere ist. Klick filtert."><StackPanel><TextBlock x:Name="nDup" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Doppelt"/></StackPanel></Button>
+      <Button x:Name="kDel" Style="{StaticResource HuTile}" Tag="del" Visibility="Collapsed" ToolTip="In diesem Fenster gelöscht, Microsoft hat den Eintrag noch nicht entfernt (bis zu 30 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nDel" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wird gelöscht"/></StackPanel></Button>
     </WrapPanel>
     <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
       <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,6,4"/>
       <ComboBox x:Name="cTag" Width="140" Margin="0,0,0,4" ToolTip="Nur Geräte mit diesem Group Tag"/>
       <CheckBox x:Name="cProto" Content="nur Geräte aus dem Stick-Protokoll" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
       <CheckBox x:Name="cToday" Content="heute" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die heute hochgeladen oder registriert wurden"/>
-      <CheckBox x:Name="cProblem" Content="nur Probleme" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte mit Stand &quot;Kein Profil für diesen Tag&quot; oder &quot;Fehler&quot;"/>
+      <CheckBox x:Name="cProblem" Content="nur Probleme" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte mit Stand &quot;Kein Profil für diesen Tag&quot;, &quot;Fehler&quot;, &quot;Hardware geändert&quot; oder &quot;Doppelt&quot;"/>
       <CheckBox x:Name="cZeit" Content="nur letzte" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Zeitfilter: nur Geräte, die im gewählten Zeitraum registriert bzw. importiert wurden"/>
       <ComboBox x:Name="cZeitSpan" Width="70" Margin="6,0,0,4" ToolTip="Zeitraum bis jetzt"/>
       <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte Registriert).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
@@ -3441,8 +3505,8 @@ function Show-Status {
     $sw.Owner = $win
     if ($win.Icon) { $sw.Icon = $win.Icon }
     Set-WinFit $sw
-    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
-    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; FitW = @{}; ManualCols = @{}; UserSized = $false; SizingByCode = $false; FromSearch = $false }
+    $g = @{}; foreach ($n in 'kAll','kOk','kWait','kReady','kProb','nAll','nOk','nWait','nReady','nProb','kHw','kDup','kDel','nHw','nDup','nDel','cTag','cProto','cToday','cProblem','cZeit','cZeitSpan','cZeitBasis','tFind','bReload','cAuto','tStamp','ePulse','tLoad','bCsv','bXlsx','bPrint','bClose','bDetail','bTagSet','bSync','tCount','dGrid','spTopR','spBotL','spBotR') { $g[$n] = $sw.FindName($n) }
+    $sst = @{ Loading = $false; Dialog = $false; Tile = ''; First = $true; Fitted = $false; FitW = @{}; ManualCols = @{}; UserSized = $false; SizingByCode = $false; FromSearch = $false; Del = @{}; Busy = $false }
     $script:SRows = @(); $script:StatusView = @()
     # Spalten fest (deutsche Ueberschriften), Breite nach Inhalt (Set-GridColumnsFit), Reihenfolge aus ui.json
     $standStyle = $null
@@ -3513,7 +3577,7 @@ function Show-Status {
     [void]$g.cZeitBasis.Items.Add('nach Autopilot-Import')
     $g.cZeitBasis.SelectedIndex = 0
     $g.cAuto.IsChecked = ([string](Get-UiSetting 'StatusAuto' $true) -ne 'False')
-    $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb }
+    $tiles = @{ '' = $g.kAll; ok = $g.kOk; wait = $g.kWait; ready = $g.kReady; prob = $g.kProb; hw = $g.kHw; dup = $g.kDup; del = $g.kDel }
     $refresh = {
         # Auswahl und Sortierung merken
         $selSn = @($g.dGrid.SelectedItems | ForEach-Object { [string]$_.Seriennr })
@@ -3530,9 +3594,12 @@ function Show-Status {
         }
         if ($g.tFind.Text) { $q = $g.tFind.Text; $v = @($v | Where-Object { $_.Seriennr -like ('*' + $q + '*') -or $_.Name -like ('*' + $q + '*') -or $_.Benutzer -like ('*' + $q + '*') }) }
         # Kacheln zaehlen ueber die gefilterte Liste (ohne Kachel-Filter)
-        $cnt = @{ ok = 0; wait = 0; ready = 0; prob = 0 }
+        $cnt = @{ ok = 0; wait = 0; ready = 0; prob = 0; hw = 0; dup = 0; del = 0 }
         foreach ($r in $v) { $k = $script:StandTile[[string]$r.Stand]; if ($k) { $cnt[$k]++ } }
         $g.nAll.Text = '' + $v.Count; $g.nOk.Text = '' + $cnt.ok; $g.nWait.Text = '' + $cnt.wait; $g.nReady.Text = '' + $cnt.ready; $g.nProb.Text = '' + $cnt.prob
+        $g.nHw.Text = '' + $cnt.hw; $g.nDup.Text = '' + $cnt.dup; $g.nDel.Text = '' + $cnt.del
+        # seltene Staende: Kachel nur, wenn es solche Geraete gibt oder ihr Filter gerade aktiv ist
+        foreach ($k in 'hw', 'dup', 'del') { $tiles[$k].Visibility = $(if ($cnt[$k] -gt 0 -or $sst.Tile -eq $k) { 'Visible' } else { 'Collapsed' }) }
         if ($sst.Tile) { $tk = $sst.Tile; $v = @($v | Where-Object { $script:StandTile[[string]$_.Stand] -eq $tk }) }
         foreach ($k in @($tiles.Keys)) { if ($k -eq $sst.Tile -and $k) { $tiles[$k].SetResourceReference([System.Windows.Controls.Control]::BorderBrushProperty, 'HuAccent') } else { $tiles[$k].ClearValue([System.Windows.Controls.Control]::BorderBrushProperty) } }
         $script:StatusView = $v
@@ -3559,8 +3626,14 @@ function Show-Status {
         Set-Step 'Status' 'run'
         if ($Auto) { $script:QuietDedupe = $sst.Seen } else { $script:QuietDedupe = $null; $sst.Seen.Clear() }
         try {
-            $d = Get-StatusData -Progress { param($t) $g.tLoad.Text = $t; $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) }
+            $d = Get-StatusData -Progress { param($t) $g.tLoad.Text = $t; $sw.Dispatcher.Invoke([action]{ }, [System.Windows.Threading.DispatcherPriority]::Background) } -Pending $sst.Del
             if ($d) {
+                # von Microsoft entfernte Eintraege: aus der Liste "Wird gelöscht" nehmen und melden
+                foreach ($gid in @($d.Gone)) {
+                    $pi = $sst.Del[$gid]
+                    if ($pi) { Out-Log ($pi.Serial + ': Autopilot-Eintrag ist bei Microsoft entfernt. Das Gerät kann jetzt mit dem Stick neu registriert werden.') 'OK' }
+                    $sst.Del.Remove($gid)
+                }
                 $sst.Fails = 0
                 # Fehler und Hinweise duerfen nach einem erfolgreichen Durchgang wieder einmal erscheinen
                 foreach ($k in @($sst.Seen.Keys)) { if ($sst.Seen[$k] -in 'Fehler', 'Hinweis') { $sst.Seen.Remove($k) } }
@@ -3672,7 +3745,8 @@ function Show-Status {
             $hj = @{ Authorization = 'Bearer ' + $tok; 'Content-Type' = 'application/json' }
             $ok = 0
             foreach ($r in $sel) {
-                $id = $script:ApIds[[string]$r.Seriennr]
+                if ([string]$r.Stand -eq 'Wird gelöscht') { Out-Log ($r.Seriennr + ': wird gerade gelöscht, Tag nicht geändert.') 'Hinweis'; continue }
+                $id = $(if ($r.Id) { [string]$r.Id } else { $script:ApIds[[string]$r.Seriennr] })
                 if (-not $id) { Out-Log ($r.Seriennr + ': nicht in Autopilot gefunden, Tag nicht geändert.') 'Fehler'; continue }
                 try {
                     Microsoft.PowerShell.Utility\Invoke-RestMethod -Method POST -Uri ('https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/' + $id + '/updateDeviceProperties') -Headers $hj -Body (@{ groupTag = [string]$pick.Tag } | ConvertTo-Json) -TimeoutSec 30 | Out-Null
@@ -3746,10 +3820,10 @@ function Show-Status {
             if ($g.cProto.IsChecked) { $flt += 'nur Geräte aus dem Stick-Protokoll' }
             if ($g.cToday.IsChecked) { $flt += 'heute' }
             if ($g.cProblem.IsChecked) { $flt += 'nur Probleme' }
-            if ($sst.Tile) { $flt += ('Kachel ' + @{ ok = 'Fertig'; wait = 'Wartet auf Profil'; ready = 'Profil da'; prob = 'Problem' }[$sst.Tile]) }
+            if ($sst.Tile) { $flt += ('Kachel ' + @{ ok = 'Fertig'; wait = 'Wartet auf Profil'; ready = 'Profil da'; prob = 'Problem'; hw = 'Hardware geändert'; dup = 'Doppelt'; del = 'Wird gelöscht' }[$sst.Tile]) }
             if ($g.cZeit.IsChecked) { $flt += ('letzte ' + [string]$g.cZeitSpan.SelectedItem + ' ' + [string]$g.cZeitBasis.SelectedItem) }
             if ($g.tFind.Text) { $flt += ('Suche "' + $g.tFind.Text + '"') }
-            $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
+            $sub = ('' + @(& $exportRows).Count + ' Geräte: ' + $g.nOk.Text + ' fertig, ' + $g.nWait.Text + ' warten auf Profil, ' + $g.nReady.Text + ' noch nicht angemeldet, ' + $g.nProb.Text + ' Problem') + (@(foreach ($x in @(@($g.nHw, 'Hardware geändert'), @($g.nDup, 'doppelt'), @($g.nDel, 'wird gelöscht'))) { if ($x[0].Text -ne '0') { ', ' + $x[0].Text + ' ' + $x[1] } }) -join '') + $(if ($flt.Count) { '   |   Filter: ' + ($flt -join ', ') } else { '' })
             # tatsaechliche Seite (Papier, Ausrichtung, Rand) erst nach dem Dialog lesen und danach rechnen
             $pg = Get-PrintPage $pd
             $pr = New-StatusPrintDoc -Rows @(& $exportRows) -Cols @($script:StatusCols | ForEach-Object { $_.Key }) -Headers @($script:StatusCols | ForEach-Object { $_.Header }) -Title ('HUPilot - Status ' + (Get-Cfg).Tenant + '   ' + (Get-Date -Format 'dd.MM.yyyy HH:mm')) -Sub $sub -PageW $pg.W -PageH $pg.H -Margin $pg.Margin
@@ -3764,7 +3838,9 @@ function Show-Status {
 }
 
 # Autopilot- und Intune-Geraete laden. -Progress: Skriptblock mit einem Text (Fortschritt), haelt das Fenster zwischen den Seiten bedienbar
-function Get-StatusData([scriptblock]$Progress = $null) {
+# -Pending: in diesem Fenster geloeschte Eintraege (id -> @{ Serial; Since }), Stand "Wird gelöscht" bis Microsoft sie entfernt hat.
+#   Rueckgabe Gone: ids, die nicht mehr in Autopilot stehen (der Aufrufer nimmt sie aus Pending und meldet sie).
+function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $null) {
     $say = { param($t) if ($Progress) { & $Progress $t } }
     & $say 'Anmeldung bei Microsoft ...'
     $tok = Get-ApiTokenCached; if (-not $tok) { return $null }
@@ -3800,12 +3876,22 @@ function Get-StatusData([scriptblock]$Progress = $null) {
     # Zeiten fuer die Zeitfilter (nicht als Spalte): Reg = Intune-Registrierung, Imp = Autopilot-Import.
     # Graph liefert keine Importzeit: genommen wird die HUPilot-Zeit aus protokoll.csv, sonst die Profil-Zuweisung.
     $script:StatusTimes = @{}
+    # geloeschte Eintraege zaehlen beim Vergleich der Seriennummern nicht mehr mit
+    $pend = $(if ($Pending) { $Pending } else { @{} })
+    $dup = Get-DuplicateMarks @($all | Where-Object { -not $pend.ContainsKey([string]$_.id) })
+    $now = Get-Date
     $rows = foreach ($d in $all) {
         $ps = [string]$d.deploymentProfileAssignmentStatus
         $hasDate = $false; try { $hasDate = ([datetime]$d.deploymentProfileAssignedDateTime).Year -gt 2000 } catch { }
         $prof = $(if ($ps -in 'assignedInSync', 'assignedUnkownSyncState') { $(if ($hasDate) { 'zugewiesen' } else { 'zugew., Datum fehlt' }) } elseif ($ps -eq 'assignedOutOfSync') { 'zugew., nicht synchron' } elseif ($ps -eq 'pending') { 'ausstehend' } elseif ($ps -eq 'notAssigned') { 'keins' } else { $ps })
         $es = [string]$d.enrollmentState
-        $stand = Get-DeviceStand $ps $es $hasDate
+        $rem = [string]$d.remediationState
+        $id = [string]$d.id
+        $dm = $(if ($dup.ContainsKey($id)) { $dup[$id] } else { $null })
+        $stand = Get-DeviceStand $ps $es $hasDate $rem
+        $todo = Get-DeviceTodo $stand $ps $es
+        if ($pend.ContainsKey($id)) { $stand = 'Wird gelöscht'; $todo = Get-PendingTodo ([datetime]$pend[$id].Since) $now }
+        elseif ($dm) { $stand = 'Doppelt'; $todo = Get-DuplicateTodo $dm.Count $dm.Rank }
         $lc = ''; $lcS = ''
         try { $dt = [datetime]$d.lastContactedDateTime; if ($dt.Year -gt 2000) { $lc = $dt.ToLocalTime().ToString('dd.MM.yyyy HH:mm'); $lcS = $dt.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } } catch { }
         $pr = $null; if ($proto.ContainsKey([string]$d.serialNumber)) { $pr = $proto[[string]$d.serialNumber] }
@@ -3820,9 +3906,13 @@ function Get-StatusData([scriptblock]$Progress = $null) {
         if ($pr -and [datetime]::TryParseExact([string]$pr.Zeit, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$pt)) { $tImp = $pt }
         if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
         if ($d.serialNumber) { $script:StatusTimes[[string]$d.serialNumber] = @{ Reg = $tReg; Imp = $tImp } }
+        # Intune-Eintrag dieses Autopilot-Eintrags: verknuepfte Kennung, sonst ueber die Seriennummer (nur mit Leserecht bekannt)
+        $mid = [string]$d.managedDeviceId
+        if ($mid -match '^0{8}-0{4}-0{4}-0{4}-0{12}$') { $mid = '' }
+        if (-not $mid -and $im) { $mid = [string]$im.id }
         [pscustomobject]@{
             Stand          = $stand
-            WasTun         = (Get-DeviceTodo $stand $ps $es)
+            WasTun         = $todo
             Seriennr       = [string]$d.serialNumber
             Tag            = [string]$d.groupTag
             Name           = $(if ($im) { [string]$im.deviceName } else { [string]$d.displayName })
@@ -3839,12 +3929,22 @@ function Get-StatusData([scriptblock]$Progress = $null) {
             Intune         = $(if ($mapE.ContainsKey($es)) { $mapE[$es] } else { $es })
             HUPilot        = $(if ($pr) { $(if ($pt -ne [datetime]::MinValue) { $pt.ToString('dd.MM.yyyy HH:mm') } else { [string]$pr.Zeit }) + ' ' + [string]$pr.Ergebnis } else { '' })
             Klasse         = $script:StandClass[$stand]
+            # nicht als Spalte: fuer Aktionen (Tag aendern, Loeschen) und das Details-Fenster
+            Id             = $id
+            IntuneId       = $mid
+            EnrollState    = $es
+            Remediation    = $rem
+            DupCount       = $(if ($dm) { $dm.Count } else { 0 })
+            DupRank        = $(if ($dm) { $dm.Rank } else { '' })
+            DupSeen        = $(if ($dm -and $dm.Seen) { $dm.Seen.ToLocalTime().ToString('dd.MM.yyyy HH:mm') } else { '' })
         }
     }
     # noch nicht registrierte Geraete (gerade in Arbeit) OBEN, danach die registrierten, neueste zuerst
     $rows = @(@($rows | Where-Object { -not $_.RegSort }) + @($rows | Where-Object { $_.RegSort } | Sort-Object RegSort -Descending))
+    $ids = @{}; foreach ($d in $all) { $ids[[string]$d.id] = $true }
+    $gone = @($pend.Keys | Where-Object { -not $ids.ContainsKey([string]$_) })
     Out-Log ('Status geladen: ' + @($rows).Count + ' Autopilot-Geräte, ' + $proto.Count + ' aus dem Stick-Protokoll') 'OK'
-    return @{ Rows = $rows; Proto = $proto }
+    return @{ Rows = $rows; Proto = $proto; Gone = $gone }
 }
 $ui.bStatus.Add_Click({
     try { Show-Status } catch { Out-Log 'Das Status-Fenster konnte nicht geöffnet werden.' 'Fehler' $_.Exception.Message; Set-Step 'Status' 'err' $_.Exception.Message }
