@@ -97,7 +97,7 @@ function Install-HMModule([string]$Name, [string]$Max = '') {
 }
 # 5b. Funktionen vor Verwendung definiert (Skripte, die von oben nach unten laufen)
 #     Jede Anweisung auf oberster Ebene darf - direkt oder ueber aufgerufene Funktionen - nur Funktionen nutzen,
-#     die VORHER definiert sind (sonst z. B. Fehler-Banner kaputt, Pruefung Grok 076 B2).
+#     die VORHER definiert sind (sonst z. B. Fehler-Banner kaputt, Befund einer externen Pruefung).
 Step 'Funktionen vor Verwendung definiert (go.ps1, diag.ps1)' {
     $bad = @()
     foreach ($rel in 'Stick\HUPilot\go.ps1', 'Stick\HUPilot\diag.ps1') {

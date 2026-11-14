@@ -221,7 +221,7 @@
 - diag.ps1: Hersteller-Apps nach `RemoveApps` aus config.json statt fest McAfee; ungültige Menüauswahl wird gemeldet.
 - Update: verständliche Meldung, wenn die GitHub-Abfragegrenze (60/Stunde ohne Token) erreicht ist.
 - CI: neue Prüfungen „Funktionen vor Verwendung definiert“ (go/diag) und „config.json nur mit -Encoding lesen“.
-- Prüfung Grok (Briefkasten 076): Fehler bei kaputter config.json zeigte kein rotes Banner (Live-Anzeige war zu spät definiert) – behoben. config.json wird überall als UTF-8 gelesen (Umlaute in WLAN-Kennwort/Tenant). WLAN-Paket ohne Zurücksetzen mit 2-Min-Zeitlimit und Anzeige. Im OOBE verlängert sich die Wartezeit, damit der Neustart nach 11 Min ohne Datum auch bei spätem Profil greift. Verlauf zeigt bei Statuswechsel den alten Status statt „frage ab“. Startet das Zurücksetzen nach 15 Min nicht, kommt ein rotes Banner. CI-Update-Test auf Umlaut angepasst.
+- Externe Prüfung: Fehler bei kaputter config.json zeigte kein rotes Banner (Live-Anzeige war zu spät definiert) – behoben. config.json wird überall als UTF-8 gelesen (Umlaute in WLAN-Kennwort/Tenant). WLAN-Paket ohne Zurücksetzen mit 2-Min-Zeitlimit und Anzeige. Im OOBE verlängert sich die Wartezeit, damit der Neustart nach 11 Min ohne Datum auch bei spätem Profil greift. Verlauf zeigt bei Statuswechsel den alten Status statt „frage ab“. Startet das Zurücksetzen nach 15 Min nicht, kommt ein rotes Banner. CI-Update-Test auf Umlaut angepasst.
 - Setup Status: Geräte, die noch nicht in Intune registriert sind (gerade in Arbeit), stehen jetzt **oben** statt ganz unten.
 - go.ps1: **Neustart im Einrichtungsbildschirm erzwungen** (`shutdown /r /f /t 0`). Vorher konnte „Program Manager – diese App verhindert den Neustart“ den automatischen Neustart blockieren.
 - Alle Anzeigen (go, diag, Setup, Update) einheitlich mit echten Umlauten und ß statt ae/oe/ue/ss. `protokoll.csv` und `hashes.csv` bleiben ASCII (Umlaute werden dort umgeschrieben). Bei der Warnung „Gerät ist schon eingerichtet“ wird `LÖSCHEN` und `LOESCHEN` akzeptiert (Tastatur im OOBE evtl. englisch).
@@ -253,7 +253,7 @@
 - go.ps1: Registrierte Geräte ohne fertige Zuweisung (z. B. CSV-Import gerade erst verarbeitet) bekommen sofort einen Autopilot-Sync statt erst nach 5 Minuten.
 - go.ps1: Scheitert die erste Autopilot-Abfrage (Netz, 429, 5xx), gilt das Gerät nicht mehr als „nicht registriert“: 3 Versuche, danach Abbruch. Vorher wurde dann ein vorab importiertes Gerät neu importiert und der Import scheiterte irreführend mit 806/808.
 - go.ps1: Vor der Tag-Rückfrage werden alte Tastendrücke verworfen; `;` im Tag wird in `protokoll.csv` durch `,` ersetzt.
-- Geprüft im KI-Briefkasten (Thema 052, Grok und Gemini).
+- Extern geprüft.
 - Setup › Status: Spalte Profil dezent eingefärbt – „zugewiesen“ hellgrün, „ausstehend“, „zugew., Datum fehlt“ und „zugew., nicht synchron“ hellgelb.
 - go.ps1: Protokoll schreibt bei bereits registrierten Geräten „BEREITS REGISTRIERT“ statt „UPLOAD OK“ (Setup › Status, Spalte HUPilot).
 
@@ -278,7 +278,7 @@
 - go.ps1: Läuft die Wartezeit ab, zeigt die gelbe Meldung den letzten Status und empfiehlt N.
 - Setup › Status: Spalte Profil zeigt „zugew., Datum fehlt“ bzw. „zugew., nicht synchron“ (`assignedOutOfSync`).
 - Setup › Status: Datum wird über das Jahr geprüft (robust, egal ob Text oder Datumswert).
-- Geprüft im KI-Briefkasten (Thema 051, Gemini, 2 Runden).
+- Extern geprüft (2 Runden).
 - **Noch nicht an einem Gerät getestet.**
 
 ## v2.6 - 2026-10-20
