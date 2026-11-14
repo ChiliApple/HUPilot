@@ -31,7 +31,7 @@ Jedes Ende zeigt drei Sätze: was passiert ist, was jetzt passiert und was zu tu
 | Farbe | Bedeutung |
 |---|---|
 | Grün | Upload fertig, Stick abziehen |
-| Gelb | Netzteil fehlt, kein Profil für den Tag, noch kein Profil (weiter warten), **Hash gespeichert** (offline, später am PC hochladen) |
+| Gelb | Netzteil fehlt, kein Profil für den Group Tag, noch kein Profil (weiter warten), **Hash gespeichert** (offline, später am PC hochladen) |
 | Blau | Zurücksetzen startet, Windows wird auf Pro umgestellt |
 | Rot | Fehler, **nichts** zurückgesetzt. Ursache und nächster Schritt stehen am Bildschirm. Ausnahme "ZURÜCKSETZEN NOCH NICHT BEGONNEN": Windows hat das Zurücksetzen angenommen, es kann noch von selbst starten (Gerät nicht benutzen, am Strom lassen, 15 Minuten warten, sonst Foto an den Admin). Bricht das Hilfsprogramm zum Zurücksetzen mittendrin ab, nennt das Bild, was schon verändert wurde. Diagnose zum Abfotografieren: `D:\diag`. Mit eingetragenem Teams-Webhook geht ein Bericht an den Admin, ohne Internet bleibt er am Stick und wird später gesendet |
 
@@ -46,7 +46,7 @@ Neben dem Hauptknopf steht rot **MAK am Stick**, wenn auf dem gewählten Stick e
 
 ### Status
 
-Kacheln und Zeilen zeigen jeden Stand: Fertig, Wartet auf Profil, Profil da (noch nicht angemeldet), Kein Profil für diesen Tag, Fehler, Hardware geändert, Hardware wird abgeglichen, Doppelt und Wird gelöscht. Klick auf eine Kachel filtert. Dazu Details, Tag ändern, Autopilot-Sync anstoßen, CSV, Excel und Drucken.
+Kacheln und Zeilen zeigen jeden Stand: Fertig, Wartet auf Profil, Profil da (noch nicht angemeldet), Kein Profil für diesen Group Tag, Fehler, Hardware geändert, Hardware wird abgeglichen, Doppelt und Wird gelöscht. Klick auf eine Kachel filtert. Dazu Details, Tag ändern, Autopilot-Sync anstoßen, CSV, Excel und Drucken.
 
 <p align="center"><a href="Assets/screenshot-status.png"><img src="Assets/screenshot-status.png" width="800" alt="Status-Fenster mit jedem Stand und Was tun"/></a></p>
 

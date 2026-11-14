@@ -94,7 +94,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.8.0'
+$SetupVer = '2.8.1'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -3618,7 +3618,7 @@ function Read-Protokoll {
 #     2. Doppelt (mehrere Autopilot-Eintraege mit derselben Seriennummer)
 #     3. Hardware geändert (remediationState manualRemediationRequired: Hash passt nicht mehr, nicht von selbst loesbar)
 #     4. Fertig (auch mit automaticRemediationRequired: laufendes Geraet nie ohne Not loeschen, Zusatz in den Details)
-#     5. Fehler, 6. Kein Profil für diesen Tag
+#     5. Fehler, 6. Kein Profil für diesen Group Tag
 #     7. Hardware wird abgeglichen (automaticRemediationRequired: Microsoft versucht die Korrektur selbst)
 #     8. Profil da, Gerät noch nicht angemeldet, 9. Wartet auf Profil
 #   1 und 2 setzt Get-StatusData (brauchen alle Eintraege bzw. die Sitzung), 3 bis 9 diese Funktion.
@@ -3630,7 +3630,7 @@ function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$Ha
     if ($Remediation -eq 'manualRemediationRequired') { return 'Hardware geändert' }
     if ($EnrollState -eq 'enrolled') { return 'Fertig' }
     if ($EnrollState -in 'failed', 'blocked' -or $ProfileStatus -eq 'failed') { return 'Fehler' }
-    if ($ProfileStatus -eq 'notAssigned') { return 'Kein Profil für diesen Tag' }
+    if ($ProfileStatus -eq 'notAssigned') { return 'Kein Profil für diesen Group Tag' }
     if ($Remediation -eq 'automaticRemediationRequired') { return 'Hardware wird abgeglichen' }
     # zugewiesen ohne Zuweisungsdatum zaehlt als Profil da (am Geraet belegt: Anmeldeseite der Schule kam ohne Datum); nur die Anzeige,
     # go wartet vor dem Zuruecksetzen weiter auf das Datum. Nicht synchron ohne Datum bleibt Warten (Sync anstossen).
@@ -3638,12 +3638,22 @@ function Get-DeviceStand([string]$ProfileStatus, [string]$EnrollState, [bool]$Ha
     if ($ProfileStatus -eq 'assignedOutOfSync' -and $HasAssignedDate) { return 'Profil da, Gerät noch nicht angemeldet' }
     return 'Wartet auf Profil'
 }
+# Frisch registriert: Microsoft meldet in den ersten Minuten nach dem Import "kein Profil" (am Geraet belegt: 1 Minute nach dem
+# Upload), obwohl alles laeuft. Ist der Eintrag im Stick-Protokoll hoechstens $script:FreshImportMin Minuten alt, ist das kein Problem.
+# AgeMin = Alter des Eintrags im Stick-Protokoll in Minuten, negativ = unbekannt. Rueckgabe '' = nicht frisch.
+$script:FreshImportMin = 30
+function Get-FreshImportTodo([double]$AgeMin) {
+    # bis 10 Minuten in der Zukunft gilt noch (Uhr des Geraets im Einrichtungsbildschirm geht oft etwas falsch)
+    if ($AgeMin -lt -10 -or $AgeMin -gt $script:FreshImportMin) { return '' }
+    $n = [int][math]::Max(0, [math]::Round($AgeMin))
+    return ('Nichts, läuft. Frisch registriert (vor ' + $n + ' Min), das Profil kommt meist in 5 bis 15 Minuten.')
+}
 function Get-DeviceTodo([string]$Stand, [string]$ProfileStatus, [string]$EnrollState, [bool]$HasAssignedDate = $true) {
     switch ($Stand) {
         'Fertig' { return 'Nichts, das Gerät ist fertig.' }
         'Wartet auf Profil' { if ($ProfileStatus -eq 'assignedOutOfSync') { return 'Autopilot-Sync anstoßen und ein paar Minuten warten.' } return 'Nichts, läuft. Das Profil kommt meist in 5 bis 15 Minuten.' }
         'Profil da, Gerät noch nicht angemeldet' { if (-not $HasAssignedDate) { return 'Profil ist zugewiesen, das Datum von Microsoft fehlt noch. Gerät neu starten: Kommt die Anmeldeseite der Schule, passt es.' } return 'Gerät einschalten, mit dem WLAN verbinden und neu starten, dann meldet es sich an.' }
-        'Kein Profil für diesen Tag' { return 'Tag prüfen: kein Profil zugewiesen ("2. Tags prüfen"), oder mit "Tag ändern" einen Tag mit Profil wählen.' }
+        'Kein Profil für diesen Group Tag' { return 'Gerade registriert? 15 Minuten warten. Sonst "2. Tags prüfen" oder mit "Tag ändern" einen Tag mit Profil wählen.' }
         'Fehler' { if ($EnrollState -eq 'blocked') { return 'Gerät ist in Intune blockiert. Admin fragen.' } return 'Gerät in Intune prüfen, dann mit dem Stick neu zurücksetzen.' }
         'Hardware geändert' { return 'Mit "Autopilot-Eintrag löschen" entfernen, mit Stick neu registrieren.' }
         'Hardware wird abgeglichen' { return 'Microsoft gleicht selbst ab, warten. Bleibt es: löschen, neu registrieren.' }
@@ -3703,8 +3713,8 @@ function Get-PendingTodo([datetime]$Since, [datetime]$Now) {
     return 'Dauert über 30 Minuten. Später aktualisieren, sonst Admin fragen.'
 }
 # Farbe und Kachel je Stand: ok (gruen) / warn (gelb) / err (rot)
-$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err'; 'Hardware geändert' = 'err'; 'Hardware wird abgeglichen' = 'warn'; 'Doppelt' = 'err'; 'Wird gelöscht' = 'warn' }
-$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Tag' = 'prob'; 'Fehler' = 'prob'; 'Hardware geändert' = 'hw'; 'Hardware wird abgeglichen' = 'hwa'; 'Doppelt' = 'dup'; 'Wird gelöscht' = 'del' }
+$script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Group Tag' = 'err'; 'Fehler' = 'err'; 'Hardware geändert' = 'err'; 'Hardware wird abgeglichen' = 'warn'; 'Doppelt' = 'err'; 'Wird gelöscht' = 'warn' }
+$script:StandTile = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'wait'; 'Profil da, Gerät noch nicht angemeldet' = 'ready'; 'Kein Profil für diesen Group Tag' = 'prob'; 'Fehler' = 'prob'; 'Hardware geändert' = 'hw'; 'Hardware wird abgeglichen' = 'hwa'; 'Doppelt' = 'dup'; 'Wird gelöscht' = 'del' }
 
 # Spalten der Status-Tabelle (Reihenfolge wie im Fenster), gilt fuer Fenster, CSV, Excel und Druck
 $script:StatusCols = @(
@@ -4389,7 +4399,7 @@ function Show-Status {
       <Button x:Name="kOk" Style="{StaticResource HuTile}" Tag="ok" ToolTip="Fertig: in Intune angemeldet. Klick zeigt nur diese, zweiter Klick wieder alle."><StackPanel><TextBlock x:Name="nOk" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuOk}"/><TextBlock Text="Fertig"/></StackPanel></Button>
       <Button x:Name="kWait" Style="{StaticResource HuTile}" Tag="wait" ToolTip="Hochgeladen, Microsoft weist das Profil noch zu (meist 5 bis 15 Minuten). Klick filtert."><StackPanel><TextBlock x:Name="nWait" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Wartet auf Profil"/></StackPanel></Button>
       <Button x:Name="kReady" Style="{StaticResource HuTile}" Tag="ready" ToolTip="Profil ist da, das Gerät hat sich aber noch nicht angemeldet. Klick filtert."><StackPanel><TextBlock x:Name="nReady" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Profil da, noch nicht angemeldet"/></StackPanel></Button>
-      <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Problem"/></StackPanel></Button>
+      <Button x:Name="kProb" Style="{StaticResource HuTile}" Tag="prob" ToolTip="Kein Profil für den Group Tag oder Fehler in Intune - hier ist etwas zu tun. Klick filtert."><StackPanel><TextBlock x:Name="nProb" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Problem"/></StackPanel></Button>
       <Button x:Name="kHw" Style="{StaticResource HuTile}" Tag="hw" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung (z. B. Mainboardtausch), der gespeicherte Hash passt nicht mehr.&#x0a;Microsoft korrigiert das nicht von selbst: Eintrag mit &quot;Autopilot-Eintrag löschen ...&quot; entfernen, dann mit dem Stick neu registrieren. Klick filtert."><StackPanel><TextBlock x:Name="nHw" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Hardware geändert"/></StackPanel></Button>
       <Button x:Name="kHwa" Style="{StaticResource HuTile}" Tag="hwa" Visibility="Collapsed" ToolTip="Autopilot meldet eine Hardware-Änderung, Microsoft versucht die Korrektur selbst. Abwarten.&#x0a;Bleibt es länger so: Eintrag mit &quot;Autopilot-Eintrag löschen ...&quot; entfernen und mit dem Stick neu registrieren. Klick filtert."><StackPanel><TextBlock x:Name="nHwa" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuWarn}"/><TextBlock Text="Hardware wird abgeglichen"/></StackPanel></Button>
       <Button x:Name="kDup" Style="{StaticResource HuTile}" Tag="dup" Visibility="Collapsed" ToolTip="Mehrere Autopilot-Einträge mit derselben Seriennummer. &quot;Was tun&quot; sagt, welcher der ältere ist. Klick filtert."><StackPanel><TextBlock x:Name="nDup" Text="-" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource HuErr}"/><TextBlock Text="Doppelt"/></StackPanel></Button>
@@ -4400,7 +4410,7 @@ function Show-Status {
       <ComboBox x:Name="cTag" Width="140" Margin="0,0,0,4" ToolTip="Nur Geräte mit diesem Group Tag"/>
       <CheckBox x:Name="cProto" Content="nur Geräte aus dem Stick-Protokoll" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die mit dem Stick bearbeitet wurden (protokoll.csv von Quelle und Ziel-Stick)"/>
       <CheckBox x:Name="cToday" Content="heute" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte, die heute hochgeladen oder registriert wurden"/>
-      <CheckBox x:Name="cProblem" Content="nur Probleme" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte mit Stand &quot;Kein Profil für diesen Tag&quot;, &quot;Fehler&quot;, &quot;Hardware geändert&quot; oder &quot;Doppelt&quot;"/>
+      <CheckBox x:Name="cProblem" Content="nur Probleme" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Nur Geräte mit Stand &quot;Kein Profil für diesen Group Tag&quot;, &quot;Fehler&quot;, &quot;Hardware geändert&quot; oder &quot;Doppelt&quot;"/>
       <CheckBox x:Name="cZeit" Content="nur letzte" VerticalAlignment="Center" Margin="14,0,0,4" ToolTip="Zeitfilter: nur Geräte, die im gewählten Zeitraum registriert bzw. importiert wurden"/>
       <ComboBox x:Name="cZeitSpan" Width="70" Margin="6,0,0,4" ToolTip="Zeitraum bis jetzt"/>
       <ComboBox x:Name="cZeitBasis" Width="170" Margin="6,0,0,4" ToolTip="Registrierung = Zeit der Intune-Registrierung (Spalte Registriert).&#x0a;Autopilot-Import = Zeit aus protokoll.csv (Hochladen per Stick);&#x0a;fehlt sie, gilt die Zeit der Profil-Zuweisung (meist wenige Minuten nach dem Import).&#x0a;Microsoft liefert keine eigene Importzeit."/>
@@ -4913,6 +4923,11 @@ function Get-StatusData([scriptblock]$Progress = $null, [hashtable]$Pending = $n
         $pt = [datetime]::MinValue
         if ($pr -and [datetime]::TryParseExact([string]$pr.Zeit, 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$pt)) { $tImp = $pt }
         if (-not $tImp) { try { $pa = [datetime]$d.deploymentProfileAssignedDateTime; if ($pa.Year -gt 2000) { $tImp = $pa.ToLocalTime() } } catch { } }
+        # frisch registriert (Zeit aus dem Stick-Protokoll): "kein Profil" ist dann noch kein Problem
+        if ($stand -eq 'Kein Profil für diesen Group Tag' -and $pt -ne [datetime]::MinValue -and [string]$pr.Ergebnis -notlike 'FEHLER*') {
+            $fresh = Get-FreshImportTodo (($now - $pt).TotalMinutes)
+            if ($fresh) { $stand = 'Wartet auf Profil'; $todo = $fresh }
+        }
         # je Kennung (bei doppelten Seriennummern hat jeder Eintrag seine eigenen Zeiten)
         if ($id) { $script:StatusTimes[$id] = @{ Reg = $tReg; Imp = $tImp } }
         [pscustomobject]@{

@@ -399,7 +399,7 @@ Describe 'Setup: Protokoll mit drei Stufen' {
 
 Describe 'Setup: Status in Klartext' {
     BeforeAll {
-        $script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Tag' = 'err'; 'Fehler' = 'err' }
+        $script:StandClass = @{ 'Fertig' = 'ok'; 'Wartet auf Profil' = 'warn'; 'Profil da, Gerät noch nicht angemeldet' = 'warn'; 'Kein Profil für diesen Group Tag' = 'err'; 'Fehler' = 'err' }
     }
     It 'Stand aus Profilstatus und Intune-Status' {
         Get-DeviceStand 'assignedInSync' 'enrolled' $true | Should -Be 'Fertig'
@@ -409,7 +409,7 @@ Describe 'Setup: Status in Klartext' {
         Get-DeviceStand 'assignedInSync' 'notContacted' $false | Should -Be 'Profil da, Gerät noch nicht angemeldet'
         Get-DeviceStand 'pending' 'notContacted' $false | Should -Be 'Wartet auf Profil'
         Get-DeviceStand 'unknown' '' $false | Should -Be 'Wartet auf Profil'
-        Get-DeviceStand 'notAssigned' 'notContacted' $false | Should -Be 'Kein Profil für diesen Tag'
+        Get-DeviceStand 'notAssigned' 'notContacted' $false | Should -Be 'Kein Profil für diesen Group Tag'
         Get-DeviceStand 'assignedInSync' 'failed' $true | Should -Be 'Fehler'
         Get-DeviceStand 'assignedInSync' 'blocked' $true | Should -Be 'Fehler'
         Get-DeviceStand 'failed' 'notContacted' $false | Should -Be 'Fehler'
@@ -419,7 +419,7 @@ Describe 'Setup: Status in Klartext' {
         Get-DeviceTodo 'Wartet auf Profil' 'pending' '' | Should -Match 'läuft'
         Get-DeviceTodo 'Wartet auf Profil' 'assignedOutOfSync' '' | Should -Match 'Sync'
         Get-DeviceTodo 'Profil da, Gerät noch nicht angemeldet' '' '' | Should -Match 'WLAN'
-        Get-DeviceTodo 'Kein Profil für diesen Tag' 'notAssigned' '' | Should -Match 'Tag prüfen'
+        Get-DeviceTodo 'Kein Profil für diesen Group Tag' 'notAssigned' '' | Should -Match 'Tags prüfen'
         Get-DeviceTodo 'Fehler' '' 'blocked' | Should -Match 'blockiert'
         Get-DeviceTodo 'Fehler' '' 'failed' | Should -Match 'Intune'
         foreach ($s in $script:StandClass.Keys) { Get-DeviceTodo $s '' '' | Should -Not -BeNullOrEmpty -Because $s }

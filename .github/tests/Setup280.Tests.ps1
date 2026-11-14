@@ -465,3 +465,39 @@ Describe '2.8.0 Runde 2 (G7): hashes.csv ueber eine Datei daneben ersetzen' {
         $w | Should -Match '\$fs\.Flush\(\$true\)'
     }
 }
+
+Describe 'v2.8.1: frisch registriertes Geraet ist kein Problem' {
+    BeforeAll {
+        $src = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\Stick\HUPilot\Setup\HUPilot-Setup.ps1') -Raw -Encoding UTF8
+        $script:Src281 = $src
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$null)
+        $fns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        . ([scriptblock]::Create((@($fns | Where-Object { $_.Name -in 'Get-FreshImportTodo', 'Get-DeviceTodo' } | ForEach-Object { $_.Extent.Text }) -join "`n")))
+        $script:FreshImportMin = 30
+    }
+    It 'bis 30 Minuten nach dem Eintrag im Stick-Protokoll: Text mit Minuten, danach und ohne Zeit leer' {
+        Get-FreshImportTodo 1 | Should -Be 'Nichts, läuft. Frisch registriert (vor 1 Min), das Profil kommt meist in 5 bis 15 Minuten.'
+        Get-FreshImportTodo 0 | Should -Match 'vor 0 Min'
+        Get-FreshImportTodo 30 | Should -Match 'vor 30 Min'
+        Get-FreshImportTodo 30.5 | Should -Be ''
+        Get-FreshImportTodo 600 | Should -Be ''
+        # Uhr des Geraets geht etwas vor: bis 10 Minuten in der Zukunft gilt noch, weiter nicht
+        Get-FreshImportTodo -5 | Should -Match 'vor 0 Min'
+        Get-FreshImportTodo -11 | Should -Be ''
+    }
+    It 'Kein Profil nennt zuerst den harmlosen Fall, bleibt sonst bei Tag pruefen' {
+        $t = Get-DeviceTodo 'Kein Profil für diesen Group Tag' 'notAssigned' ''
+        $t | Should -Match '^Gerade registriert\? 15 Minuten warten\. Sonst "2\. Tags prüfen"'
+        $t | Should -Match 'Tag ändern'
+    }
+    It 'Einbau: nur bei Kein Profil, nur mit Zeit aus dem Stick-Protokoll, nicht nach einem Fehler am Geraet, Stand wird Wartet auf Profil' {
+        $i = $script:Src281.IndexOf("if (`$stand -eq 'Kein Profil für diesen Group Tag' -and `$pt -ne [datetime]::MinValue -and [string]`$pr.Ergebnis -notlike 'FEHLER*') {")
+        $i | Should -BeGreaterThan -1
+        $b = $script:Src281.Substring($i, 330)
+        $b | Should -Match ([regex]::Escape('$fresh = Get-FreshImportTodo (($now - $pt).TotalMinutes)'))
+        $b | Should -Match ([regex]::Escape("if (`$fresh) { `$stand = 'Wartet auf Profil'; `$todo = `$fresh }"))
+        # nach Doppelt und Wird gelöscht (die setzen den Stand vorher um) und vor dem Bau der Zeile
+        $i | Should -BeGreaterThan $script:Src281.IndexOf("elseif (`$dm) { `$stand = 'Doppelt'")
+        $i | Should -BeLessThan $script:Src281.IndexOf('Klasse         = $script:StandClass[$stand]')
+    }
+}

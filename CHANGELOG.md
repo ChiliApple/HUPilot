@@ -1,5 +1,15 @@
 ﻿# Changelog
 
+## v2.8.1 - 2026-11-14
+### 📊 Status
+- **Frisch registriert ist kein Problem:** In den ersten Minuten nach dem Hochladen meldet Microsoft noch kein Profil. Der Status zeigte das rot als Problem.
+  - Steht das Gerät im Stick-Protokoll und ist der Eintrag höchstens 30 Minuten alt, heißt es jetzt "Wartet auf Profil" mit "Frisch registriert (vor ... Min)".
+  - Ohne Stick-Protokoll bleibt der rote Stand. "Was tun" nennt dort zuerst den harmlosen Fall: gerade registriert, 15 Minuten warten.
+- **Klarer Name:** Der Stand "Kein Profil für diesen Tag" heißt jetzt "Kein Profil für diesen Group Tag". Der alte Name las sich wie ein Kalendertag. Auch die Meldungen am Gerät sagen "Group Tag".
+
+### ✅ Qualität
+- 495 automatische Tests.
+
 ## v2.8.0 - 2026-11-14
 Stable-Release der Testversionen 2.7.18 bis 2.8.0 - "Ehrliche Meldungen, sicheres Formatieren".
 
