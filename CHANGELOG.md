@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v2.8.3 - 2026-11-15
+### 🪟 Windows-Aktivierung
+- **Prüfung ohne Wartezeit:** Die Abfrage, ob Windows aktiviert ist, dauerte am Gerät 30 bis 60 Sekunden, ohne dass am Bildschirm etwas stand. Sie braucht jetzt unter einer Sekunde.
+
+### ✅ Qualität
+- 538 automatische Tests.
+
 ## v2.8.2 - 2026-11-15
 ### 🪟 Windows-Aktivierung
 - **Nicht aktiviertes Windows wird erkannt:** go prüft nach dem Hochladen bei jedem Gerät, ob Windows aktiviert ist. Bisher geschah das nur nach der Umstellung von Home auf Pro.
