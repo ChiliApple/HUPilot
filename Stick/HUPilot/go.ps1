@@ -20,7 +20,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.8.2'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.8.3'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -1163,7 +1163,9 @@ function Get-WinLicense {
     param([string[]]$GenericTails = @())
     $o = @{ Known = $false; Licensed = $false; Installed = ''; Text = '' }
     try {
-        $lic = @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL AND Name LIKE 'Windows%'" -OperationTimeoutSec 60 -ErrorAction Stop)
+        # Nur drei Felder und nur Windows (ApplicationID): die Abfrage aller Felder dauerte am echten Geraet 30 bis 60 s,
+        # diese unter 1 s (gemessen 15.11.2026)
+        $lic = @(Get-CimInstance -Query "SELECT Name, LicenseStatus, PartialProductKey FROM SoftwareLicensingProduct WHERE PartialProductKey IS NOT NULL AND ApplicationID = '55c92734-d682-4d71-983e-d6ec3f16059f'" -OperationTimeoutSec 60 -ErrorAction Stop)
         $o.Known = $true
         $tails = @($lic | ForEach-Object { ([string]$_.PartialProductKey).Trim().ToUpper() } | Where-Object { $_ })
         if ($tails.Count) { $o.Installed = $(if (@($tails | Where-Object { $GenericTails -notcontains $_ }).Count) { 'own' } else { 'generic' }) }

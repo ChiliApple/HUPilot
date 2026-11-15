@@ -26,7 +26,7 @@ Describe 'go 2.8.2: Lizenzstatus lesen (Get-WinLicense)' {
         $script:CimThrow = $false
         $script:CimArgs = $null
         function Get-CimInstance {
-            param($ClassName, $Filter, $OperationTimeoutSec, $ErrorAction)
+            param($Query, $OperationTimeoutSec, $ErrorAction)
             $script:CimArgs = $PSBoundParameters
             if ($script:CimThrow) { throw 'Dienst antwortet nicht' }
             return $script:Rows
@@ -41,6 +41,11 @@ Describe 'go 2.8.2: Lizenzstatus lesen (Get-WinLicense)' {
     It 'die Abfrage hat eine Zeitgrenze' {
         [void](Get-WinLicense $script:Gen)
         $script:CimArgs.OperationTimeoutSec | Should -Be 60
+    }
+    It '2.8.3: schlanke Abfrage (nur drei Felder, nur Windows), sonst dauert sie am Geraet 30 bis 60 s' {
+        [void](Get-WinLicense $script:Gen)
+        $script:CimArgs.Query | Should -Match '^SELECT Name, LicenseStatus, PartialProductKey FROM SoftwareLicensingProduct WHERE PartialProductKey IS NOT NULL AND ApplicationID = ''55c92734-d682-4d71-983e-d6ec3f16059f''$'
+        $script:GoText | Should -Not -Match 'Get-CimInstance -ClassName SoftwareLicensingProduct'
     }
     It 'kein Schluessel eingetragen' {
         $r = Get-WinLicense $script:Gen
