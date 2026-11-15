@@ -94,7 +94,7 @@ if ($srcStick -match '^[A-Za-z]:\\?$') { $srcDrive = $srcStick.Substring(0, 2).T
 $srcCfg   = Join-Path $srcHU 'config.json'
 $CfgDirHU = Join-Path $srcHU 'Config'
 # Version: massgeblich ist HUPilot\Config\version.json - die Zeile darunter nur fuer die Update-Pruefung bis v2.1
-$SetupVer = '2.8.1'
+$SetupVer = '2.8.2'
 try { $vj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $SetupVer = "$($vj.version)".Trim() } } catch { }
 # Nur eine Instanz je Ablage (Stick bzw. Ordner)
 $mxName = 'Local\HUPilot-Setup_' + ((([System.Security.Cryptography.SHA1]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($srcStick.ToLower())) | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -627,12 +627,12 @@ try { $tj = Get-Content -LiteralPath (Join-Path $CfgDirHU 'ui.json') -Raw -Encod
         <CheckBox Grid.Row="2" Grid.Column="1" x:Name="cRmPkg" IsChecked="False" Margin="2,4,0,0" Content="Fremde Bereitstellungspakete beim Zurücksetzen entfernen (Test)" ToolTip="Alte Pakete am Gerät (z. B. ein früheres Schul-MDM-Paket) würden das Zurücksetzen überleben und im Einrichtungsbildschirm erneut angewendet - das kann Autopilot stören.&#x0a;Bleibt nur HUPilot-WLAN.ppkg. Die entfernten Pakete werden vorher nach C:\Recovery\HUPilot-PPKG-Backup\&lt;Datum&gt; gesichert.&#x0a;Noch nicht an einem Gerät bestätigt - erst an einem Testgerät ausprobieren." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
-    <GroupBox Grid.Row="3" Header="Windows Home auf Pro umstellen - Intune braucht Pro oder Pro Education (optional - leer lassen = aus)" Padding="6" Margin="0,6,0,0">
+    <GroupBox Grid.Row="3" Header="Windows Home auf Pro umstellen, nicht aktiviertes Pro aktivieren (optional - leer lassen = aus)" Padding="6" Margin="0,6,0,0">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="MAK (Pro)" VerticalAlignment="Center"/>
-        <DockPanel Grid.Row="0" Grid.Column="1"><CheckBox x:Name="cShowEd" ToolTip="MAK im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pEdKey" ToolTip="Volumenlizenz-Schlüssel (MAK) für Windows Pro, Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX.&#x0a;Windows Home lässt keine Intune-Verwaltung zu, dafür braucht es Pro oder Pro Education (auch Education, Enterprise).&#x0a;Nur für Geräte mit Windows Home: go.ps1 fragt am Gerät nach, stellt auf Pro um (Neustart) und aktiviert danach mit diesem Schlüssel.&#x0a;Jede Aktivierung zählt beim MAK mit. Geräte mit Pro, Pro Education, Education oder Enterprise werden nicht angefasst.&#x0a;ACHTUNG: Der MAK steht im Klartext in config.json auf jedem Stick. Nur für Einzelfälle eintragen, nicht für Massen-Rollouts,&#x0a;Stick nicht aus der Hand geben und das Feld danach wieder leeren (3. Speichern, 5. Auf Stick kopieren). Leer = Funktion aus." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tEdKey" ToolTip="MAK für Windows Pro im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
+        <DockPanel Grid.Row="0" Grid.Column="1"><CheckBox x:Name="cShowEd" ToolTip="MAK im Klartext anzeigen." ToolTipService.ShowDuration="30000" Content="anzeigen" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"/><Grid><PasswordBox x:Name="pEdKey" ToolTip="Volumenlizenz-Schlüssel (MAK) für Windows Pro, Form XXXXX-XXXXX-XXXXX-XXXXX-XXXXX.&#x0a;Windows Home lässt keine Intune-Verwaltung zu, dafür braucht es Pro oder Pro Education (auch Education, Enterprise).&#x0a;Windows Home: go.ps1 fragt am Gerät nach, stellt auf Pro um (Neustart) und aktiviert danach mit diesem Schlüssel.&#x0a;Windows Pro, nicht aktiviert und ohne eigenen Schlüssel im Gerät: go.ps1 aktiviert es vor dem Zurücksetzen mit diesem Schlüssel.&#x0a;Schon aktivierte Geräte und Geräte mit eigenem Schlüssel verbrauchen nichts. Jede Aktivierung zählt beim MAK mit.&#x0a;Andere Editionen (Pro Education, Education, Enterprise und weitere) bekommen den MAK nie, dort kommt nur ein gelber Hinweis.&#x0a;ACHTUNG: Der MAK steht im Klartext in config.json auf jedem Stick. Nur für Einzelfälle eintragen, nicht für Massen-Rollouts,&#x0a;Stick nicht aus der Hand geben und das Feld danach wieder leeren (3. Speichern, 5. Auf Stick kopieren). Leer = Funktion aus." ToolTipService.ShowDuration="60000" Margin="2"/><TextBox x:Name="tEdKey" ToolTip="MAK für Windows Pro im Klartext." ToolTipService.ShowDuration="30000" Margin="2" Visibility="Collapsed"/></Grid></DockPanel>
         <TextBlock Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Foreground="{DynamicResource HuErr}" TextWrapping="Wrap" Text="Nur für Einzelfälle: Der MAK liegt im Klartext auf dem Stick. Nicht für Massen-Rollouts, danach wieder leeren." ToolTip="Der Schlüssel steht unverschlüsselt in HUPilot\config.json auf jedem bespielten Stick. Wer den Stick hat, kann ihn lesen." ToolTipService.ShowDuration="30000"/>
       </Grid>
     </GroupBox>
@@ -1584,7 +1584,7 @@ function Get-StickFlags($MakInfo) {
     }
     if ($MakInfo -and $MakInfo.HasMak) {
         $f += [pscustomobject]@{ Key = 'mak'; Text = 'MAK am Stick'; Color = 'HuStandErrBg'
-            Tip = ('Auf diesem Stick liegt der MAK (Volumenlizenz-Schlüssel) im Klartext' + $(if ($MakInfo.Tail) { ', er endet auf ' + $MakInfo.Tail } else { '' }) + '. Gedacht nur für Geräte mit Windows Home.' + "`n" +
+            Tip = ('Auf diesem Stick liegt der MAK (Volumenlizenz-Schlüssel) im Klartext' + $(if ($MakInfo.Tail) { ', er endet auf ' + $MakInfo.Tail } else { '' }) + '. Gedacht nur für Geräte mit Windows Home oder mit nicht aktiviertem Windows Pro.' + "`n" +
                 'Stick ohne MAK: nochmal Stick fertig machen und bei der Frage, ob der MAK mit auf den Stick soll, Nein wählen. Ist das Feld MAK (Pro) leer, kommt keine Frage und der Stick wird ohne MAK bespielt.') }
     }
     return $f
@@ -3335,7 +3335,7 @@ function Confirm-CopyPrereqs([string]$Target, $Owner) {
     $withMak = $true
     if ($c.EditionKey) {
         $tail = $(if ($c.EditionKey.Length -ge 5) { $c.EditionKey.Substring($c.EditionKey.Length - 5) } else { '' })
-        $q = [System.Windows.MessageBox]::Show($Owner, ('Im Feld "MAK (Pro)" steht ein Schlüssel (endet auf ' + $tail + ').' + "`r`n`r`n" + 'MAK mit auf ' + $Target + '?' + "`r`n`r`n" + 'Ja = mit MAK (nur für Geräte mit Windows Home nötig)' + "`r`n" + 'Nein = ohne MAK, die Quelle bleibt unverändert' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - MAK auf den Stick?', 'YesNoCancel', 'Question')
+        $q = [System.Windows.MessageBox]::Show($Owner, ('Im Feld "MAK (Pro)" steht ein Schlüssel (endet auf ' + $tail + ').' + "`r`n`r`n" + 'MAK mit auf ' + $Target + '?' + "`r`n`r`n" + 'Ja = mit MAK (nur nötig für Windows Home oder nicht aktiviertes Windows Pro)' + "`r`n" + 'Nein = ohne MAK, die Quelle bleibt unverändert' + "`r`n" + 'Abbrechen = nichts kopieren'), 'HUPilot - MAK auf den Stick?', 'YesNoCancel', 'Question')
         if ($q -eq 'Cancel' -or $q -eq 'None') { Out-Log 'Kopieren abgebrochen'; return $null }
         $withMak = ($q -eq 'Yes')
         Out-Log ($Target + ' ' + $(if ($withMak) { 'mit MAK' } else { 'ohne MAK' }))

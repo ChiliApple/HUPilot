@@ -25,7 +25,7 @@ Vom PC aus: *Sticks vorbereiten* formatiert und befüllt mehrere USB-Sticks, der
 | `RemoveOtherPackages` | fremde Bereitstellungspakete beim Zurücksetzen entfernen (Standard false, noch im Test); sie werden vorher nach `C:\Recovery\HUPilot-PPKG-Backup\<Datum>` gesichert |
 | `AdminName`, `AdminPassword` | optional lokaler Admin (leer = keiner), kommt mit dem WLAN-Paket |
 | `Admin2Name`, `Admin2Password` | optional zweiter lokaler Admin, z. B. Elternverein (leer = keiner) |
-| `EditionKey` | optional MAK für Windows Pro (Home auf Pro umstellen, leer = aus). Das Setup fragt beim Kopieren, ob er auf den Stick soll |
+| `EditionKey` | optional MAK für Windows Pro (Home auf Pro umstellen, nicht aktiviertes Pro aktivieren, leer = aus). Das Setup fragt beim Kopieren, ob er auf den Stick soll |
 | `TeamsWebhook` | optional Adresse eines Teams-Workflows für Fehlerberichte (leer = aus), im Setup Feld *Teams-Webhook* |
 
 **Kein** `.ppkg` ins Hauptverzeichnis des Sticks legen.

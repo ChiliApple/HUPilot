@@ -1,5 +1,28 @@
 ﻿# Changelog
 
+## v2.8.2 - 2026-11-15
+### 🪟 Windows-Aktivierung
+- **Nicht aktiviertes Windows wird erkannt:** go prüft nach dem Hochladen bei jedem Gerät, ob Windows aktiviert ist. Bisher geschah das nur nach der Umstellung von Home auf Pro.
+  - Erst nach dem Hochladen: Der MAK wird nur für Geräte verbraucht, die in Autopilot registriert sind. Endet der Lauf vorher rot, wird nichts aktiviert.
+  - Schon aktiviert: nichts passiert, kein MAK wird verbraucht.
+  - Das Gerät hat einen eigenen Schlüssel: go versucht die Aktivierung nur damit. Der MAK ersetzt nie einen eigenen Schlüssel.
+  - Windows Pro ohne eigenen Schlüssel und der MAK liegt auf dem Stick: go aktiviert mit dem MAK, noch vor dem Zurücksetzen. Eine Aktivierung mit dem MAK bleibt beim Zurücksetzen erhalten.
+- **Nie Rot wegen der Aktivierung:** Ohne MAK auf dem Stick, bei anderen Editionen (zum Beispiel Pro Education, Education, Enterprise) und wenn die Aktivierung nicht klappt, kommt nur eine gelbe Zeile mit dem nächsten Schritt. Der Ablauf geht normal weiter.
+- **Zeitgrenzen:** Jeder Schritt der Aktivierung ist begrenzt. Antwortet Windows nicht, bricht go den Versuch nach 2 Minuten ab und macht weiter.
+- **Home auf Pro im laufenden Windows:** Die Rückfrage sagt jetzt dazu, dass vorher offene Programme zu schließen sind, weil das Gerät neu startet.
+
+### 🔄 Zurücksetzen am Gerät
+- **Auswertung auch am Stick:** Steckt der Stick beim Zurücksetzen noch, schreibt go die Antwort von Windows auch ins Log am Stick. Das Log am Gerät ist nach dem Zurücksetzen weg.
+
+### 🎨 Oberfläche
+- **Texte zum MAK:** Feld, Tooltip, Merker "MAK am Stick" und die Rückfrage beim Kopieren nennen jetzt beide Fälle: Windows Home und nicht aktiviertes Windows Pro.
+
+### 🚧 Grenzen
+- **Noch nicht am echten Gerät bestätigt:** die Aktivierung durch go selbst, auch nicht bei anderen Editionen und bei aufgebrauchtem MAK. Belegt ist, dass eine von Hand gemachte Aktivierung mit dem MAK das Zurücksetzen übersteht.
+
+### ✅ Qualität
+- 537 automatische Tests.
+
 ## v2.8.1 - 2026-11-14
 ### 📊 Status
 - **Frisch registriert ist kein Problem:** In den ersten Minuten nach dem Hochladen meldet Microsoft noch kein Profil. Der Status zeigte das rot als Problem.

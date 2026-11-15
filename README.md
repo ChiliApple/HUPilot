@@ -64,7 +64,7 @@ Die Oberfläche gibt es dunkel und hell, umschaltbar mit dem Knopf oben rechts.
 
 > **Status:** in Erprobung. Upload, Tag-Wechsel, Tag-Prüfung, Offline-Hashes und ihr Import, "nur hochladen", WLAN-Paket, Autopilot, Bericht an den Admin per Teams, Löschen im Status samt Intune-Eintrag und Druck laufen.
 >
-> **Grenzen, noch nicht am echten Gerät bestätigt:** Zurücksetzen mit dem Ablauf dieser Version (neue Meldungen "noch nicht begonnen" und "schon verändert"), Windows Home auf Pro mit echtem MAK (Aktivierung und ob sie das Zurücksetzen übersteht), Fehler 808, Stand "Hardware geändert" im Status, dass nach dem Zurücksetzen auf einem unberührten Neugerät keine Hersteller-Programme zurückkommen.
+> **Grenzen, noch nicht am echten Gerät bestätigt:** die roten Meldungen "noch nicht begonnen" und "schon verändert" beim Zurücksetzen, Windows Home auf Pro mit echtem MAK, die Aktivierung eines nicht aktivierten Windows Pro durch go (von Hand aktiviert bleibt sie beim Zurücksetzen erhalten), Fehler 808, Stand "Hardware geändert" im Status, dass nach dem Zurücksetzen auf einem unberührten Neugerät keine Hersteller-Programme zurückkommen.
 
 ## Gut zu wissen
 

@@ -20,7 +20,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.8.1'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.8.2'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -207,6 +207,26 @@ function Log {
     $line = '{0}  [{1,5:N0}s]  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), (Get-Mono), $Msg
     try { Add-Content -Path $LocalLog -Value $line -Encoding UTF8 } catch { }
     if ($StickLog) { try { Add-Content -Path $StickLog -Value $line -Encoding UTF8 } catch { } }
+}
+function Write-StickLate {
+    # Nach "Stick wird ab jetzt nicht mehr gebraucht": einzelne wichtige Zeilen (Auswertung des Zuruecksetzens) trotzdem
+    # ins Log am Stick, wenn er noch steckt. Das Log am Geraet ist nach dem Zuruecksetzen weg. Bedingung: die Logdatei
+    # dieses Laufs ist am Stick noch da. Fehlt der Stick, passiert nichts: nie warten, nie abbrechen.
+    # Scheitert die Bereinigung, wird nichts geschrieben.
+    param([string]$Msg, [string]$Path = $script:StickLogLate)
+    if (-not $Path) { return $false }
+    try {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+        if ($script:LogSecrets) { $Msg = Protect-ReportText $Msg $script:LogSecrets -Cap 0 }
+        Add-Content -LiteralPath $Path -Value ('{0}  [{1,5:N0}s]  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), (Get-Mono), $Msg) -Encoding UTF8 -ErrorAction Stop
+        return $true
+    } catch { return $false }
+}
+function Log-Late {
+    # Log am Geraet und, wenn der Stick noch steckt, auch am Stick
+    param([string]$Msg)
+    Log $Msg
+    [void](Write-StickLate $Msg)
 }
 # Uhrsprung erkennen: Abstand Uhrzeit zu Stoppuhr aendert sich um mehr als 60 s -> einmal ins Log
 function Test-ClockJump {
@@ -1134,6 +1154,91 @@ function Get-WipeJetzt {
     return ('Es kann noch von selbst starten.' + $(if ($ch.Count) { ' Schon verändert: ' + ($ch -join ', ') + '.' } else { '' }))
 }
 
+# ---------- Aktivierung von Windows: bei jedem Geraet geprueft, nicht nur nach der Umstellung von Home auf Pro ----------
+function Get-WinLicense {
+    # Lizenzstatus von Windows. Known = $false: nicht lesbar, dann wird nichts getan und nichts behauptet.
+    # Installed: '' = kein Schluessel eingetragen, 'generic' = nur ein allgemeiner Schluessel von Microsoft (aktiviert nie),
+    # 'own' = ein eigener Schluessel des Geraets (Firmware, Kauf, frueherer MAK). Erkannt an den letzten 5 Zeichen.
+    # Die Abfrage hat eine Zeitgrenze, damit ein haengender Lizenzdienst den Ablauf nicht aufhaelt.
+    param([string[]]$GenericTails = @())
+    $o = @{ Known = $false; Licensed = $false; Installed = ''; Text = '' }
+    try {
+        $lic = @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL AND Name LIKE 'Windows%'" -OperationTimeoutSec 60 -ErrorAction Stop)
+        $o.Known = $true
+        $tails = @($lic | ForEach-Object { ([string]$_.PartialProductKey).Trim().ToUpper() } | Where-Object { $_ })
+        if ($tails.Count) { $o.Installed = $(if (@($tails | Where-Object { $GenericTails -notcontains $_ }).Count) { 'own' } else { 'generic' }) }
+        $o.Licensed = (@($lic | Where-Object { [int]$_.LicenseStatus -eq 1 }).Count -gt 0)
+        $o.Text = (($lic | ForEach-Object { $_.Name + ' = ' + $_.LicenseStatus + ' (' + $_.PartialProductKey + ')' }) -join ' | ')
+    } catch { $o.Text = [string]$_.Exception.Message }
+    return $o
+}
+function Get-ActPlan {
+    # Reine Entscheidung, ohne Zugriff auf Windows. Ergebnis:
+    #   Ato  = "slmgr /ato" mit dem eigenen Schluessel des Geraets versuchen (verbraucht nichts; Geraete mit
+    #          Schluessel in der Firmware melden sich direkt nach "Internet OK" oft noch als nicht aktiviert)
+    #   Mak  = den MAK vom Stick eintragen und aktivieren. Nur wenn KEIN eigener Schluessel im Geraet steht (keiner oder
+    #          nur der allgemeine von Microsoft): ein eigener Schluessel wird nie durch den MAK ersetzt, auch wenn
+    #          seine Aktivierung gerade scheitert (Netz, Zeit). Nur Edition genau "Professional" (der MAK passt zu
+    #          keiner anderen), nur ein echter MAK, nie der allgemeine Schluessel von Microsoft.
+    #   Hint = gelbe Zeile, falls Windows danach weiter nicht aktiviert ist. Aktivierung ist nie ein Grund fuer Rot.
+    #   Warn = $true: "WARNUNG", sonst nur "Hinweis" (eigener Schluessel, aktiviert sich meist spaeter selbst)
+    # Ato und Mak schliessen sich aus. Schon aktiviert, Status nicht lesbar oder Windows Home: nichts tun
+    # (Home laeuft ueber die Umstellung auf Pro).
+    param([string]$EdId, [bool]$Known, [bool]$Licensed, [string]$Installed, [string]$Key, [bool]$KeyIsGeneric, [string]$KeyTail = '', [bool]$IsHome = $false)
+    $p = @{ Ato = $false; Mak = $false; Hint = ''; Warn = $false }
+    if (-not $Known -or $Licensed -or $IsHome) { return $p }
+    $weiter = ' Der Ablauf geht trotzdem weiter.'
+    if ($Installed -eq 'own') {
+        $p.Ato = $true
+        $p.Hint = 'Windows ist noch nicht aktiviert. Das Gerät hat einen eigenen Schlüssel und aktiviert sich meist später von selbst.' + $weiter + ' Ist es nach der Einrichtung noch nicht aktiviert: bitte dem Admin melden.'
+        return $p
+    }
+    $p.Warn = $true
+    if ($EdId -ne 'Professional') {
+        $p.Hint = 'Windows ist nicht aktiviert, im Gerät steht kein eigener Schlüssel (Edition ' + $(if ($EdId) { $EdId } else { 'unbekannt' }) + ').' + $weiter + ' Bitte dem Admin melden.'
+    } elseif ($Key -and $KeyIsGeneric) {
+        $p.Hint = 'Windows ist nicht aktiviert. Im Setup steht im Feld MAK (Pro) der allgemeine Schlüssel von Microsoft (' + $KeyTail + '), der aktiviert nicht.' + $weiter + ' Im Setup den MAK der Schule eintragen.'
+    } elseif ($Key) {
+        $p.Mak = $true
+        $p.Hint = 'Windows ist nicht aktiviert, die Aktivierung mit dem MAK (' + $KeyTail + ') wurde nicht bestätigt.' + $weiter + ' Bitte dem Admin melden.'
+    } else {
+        $p.Hint = 'Windows ist nicht aktiviert, im Gerät steht kein eigener Schlüssel.' + $weiter + ' Bitte dem Admin melden: das Gerät braucht einen Schlüssel (zum Beispiel den MAK, im Setup eintragen).'
+    }
+    return $p
+}
+function Invoke-Slmgr {
+    # slmgr.vbs mit Zeitgrenze: haengt der Aufruf, wird er beendet und der Ablauf geht weiter. Ausgabe als Text,
+    # Schluessel darin ersetzt der Aufrufer (Hide-Key). Out = Text, TimedOut = $true bei Abbruch.
+    param([string[]]$SlArgs, [int]$TimeoutSec = 120)
+    $o = @{ Out = ''; TimedOut = $false }
+    $p = $null
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = (Get-SysExe 'cscript.exe')
+        $psi.Arguments = '//Nologo "' + (Get-SysExe 'slmgr.vbs') + '" ' + ($SlArgs -join ' ')
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $tOut = $p.StandardOutput.ReadToEndAsync()
+        $tErr = $p.StandardError.ReadToEndAsync()
+        if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+            $o.TimedOut = $true
+            try { $p.Kill() } catch { }
+            $o.Out = 'keine Antwort nach ' + $TimeoutSec + ' s, beendet'
+        } else {
+            # Auch das Lesen der Ausgabe hat eine Zeitgrenze (ein Erbe der Pipe koennte sie offen halten)
+            $so = ''; $se = ''
+            if ($tOut.Wait(5000)) { $so = [string]$tOut.Result }
+            if ($tErr.Wait(5000)) { $se = [string]$tErr.Result }
+            $o.Out = ($so + ' ' + $se).Trim()
+        }
+    } catch { $o.Out = 'Aufruf gescheitert: ' + [string]$_.Exception.Message }
+    finally { if ($p) { try { $p.Dispose() } catch { } } }
+    return $o
+}
+
 # ---------- Schritt 1: Pruefen - alles, was ohne Netz geht, VOR den Fragen ----------
 Show-Step 1 'Prüfen'
 $cfg = $null
@@ -1327,6 +1432,8 @@ if ($IsHome) {
     } else {
         Write-Host '  Windows Home erkannt - Intune-Verwaltung braucht Pro oder Pro Education.' -ForegroundColor Yellow
         Write-Host '  Auf Windows Pro umstellen? Gerät startet dabei neu, danach D:\go erneut starten.' -ForegroundColor Yellow
+        # Im laufenden Windows (nicht im Einrichtungsbildschirm) gehen beim Neustart offene Arbeiten verloren
+        if ([Environment]::UserName -notmatch '^defaultuser\d*$') { Write-Host '  Windows läuft schon mit einem Benutzer: vorher offene Programme schließen und Arbeiten speichern.' -ForegroundColor Yellow }
         Write-Host '    [J]      ja, auf Pro umstellen' -ForegroundColor White
         Write-Host '    [Enter]  nein, abbrechen   (Standard)'
         $k = Read-KeyTimeout 30 'ohne Eingabe: abbrechen' -Valid 'J', 'Y'
@@ -1566,32 +1673,6 @@ if (([string]$cfg.TeamsWebhook).Trim()) {
     else {
         $nOut = Send-Outbox (Get-OutboxDir) ([string]$cfg.TeamsWebhook) $OutboxSendMax $ReportTimeoutSec (Get-ReportSecrets $cfg) ([string]$cfg.Tenant)
         if ($nOut) { Log ('Liegengebliebene Berichte an den Admin gesendet: ' + $nOut) }
-    }
-}
-
-# ---------- Edition: nach Umstellung auf Pro den MAK installieren und aktivieren ----------
-# Fehler hier sind nur Warnungen: Autopilot braucht keine Aktivierung. Kein zweiter Versuch, wenn schon aktiviert.
-if ($EdActivate) {
-    Say ('Aktiviere Windows mit MAK ' + (Get-KeyTail $EdKey) + ' ...') 'Cyan'
-    $slmgr = Get-SysExe 'slmgr.vbs'
-    $cs = Get-SysExe 'cscript.exe'
-    $okAct = $false
-    try {
-        $o1 = ((& $cs //Nologo $slmgr /ipk $EdKey 2>&1) | Out-String).Trim()
-        Log ('slmgr /ipk: ' + (Hide-Key $o1))
-        $o2 = ((& $cs //Nologo $slmgr /ato 2>&1) | Out-String).Trim()
-        Log ('slmgr /ato: ' + (Hide-Key $o2))
-        $lic = @(Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL AND Name LIKE 'Windows%'" -ErrorAction Stop)
-        $okAct = @($lic | Where-Object { [int]$_.LicenseStatus -eq 1 }).Count -gt 0
-        Log ('Lizenzstatus: ' + (($lic | ForEach-Object { $_.Name + ' = ' + $_.LicenseStatus + ' (' + $_.PartialProductKey + ')' }) -join ' | '))
-    } catch { Log ('Aktivierung: ' + (Hide-Key $_.Exception.Message)) }
-    if ($okAct) {
-        Say 'Windows aktiviert' 'Green'
-        Save-EdMark @{ Seriennr = $Serial; Zeit = [string]$EdMark.Zeit; Von = [string]$EdMark.Von; Ziel = [string]$EdMark.Ziel; Aktiviert = $true; AktiviertAm = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
-        Protokoll ('EDITION: ' + $EdId + ' aktiviert (MAK ' + (Get-KeyTail $EdKey) + ')')
-    } else {
-        Say 'WARNUNG: Aktivierung nicht bestätigt - geht trotzdem weiter (Details im Log)' 'Yellow'
-        Protokoll ('EDITION: ' + $EdId + ' NICHT aktiviert')
     }
 }
 
@@ -1971,16 +2052,73 @@ if ($StickPkg) {
     } catch { Log ('WLAN-Paket kopieren: ' + $_.Exception.Message); Fail ('Das WLAN-Paket ließ sich nicht vom Stick kopieren (Details im Log). Stick neu anstecken, dann nochmal D:\go.') }
     Log 'WLAN-Paket lokal kopiert'
 }
+# ---------- Aktivierung: bei jedem Geraet pruefen (auch ein schon vorhandenes, nicht aktiviertes Pro) ----------
+# Erst NACH dem erfolgreichen Hochladen: die Geraete gehoeren Eltern und Schuelern, der MAK der Schule wird nur fuer
+# Geraete verbraucht, die sicher in Autopilot registriert sind (nicht, wenn der Lauf vorher rot endet).
+# Vor dem Zuruecksetzen: eine MAK-Aktivierung uebersteht das Zuruecksetzen (am echten Geraet belegt, 15.11.2026).
+# Fehler hier sind nur Warnungen: Autopilot braucht keine Aktivierung. Schon aktiviert: nichts tun, kein MAK verbraucht.
+# Eigener Schluessel im Geraet: nur "slmgr /ato" damit, nie der MAK. Kein eigener Schluessel: der MAK vom Stick.
+$okAct = $false
+$actMak = $false
+$actGenTails = @($EdGenericKeys | ForEach-Object { $_.Substring($_.Length - 5) })
+$wl = Get-WinLicense $actGenTails
+$actWas = [bool]$wl.Licensed
+Log ('Lizenzstatus: ' + $(if (-not $wl.Known) { 'nicht lesbar (' + (Hide-Key $wl.Text) + ')' } elseif ($wl.Licensed) { 'aktiviert | ' + $wl.Text } elseif ($wl.Text) { 'nicht aktiviert, Schlüssel im Gerät: ' + $(if ($wl.Installed -eq 'own') { 'eigener' } else { 'nur der allgemeine' }) + ' | ' + $wl.Text } else { 'nicht aktiviert, kein Schlüssel eingetragen' }))
+$actPlan = Get-ActPlan $EdId ([bool]$wl.Known) ([bool]$wl.Licensed) ([string]$wl.Installed) $EdKey ([bool]$EdKeyIsGeneric) (Get-KeyTail $EdKey) ([bool]$IsHome)
+# Nach der eigenen Umstellung von Home auf Pro (Rueckfrage J am Geraet) wird wie bisher mit dem MAK aktiviert,
+# auch wenn der Status gerade nicht lesbar ist
+$actBlind = ([bool]$EdActivate -and -not $wl.Known)
+if ($actBlind) { $actPlan.Mak = $true; $actPlan.Warn = $true; $actPlan.Hint = 'Die Aktivierung mit dem MAK (' + (Get-KeyTail $EdKey) + ') wurde nicht bestätigt. Der Ablauf geht trotzdem weiter. Bitte dem Admin melden.' }
+$okAct = $actWas
+if ($actPlan.Ato) {
+    Say 'Windows ist noch nicht aktiviert - versuche es mit dem Schlüssel des Geräts (bis zu 2 Minuten) ...' 'Cyan'
+    $r1 = Invoke-Slmgr @('/ato')
+    Log ('slmgr /ato (Schlüssel des Geräts): ' + (Hide-Key $r1.Out))
+    $wl = Get-WinLicense $actGenTails
+    $okAct = [bool]$wl.Licensed
+    Log ('Lizenzstatus danach: ' + $(if ($wl.Known) { $(if ($wl.Licensed) { 'aktiviert | ' } else { 'nicht aktiviert | ' }) + $wl.Text } else { 'nicht lesbar (' + (Hide-Key $wl.Text) + ')' }))
+} elseif ($actPlan.Mak) {
+    $actMak = $true
+    Say ('Aktiviere Windows mit MAK ' + (Get-KeyTail $EdKey) + ' (bis zu 4 Minuten) ...') 'Cyan'
+    $r2 = Invoke-Slmgr @('/ipk', $EdKey)
+    Log ('slmgr /ipk: ' + (Hide-Key $r2.Out))
+    $r3 = Invoke-Slmgr @('/ato')
+    Log ('slmgr /ato: ' + (Hide-Key $r3.Out))
+    $wl = Get-WinLicense $actGenTails
+    $okAct = [bool]$wl.Licensed
+    Log ('Lizenzstatus danach: ' + $(if ($wl.Known) { $(if ($wl.Licensed) { 'aktiviert | ' } else { 'nicht aktiviert | ' }) + $wl.Text } else { 'nicht lesbar (' + (Hide-Key $wl.Text) + ')' }))
+}
+if (-not $actWas -and $actPlan.Hint) {
+    if ($okAct) {
+        Say 'Windows aktiviert' 'Green'
+        Protokoll ('EDITION: ' + $EdId + ' aktiviert (' + $(if ($actMak) { 'MAK ' + (Get-KeyTail $EdKey) } else { 'Schluessel des Geraets' }) + ')')
+    } elseif (-not $wl.Known) {
+        # Nach dem Versuch nicht mehr lesbar: nichts behaupten
+        Say 'Hinweis: Ob Windows jetzt aktiviert ist, ließ sich nicht prüfen. Der Ablauf geht trotzdem weiter.' 'Yellow'
+        Protokoll ('EDITION: ' + $EdId + ' Aktivierung nicht pruefbar')
+    } else {
+        Say ($(if ($actPlan.Warn) { 'WARNUNG: ' } else { 'Hinweis: ' }) + $actPlan.Hint) 'Yellow'
+        Protokoll ('EDITION: ' + $EdId + $(if ($actPlan.Warn) { ' NICHT aktiviert' } else { ' noch nicht aktiviert (eigener Schluessel)' }))
+    }
+}
+# Merkdatei nach der Umstellung von Home auf Pro: aktiviert festhalten (kein weiterer Versuch)
+if ($okAct -and $EdMark -and (Test-EdMarkOwner $EdMark $Serial) -and -not $EdMark.Aktiviert -and $EdId -match '^Professional') {
+    Save-EdMark @{ Seriennr = $Serial; Zeit = [string]$EdMark.Zeit; Von = [string]$EdMark.Von; Ziel = [string]$EdMark.Ziel; Aktiviert = $true; AktiviertAm = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+}
+
+# Erst jetzt der Eintrag zum Upload: er bleibt die neueste Zeile des Geraets im Stick-Protokoll (das Setup liest die neueste)
 Protokoll ($(if ($AlreadyReg) { 'BEREITS REGISTRIERT' } else { 'UPLOAD OK' }) + $(if ($DoReset) { '' } else { ' (ohne Zurücksetzen)' }))
 # Upload fertig: gemerkte Antworten (Home auf Pro) nicht bei spaeteren Laeufen wieder anbieten.
 # Die Merkdatei selbst bleibt (Schutz gegen einen stillen zweiten Umstellungsversuch). Stick ist hier noch da.
 if ($EdMark -and $EdMark.Antworten) {
     $mk = Get-EdMarkBase $EdMark
-    if ($EdActivate -and $okAct) { $mk.Aktiviert = $true; $mk.AktiviertAm = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+    if ($okAct -and $EdId -match '^Professional') { $mk.Aktiviert = $true; $mk.AktiviertAm = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
     Save-EdMark $mk
     Log 'Merkdatei Edition: gemerkte Antworten entfernt (Upload fertig)'
 }
 Log '--- Stick wird ab jetzt nicht mehr gebraucht ---'
+# Pfad merken: die Auswertung des Zuruecksetzens kommt noch ans Log am Stick, falls er dann noch steckt (Write-StickLate)
+$script:StickLogLate = $StickLog
 $StickLog = $null
 
 # ---------- 5. Auf Profil warten (Funktion, auch fuer "nur hochladen") ----------
@@ -2540,8 +2678,8 @@ if ($wo.Kind -eq 'Fehler' -and $res) {
 }
 if (-not $wipeLines.Count) { Log ('Wipe-Log ohne Einträge dieses Laufs (' + $WipeRun + ')') }
 foreach ($x in $wipeLines) { Log ('[SYSTEM] ' + $x) }
-Log ('Auswertung Zurücksetzen: ' + $wo.Kind + ', Rückmeldung "' + $res + '", Aufruf ' + $(if ($wo.Called) { 'abgesetzt' } else { 'nicht abgesetzt' }) + ', Aufgabe ' + $(if ($stopOk) { 'läuft nicht mehr' } else { 'läuft evtl. noch' }) + $(if ($wo.Rv -and $wo.Rv -ne '0') { ', ACHTUNG ReturnValue ' + $wo.Rv + ' (erwartet 0, Bedeutung nicht belegt)' } elseif ($wo.Kind -eq 'Unklar' -and $res -match '^OK') { ', ACHTUNG ReturnValue leer' } else { '' }))
-if (@($wo.Changes).Count) { Log ('Schon verändert: ' + (@($wo.Changes) -join ', ')) }
+Log-Late ('Auswertung Zurücksetzen: ' + $wo.Kind + ', Rückmeldung "' + $res + '", Aufruf ' + $(if ($wo.Called) { 'abgesetzt' } else { 'nicht abgesetzt' }) + ', Aufgabe ' + $(if ($stopOk) { 'läuft nicht mehr' } else { 'läuft evtl. noch' }) + $(if ($wo.Rv -and $wo.Rv -ne '0') { ', ACHTUNG ReturnValue ' + $wo.Rv + ' (erwartet 0, Bedeutung nicht belegt)' } elseif ($wo.Kind -eq 'Unklar' -and $res -match '^OK') { ', ACHTUNG ReturnValue leer' } else { '' }))
+if (@($wo.Changes).Count) { Log-Late ('Schon verändert: ' + (@($wo.Changes) -join ', ')) }
 if ($wo.Kind -eq 'Fehler') { Fail-Reset $wo.Why -Detail $res -Jetzt (Get-WipeJetzt 'Fehler' $wo.Changes $wo.LogFehlt) }
 Write-Host ''
 if ($wo.Kind -eq 'Ok') { Log ('Zurücksetzen angenommen: ' + $res); Write-Host '  Zurücksetzen angenommen - Neustart folgt in Kürze (etwa 5 Minuten).' -ForegroundColor White }
