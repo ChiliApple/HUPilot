@@ -99,6 +99,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
   <a href="#geraet">2. Am Gerät</a>
   <a class="l2" href="#ablauf">Ablauf und Fragen</a>
   <a class="l2" href="#ende">Abschlussbild und Farben</a>
+  <a class="l2" href="#aktivierung">Windows nicht aktiviert</a>
   <a class="l2" href="#home">Windows Home</a>
   <a href="#danach">3. Nach dem Einsatz</a>
   <a class="l2" href="#status">Status-Fenster</a>
@@ -163,7 +164,7 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td><span class="c" style="background:#df8e1d"></span>Gelb</td><td>Warnung, es geht aber weiter (z. B. Tag ohne Profil, keine Verbindung)</td></tr>
 <tr><td><span class="c" style="background:#d20f39"></span>Rot</td><td>Fehler, Grund steht im Protokoll</td></tr>
 </table>
-<p><b>MAK auf dem Stick:</b> Ist das Feld <i>MAK (Pro)</i> gefüllt, fragt das Setup bei jedem Kopieren "MAK mit auf diesen Stick?". <b>Ja</b> = mit MAK (nur für Geräte mit Windows Home nötig), <b>Nein</b> = dieser Stick bekommt keinen MAK, die Einstellungen bleiben unverändert. Bei <i>Sticks vorbereiten</i> kommt die Frage einmal für alle Sticks.</p>
+<p><b>MAK auf dem Stick:</b> Ist das Feld <i>MAK (Pro)</i> gefüllt, fragt das Setup bei jedem Kopieren "MAK mit auf diesen Stick?". <b>Ja</b> = mit MAK (nur nötig für Windows Home oder nicht aktiviertes Windows Pro), <b>Nein</b> = dieser Stick bekommt keinen MAK, die Einstellungen bleiben unverändert. Bei <i>Sticks vorbereiten</i> kommt die Frage einmal für alle Sticks.</p>
 
 <h3 id="knoepfe">Einzelne Schritte</h3>
 <table>
@@ -236,8 +237,17 @@ code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
 <tr><td><span class="c" style="background:#d20f39"></span>Rot</td><td>Fehler, <b>nichts</b> zurückgesetzt. Ursache und nächster Schritt stehen am Bildschirm, meist: nochmal <code>D:\go</code>. Bei "Gerät ist schon eingerichtet" nur mit <code>LÖSCHEN</code> (oder <code>LOESCHEN</code>) weiter. Ausnahme "ZURÜCKSETZEN NOCH NICHT BEGONNEN": Windows hat das Zurücksetzen angenommen, es hat nach 15 Minuten aber nicht begonnen und kann noch von selbst starten. Gerät nicht benutzen, am Strom lassen, noch 15 Minuten warten; startet es nicht neu: Foto an den Admin, <code>D:\diag</code>. Bricht das Hilfsprogramm zum Zurücksetzen mittendrin ab, nennt das rote Bild, was schon verändert wurde (z. B. Hersteller-Apps entfernt, Hersteller-Ordner nach <code>C:\Recovery\HUPilot-OEM-Backup</code> verschoben).</td></tr>
 </table>
 
+<h3 id="aktivierung">Windows nicht aktiviert</h3>
+<p>Nach dem Hochladen prüft go bei jedem Gerät, ob Windows aktiviert ist. Ist es aktiviert, passiert nichts. Endet der Lauf vorher rot, wird nichts aktiviert: der MAK der Schule wird nur für Geräte verbraucht, die in Autopilot registriert sind.</p>
+<ul>
+<li><b>Das Gerät hat einen eigenen Schlüssel</b> (üblich bei neuen Geräten): go versucht die Aktivierung mit diesem Schlüssel, das verbraucht nichts. Klappt es nicht sofort, kommt nur ein gelber Hinweis, Windows aktiviert sich meist später von selbst. Der MAK wird in diesem Fall nie verwendet.</li>
+<li><b>Windows Pro ohne eigenen Schlüssel</b> und der MAK liegt auf dem Stick: go aktiviert mit dem MAK, noch vor dem Zurücksetzen. Eine Aktivierung mit dem MAK bleibt beim Zurücksetzen erhalten.</li>
+<li><b>Sonst</b> (kein MAK auf dem Stick, andere Edition wie Pro Education, Education oder Enterprise, Aktivierung klappt nicht): gelbe Zeile "WARNUNG: Windows ist nicht aktiviert". Bitte dem Admin melden.</li>
+</ul>
+<p>Der Ablauf geht in jedem Fall normal weiter, Autopilot braucht keine Aktivierung. Jeder Versuch ist auf 2 Minuten begrenzt.</p>
+
 <h3 id="home">Windows Home</h3>
-<p>Nur mit MAK (Pro) auf dem Stick. Die Frage "Auf Windows Pro umstellen?" kommt als erste Frage. <code>J</code> = umstellen, <kbd>Enter</kbd> oder 30 Sekunden ohne Eingabe = abbrechen (rot). Danach kommen Tag, Benutzer und Zurücksetzen und die Zusammenfassung.</p>
+<p>Nur mit MAK (Pro) auf dem Stick. Die Frage "Auf Windows Pro umstellen?" kommt als erste Frage. <code>J</code> = umstellen, <kbd>Enter</kbd> oder 30 Sekunden ohne Eingabe = abbrechen (rot). Danach kommen Tag, Benutzer und Zurücksetzen und die Zusammenfassung. Läuft Windows schon mit einem angemeldeten Benutzer, vorher offene Programme schließen: das Gerät startet bei der Umstellung neu.</p>
 <p>Beim Umstellen startet Windows von selbst neu, auch mehrmals, nicht ausschalten. Fragt Windows in einem Fenster nach, bestätigen. Danach wieder <code>Shift+F10</code> und <code>D:\go</code>: go zeigt "auf Professional umgestellt" und bietet die <b>Antworten vom letzten Start</b> an (<kbd>Enter</kbd> oder 20 Sekunden ohne Eingabe übernimmt, jede andere Taste fragt neu). Die Antworten gelten nur am selben Gerät, höchstens 24 Stunden und nur bis zum Upload. Nach dem Verbinden aktiviert go mit dem MAK und läuft normal weiter. Klappt die Aktivierung nicht, kommt nur eine gelbe Warnung, Autopilot braucht keine Aktivierung.</p>
 <p>go überwacht die Umstellung 10 Minuten, versucht es dabei bis zu zweimal und startet selbst neu, falls Windows es nicht tut. Kommt kein Neustart oder ist nach dem Neustart noch Home da, wird abgebrochen (rot). Von selbst versucht go es dann nicht mehr: beim nächsten <code>D:\go</code> fragt es, <code>W</code> = nochmal versuchen (30 Sekunden ohne Eingabe = abbrechen). Ist der gescheiterte Versuch älter als 24 Stunden, kommt wieder die normale Frage. Der Mindest-Akku aus dem Setup gilt auch hier.</p>
 </section>
