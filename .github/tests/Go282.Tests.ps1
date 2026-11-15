@@ -268,6 +268,10 @@ Describe 'go 2.8.2: Einbau in den Ablauf' {
         $script:GoText | Should -Match "Log-Late \('Auswertung Zur.cksetzen: '"
         $script:GoText | Should -Not -Match "(?m)^Log \('Auswertung Zur.cksetzen: '"
     }
+    It '2.8.4: das Abschlussbild verspricht nicht, das Fenster zu schliessen (go laeuft in der Eingabeaufforderung)' {
+        $script:GoText | Should -Not -Match 'Enter = Fenster schlie'
+        ([regex]::Matches($script:GoText, 'Enter = beenden \(das Fenster bleibt offen\)')).Count | Should -Be 2
+    }
     It 'Rueckfrage Home auf Pro nennt im laufenden Windows den Neustart' {
         $script:GoText | Should -Match "UserName -notmatch '\^defaultuser\\d\*\$'\) \{ Write-Host '  Windows l.uft schon mit einem Benutzer: vorher offene Programme schlie.en"
     }

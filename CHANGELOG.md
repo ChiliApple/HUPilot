@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v2.8.4 - 2026-11-15
+### 💻 Am Gerät
+- **Ehrlicher Text am Ende:** Unter jedem Abschlussbild stand "Enter = Fenster schließen", das Fenster blieb aber offen. Jetzt steht dort "Enter = beenden (das Fenster bleibt offen)". Das Fenster bleibt bewusst offen, damit man gleich nochmal starten kann.
+
+### ✅ Qualität
+- 539 automatische Tests.
+
 ## v2.8.3 - 2026-11-15
 ### 🪟 Windows-Aktivierung
 - **Prüfung ohne Wartezeit:** Die Abfrage, ob Windows aktiviert ist, dauerte am Gerät 30 bis 60 Sekunden, ohne dass am Bildschirm etwas stand. Sie braucht jetzt unter einer Sekunde.
