@@ -21,7 +21,7 @@ if (-not $isAdmin) {
         Start-Sleep -Seconds 3
     } catch {
         Write-Host '  Abgebrochen. Eingabeaufforderung mit Rechtsklick > "Als Administrator ausführen" öffnen, dann:  D:  und  diag' -ForegroundColor Red
-        try { Read-Host '  Enter = Fenster schließen' | Out-Null } catch { }
+        try { Read-Host '  Enter = beenden (das Fenster bleibt offen)' | Out-Null } catch { }
     }
     exit 1
 }

@@ -20,7 +20,7 @@
 # =====================================================================
 
 $ErrorActionPreference = 'Stop'
-$Ver        = '2.8.3'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
+$Ver        = '2.8.4'   # Rueckfall - massgeblich ist HUPilot\Config\version.json
 try { $vj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Config\version.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json; if ("$($vj.version)".Trim()) { $Ver = "$($vj.version)".Trim() } } catch { }
 # Update dieses Sticks wurde abgebrochen (Mischstand moeglich) -> nicht starten
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Config\pull-journal.json')) {
@@ -56,7 +56,7 @@ if (-not $isAdmin) {
         Write-Host '    Eingabeaufforderung mit Rechtsklick >' -ForegroundColor Red
         Write-Host '    "Als Administrator ausführen" öffnen,' -ForegroundColor Red
         Write-Host '    dann  D:  und  go' -ForegroundColor Red
-        try { Read-Host '  Enter = Fenster schließen' | Out-Null } catch { }
+        try { Read-Host '  Enter = beenden (das Fenster bleibt offen)' | Out-Null } catch { }
     }
     exit 1
 }
@@ -196,7 +196,7 @@ function Read-Line {
     return $r
 }
 function Wait-Close {
-    [void](Read-Line '  Enter = Fenster schließen')
+    [void](Read-Line '  Enter = beenden (das Fenster bleibt offen)')
 }
 
 function Log {
